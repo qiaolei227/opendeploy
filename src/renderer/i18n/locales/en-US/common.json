@@ -5,6 +5,9 @@
   },
   "nav": {
     "chat": "Chat",
+    "workspace": "Workspace",
+    "projects": "Projects",
+    "skills": "Skills",
     "settings": "Settings"
   },
   "chat": {
@@ -23,6 +26,15 @@
     "apiKey": "API Key",
     "save": "Save",
     "saved": "Saved"
+  },
+  "titlebar": {
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "close": "Close",
+    "userDefault": "User"
+  },
+  "common": {
+    "search": "Search everything"
   },
   "errors": {
     "unexpected": "An unexpected error occurred",
