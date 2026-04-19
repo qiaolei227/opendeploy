@@ -115,5 +115,9 @@
     "unexpected": "An unexpected error occurred",
     "reload": "Reload",
     "saveSettings": "Failed to save settings"
+  },
+  "placeholders": {
+    "projectsSoon": "Projects will arrive in MVP-1.",
+    "skillsSoon": "Skill packs will arrive in MVP-1."
   }
 }
