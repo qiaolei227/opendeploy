@@ -52,13 +52,28 @@
   },
   "settings": {
     "title": "设置",
+    "subtitle": "LLM provider、API Key、语言与主题。",
+    "appearance": "外观",
     "language": "语言",
     "theme": "主题",
     "themeLight": "浅色",
     "themeDark": "深色",
     "themeSystem": "跟随系统",
     "llmProvider": "大模型服务",
+    "llmSection": "大模型服务",
+    "llmSectionDesc": "选择要使用的大模型，API Key 加密存储在本地。",
     "apiKey": "API 密钥",
+    "apiKeySection": "API Key",
+    "apiKeyPlaceholder": "粘贴你的 API Key…",
+    "ollamaNoKey": "Ollama 本地运行，无需 API Key。",
+    "recommended": "推荐 · 国内直连",
+    "latency": "延迟",
+    "cost": "成本",
+    "regions": {
+      "CN": "国内",
+      "Overseas": "海外",
+      "Local": "本地"
+    },
     "save": "保存",
     "saved": "已保存"
   },

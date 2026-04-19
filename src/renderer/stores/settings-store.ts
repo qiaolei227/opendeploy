@@ -8,6 +8,7 @@ interface SettingsState {
   load: () => Promise<void>;
   setLanguage: (lang: Language) => Promise<void>;
   setTheme: (theme: Theme) => Promise<void>;
+  setLlmProvider: (provider: string) => Promise<void>;
   setApiKey: (provider: string, key: string) => Promise<void>;
 }
 
@@ -28,6 +29,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   setTheme: async (theme) => {
     const next = { ...get().settings, theme };
+    await window.opendeploy.saveSettings(next);
+    set({ settings: next });
+  },
+
+  setLlmProvider: async (provider) => {
+    const next = { ...get().settings, llmProvider: provider };
     await window.opendeploy.saveSettings(next);
     set({ settings: next });
   },

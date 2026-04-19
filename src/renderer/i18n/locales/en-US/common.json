@@ -52,13 +52,28 @@
   },
   "settings": {
     "title": "Settings",
+    "subtitle": "LLM provider, API key, language and theme.",
+    "appearance": "Appearance",
     "language": "Language",
     "theme": "Theme",
     "themeLight": "Light",
     "themeDark": "Dark",
     "themeSystem": "System",
     "llmProvider": "LLM Provider",
+    "llmSection": "LLM Provider",
+    "llmSectionDesc": "Pick a provider. API key is stored locally and encrypted.",
     "apiKey": "API Key",
+    "apiKeySection": "API Key",
+    "apiKeyPlaceholder": "Paste your API key…",
+    "ollamaNoKey": "Ollama runs locally — no API key needed.",
+    "recommended": "recommended",
+    "latency": "Latency",
+    "cost": "Cost",
+    "regions": {
+      "CN": "Mainland",
+      "Overseas": "Overseas",
+      "Local": "Local"
+    },
     "save": "Save",
     "saved": "Saved"
   },
