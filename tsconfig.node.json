@@ -9,13 +9,11 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "ignoreDeprecations": "6.0",
     "types": ["node", "electron"],
-    "baseUrl": ".",
     "paths": {
-      "@main/*": ["src/main/*"],
-      "@preload/*": ["src/preload/*"],
-      "@shared/*": ["src/shared/*"]
+      "@main/*": ["./src/main/*"],
+      "@preload/*": ["./src/preload/*"],
+      "@shared/*": ["./src/shared/*"]
     }
   },
   "include": [
