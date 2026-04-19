@@ -15,6 +15,21 @@
     "send": "Send",
     "empty": "Start your first conversation"
   },
+  "side": {
+    "conversations": "Project conversations",
+    "noProjects": "No projects yet. Click + to create",
+    "noConversations": "No conversations yet",
+    "addProject": "+ New project"
+  },
+  "status": {
+    "bosConnected": "BOS connected",
+    "bosDisconnected": "BOS not connected",
+    "metadataReadonly": "metadata-readonly",
+    "skillPacks": "{{count}} skill packs",
+    "skillsBuiltin": "skills · built-in",
+    "updateAvailable": "update available",
+    "llmNotConfigured": "LLM · not set"
+  },
   "settings": {
     "title": "Settings",
     "language": "Language",
