@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<title>OpenDeploy · Logo 探索</title>
+<style>
+  :root {
+    --ink: #141414;
+    --ink-2: #2a2a2a;
+    --bg: #fafaf7;
+    --bg-elev: #ffffff;
+    --surface: #f4f3ee;
+    --surface-2: #ecebe4;
+    --border: #e0ddd2;
+    --muted: #6b685e;
+    --dim: #9a9689;
+    --accent: #3d7a5a;
+    --accent-soft: #e4ede5;
+    --accent-deep: #2a5a42;
+    --warn: #b07620;
+    --danger: #a8422f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    padding: 50px 60px 100px;
+    letter-spacing: -0.005em;
+  }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 6px;
+    letter-spacing: -0.02em;
+  }
+  .lede {
+    color: var(--muted);
+    margin: 0 0 40px;
+    font-size: 13.5px;
+    line-height: 1.6;
+    max-width: 60ch;
+  }
+  h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+    margin: 48px 0 14px;
+    font-weight: 600;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .cell {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 26px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .cell-hdr {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .cell-name {
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .cell-concept {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: ui-monospace, Menlo, monospace;
+    letter-spacing: 0;
+  }
+  .big {
+    display: grid;
+    place-items: center;
+    background: var(--surface);
+    border-radius: 6px;
+    padding: 34px 10px;
+    min-height: 120px;
+  }
+  .big.dark {
+    background: var(--ink);
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding-top: 4px;
+  }
+  .row .lbl {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+    font-weight: 600;
+    width: 44px;
+  }
+  .titlebar-mock {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .tb-sep { color: var(--dim); font-weight: 400; }
+  .tb-sub { color: var(--muted); font-weight: 500; font-size: 12px; }
+
+  .intro {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px 28px;
+    margin-bottom: 30px;
+    font-size: 13px;
+    color: var(--ink-2);
+    line-height: 1.65;
+  }
+  .intro b { color: var(--ink); }
+  .intro code {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 11.5px;
+    padding: 1px 5px;
+    background: var(--surface);
+    border-radius: 3px;
+  }
+  .pick {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 11px;
+    padding: 2px 7px;
+    background: var(--accent-soft);
+    color: var(--accent-deep);
+    border-radius: 3px;
+    border: 1px solid var(--accent);
+  }
+</style>
+</head>
+<body>
+
+<h1>OpenDeploy · 品牌标识探索</h1>
+<p class="lede">5 个方向。每个方向都给出：主图形 · 反白版 · 顶栏展示效果。候选 A–C 偏抽象几何（适合工程/开发品牌），D–E 带一点隐喻（部署/安放）。</p>
+
+<div class="intro">
+  <b>语义约束</b>：OpenDeploy 是本地运行的 AI 实施助手，核心动作是"生成代码 → 部署到客户 ERP"。既要像严肃的开发者工具，也要暗示"下发/落地/安放"这层意思。<br><br>
+  <b>色板</b>：主色 <code>#3d7a5a</code>（深绿 · deploy/go 语义），背景 <code>#fafaf7</code>（象牙），墨色 <code>#141414</code>。<br>
+  <b>当前占位</b>：顶栏是 <code>{</code> 花括号，等同于没有 logo。
+</div>
+
+<h2>A · 下行楔形 · Down-chevron</h2>
+<div class="grid">
+  <div class="cell">
+    <div class="cell-hdr"><span class="cell-name">A-1 几何块</span><span class="cell-concept">一个方块向下折成箭头</span></div>
+    <div class="big">
+      <svg width="96" height="96" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#3d7a5a"/>
+        <path d="M14 18 L24 30 L34 18" stroke="#fafaf7" stroke-width="4.5" stroke-linecap="square" stroke-linejoin="miter" fill="none"/>
+      </svg>
+    </div>
+    <div class="big dark">
+      <svg width="72" height="72" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#fafaf7"/>
+        <path d="M14 18 L24 30 L34 18" stroke="#141414" stroke-width="4.5" stroke-linecap="square" stroke-linejoin="miter" fill="none"/>
+      </svg>
+    </div>
+    <div class="row">
+      <span class="lbl">title</span>
+      <span class="titlebar-mock">
+        <svg width="18" height="18" viewBox="0 0 48 48" style="border-radius:4px" fill="none">
+          <rect width="48" height="48" rx="10" fill="#141414"/>
+          <path d="M14 18 L24 30 L34 18" stroke="#fafaf7" stroke-width="4.5" stroke-linecap="square" stroke-linejoin="miter" fill="none"/>
+        </svg>
+        OpenDeploy
+        <span class="tb-sep">—</span>
+        <span class="tb-sub">川沙诚信商贸 · V9.1</span>
+      </span>
+    </div>
+  </div>
+
+  <div class="cell">
+    <div class="cell-hdr"><span class="cell-name">A-2 双楔形</span><span class="cell-concept">两层箭头 · 像 ⋁⋁ 的堆叠</span></div>
+    <div class="big">
+      <svg width="96" height="96" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#3d7a5a"/>
+        <path d="M13 15 L24 25 L35 15" stroke="#fafaf7" stroke-width="3.5" fill="none" stroke-linecap="square"/>
+        <path d="M13 26 L24 36 L35 26" stroke="#fafaf7" stroke-width="3.5" fill="none" stroke-linecap="square" opacity="0.55"/>
+      </svg>
+    </div>
+    <div class="big dark">
+      <svg width="72" height="72" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#fafaf7"/>
+        <path d="M13 15 L24 25 L35 15" stroke="#141414" stroke-width="3.5" fill="none" stroke-linecap="square"/>
+        <path d="M13 26 L24 36 L35 26" stroke="#141414" stroke-width="3.5" fill="none" stroke-linecap="square" opacity="0.55"/>
+      </svg>
+    </div>
+    <div class="row">
+      <span class="lbl">title</span>
+      <span class="titlebar-mock">
+        <svg width="18" height="18" viewBox="0 0 48 48" style="border-radius:4px">
+          <rect width="48" height="48" rx="10" fill="#141414"/>
+          <path d="M13 15 L24 25 L35 15" stroke="#fafaf7" stroke-width="3.5" fill="none" stroke-linecap="square"/>
+          <path d="M13 26 L24 36 L35 26" stroke="#fafaf7" stroke-width="3.5" fill="none" stroke-linecap="square" opacity="0.55"/>
+        </svg>
+        OpenDeploy
+        <span class="tb-sep">—</span>
+        <span class="tb-sub">川沙诚信商贸 · V9.1</span>
+      </span>
+    </div>
+  </div>
+</div>
+
+<h2>B · 部署轨 · Deploy rail <span class="pick">推荐</span></h2>
+<div class="grid">
+  <div class="cell">
+    <div class="cell-hdr"><span class="cell-name">B · 包 → 轨</span><span class="cell-concept">上方方块代表代码包，下面横线代表客户环境</span></div>
+    <div class="big">
+      <svg width="96" height="96" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#3d7a5a"/>
+        <rect x="18" y="11" width="12" height="12" rx="2" fill="#fafaf7"/>
+        <path d="M24 23 L24 33" stroke="#fafaf7" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M20 30 L24 34 L28 30" stroke="#fafaf7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <rect x="10" y="35" width="28" height="2.5" rx="1" fill="#fafaf7" opacity="0.85"/>
+      </svg>
+    </div>
+    <div class="big dark">
+      <svg width="72" height="72" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#fafaf7"/>
+        <rect x="18" y="11" width="12" height="12" rx="2" fill="#141414"/>
+        <path d="M24 23 L24 33" stroke="#141414" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M20 30 L24 34 L28 30" stroke="#141414" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <rect x="10" y="35" width="28" height="2.5" rx="1" fill="#141414" opacity="0.85"/>
+      </svg>
+    </div>
+    <div class="row">
+      <span class="lbl">title</span>
+      <span class="titlebar-mock">
+        <svg width="18" height="18" viewBox="0 0 48 48" style="border-radius:4px">
+          <rect width="48" height="48" rx="10" fill="#141414"/>
+          <rect x="18" y="11" width="12" height="12" rx="2" fill="#fafaf7"/>
+          <path d="M24 23 L24 33" stroke="#fafaf7" stroke-width="2.5" stroke-linecap="round"/>
+          <path d="M20 30 L24 34 L28 30" stroke="#fafaf7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          <rect x="10" y="35" width="28" height="2.5" rx="1" fill="#fafaf7" opacity="0.85"/>
+        </svg>
+        OpenDeploy
+        <span class="tb-sep">—</span>
+        <span class="tb-sub">川沙诚信商贸 · V9.1</span>
+      </span>
+    </div>
+  </div>
+</div>
+
+<h2>C · 栈式括号 · Stacked brackets</h2>
+<div class="grid">
+  <div class="cell">
+    <div class="cell-hdr"><span class="cell-name">C-1 字形</span><span class="cell-concept">]D — 右括号 + D，暗示"生成代码 + Deploy"</span></div>
+    <div class="big">
+      <svg width="96" height="96" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#3d7a5a"/>
+        <path d="M14 12 L22 12 L22 36 L14 36" stroke="#fafaf7" stroke-width="3.5" fill="none" stroke-linejoin="miter"/>
+        <path d="M27 12 L31 12 Q37 12 37 18 L37 30 Q37 36 31 36 L27 36 Z" fill="#fafaf7"/>
+      </svg>
+    </div>
+    <div class="big dark">
+      <svg width="72" height="72" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#fafaf7"/>
+        <path d="M14 12 L22 12 L22 36 L14 36" stroke="#141414" stroke-width="3.5" fill="none" stroke-linejoin="miter"/>
+        <path d="M27 12 L31 12 Q37 12 37 18 L37 30 Q37 36 31 36 L27 36 Z" fill="#141414"/>
+      </svg>
+    </div>
+    <div class="row">
+      <span class="lbl">title</span>
+      <span class="titlebar-mock">
+        <svg width="18" height="18" viewBox="0 0 48 48" style="border-radius:4px">
+          <rect width="48" height="48" rx="10" fill="#141414"/>
+          <path d="M14 12 L22 12 L22 36 L14 36" stroke="#fafaf7" stroke-width="3.5" fill="none" stroke-linejoin="miter"/>
+          <path d="M27 12 L31 12 Q37 12 37 18 L37 30 Q37 36 31 36 L27 36 Z" fill="#fafaf7"/>
+        </svg>
+        OpenDeploy
+        <span class="tb-sep">—</span>
+        <span class="tb-sub">川沙诚信商贸 · V9.1</span>
+      </span>
+    </div>
+  </div>
+
+  <div class="cell">
+    <div class="cell-hdr"><span class="cell-name">C-2 三层叠块</span><span class="cell-concept">代码 layers · 部署堆栈</span></div>
+    <div class="big">
+      <svg width="96" height="96" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#3d7a5a"/>
+        <rect x="12" y="12" width="24" height="6" rx="1.5" fill="#fafaf7"/>
+        <rect x="15" y="21" width="18" height="6" rx="1.5" fill="#fafaf7" opacity="0.72"/>
+        <rect x="18" y="30" width="12" height="6" rx="1.5" fill="#fafaf7" opacity="0.45"/>
+      </svg>
+    </div>
+    <div class="big dark">
+      <svg width="72" height="72" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#fafaf7"/>
+        <rect x="12" y="12" width="24" height="6" rx="1.5" fill="#141414"/>
+        <rect x="15" y="21" width="18" height="6" rx="1.5" fill="#141414" opacity="0.72"/>
+        <rect x="18" y="30" width="12" height="6" rx="1.5" fill="#141414" opacity="0.45"/>
+      </svg>
+    </div>
+    <div class="row">
+      <span class="lbl">title</span>
+      <span class="titlebar-mock">
+        <svg width="18" height="18" viewBox="0 0 48 48" style="border-radius:4px">
+          <rect width="48" height="48" rx="10" fill="#141414"/>
+          <rect x="12" y="12" width="24" height="6" rx="1.5" fill="#fafaf7"/>
+          <rect x="15" y="21" width="18" height="6" rx="1.5" fill="#fafaf7" opacity="0.72"/>
+          <rect x="18" y="30" width="12" height="6" rx="1.5" fill="#fafaf7" opacity="0.45"/>
+        </svg>
+        OpenDeploy
+        <span class="tb-sep">—</span>
+        <span class="tb-sub">川沙诚信商贸 · V9.1</span>
+      </span>
+    </div>
+  </div>
+</div>
+
+<h2>D · 开合 · Open-gate</h2>
+<div class="grid">
+  <div class="cell">
+    <div class="cell-hdr"><span class="cell-name">D · 开门</span><span class="cell-concept">两片从中间打开的面板，暗示 "Open" + 落地</span></div>
+    <div class="big">
+      <svg width="96" height="96" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#3d7a5a"/>
+        <path d="M10 10 L10 34 L22 38 L22 14 Z" fill="#fafaf7"/>
+        <path d="M38 10 L38 34 L26 38 L26 14 Z" fill="#fafaf7" opacity="0.72"/>
+      </svg>
+    </div>
+    <div class="big dark">
+      <svg width="72" height="72" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#fafaf7"/>
+        <path d="M10 10 L10 34 L22 38 L22 14 Z" fill="#141414"/>
+        <path d="M38 10 L38 34 L26 38 L26 14 Z" fill="#141414" opacity="0.72"/>
+      </svg>
+    </div>
+    <div class="row">
+      <span class="lbl">title</span>
+      <span class="titlebar-mock">
+        <svg width="18" height="18" viewBox="0 0 48 48" style="border-radius:4px">
+          <rect width="48" height="48" rx="10" fill="#141414"/>
+          <path d="M10 10 L10 34 L22 38 L22 14 Z" fill="#fafaf7"/>
+          <path d="M38 10 L38 34 L26 38 L26 14 Z" fill="#fafaf7" opacity="0.72"/>
+        </svg>
+        OpenDeploy
+        <span class="tb-sep">—</span>
+        <span class="tb-sub">川沙诚信商贸 · V9.1</span>
+      </span>
+    </div>
+  </div>
+</div>
+
+<h2>E · 字标 · Wordmark-only</h2>
+<div class="grid">
+  <div class="cell">
+    <div class="cell-hdr"><span class="cell-name">E-1 OD 方章</span><span class="cell-concept">纯字母，印章感</span></div>
+    <div class="big">
+      <svg width="96" height="96" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#3d7a5a"/>
+        <text x="24" y="32" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="18" font-weight="700" fill="#fafaf7">OD</text>
+      </svg>
+    </div>
+    <div class="big dark">
+      <svg width="72" height="72" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#fafaf7"/>
+        <text x="24" y="32" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="18" font-weight="700" fill="#141414">OD</text>
+      </svg>
+    </div>
+    <div class="row">
+      <span class="lbl">title</span>
+      <span class="titlebar-mock">
+        <svg width="18" height="18" viewBox="0 0 48 48" style="border-radius:4px">
+          <rect width="48" height="48" rx="10" fill="#141414"/>
+          <text x="24" y="32" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="18" font-weight="700" fill="#fafaf7">OD</text>
+        </svg>
+        OpenDeploy
+        <span class="tb-sep">—</span>
+        <span class="tb-sub">川沙诚信商贸 · V9.1</span>
+      </span>
+    </div>
+  </div>
+
+  <div class="cell">
+    <div class="cell-hdr"><span class="cell-name">E-2 句点方块</span><span class="cell-concept">像终端 prompt · 简洁工程感</span></div>
+    <div class="big">
+      <svg width="96" height="96" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#3d7a5a"/>
+        <rect x="12" y="21" width="6" height="6" rx="1" fill="#fafaf7"/>
+        <rect x="21" y="21" width="6" height="6" rx="1" fill="#fafaf7" opacity="0.7"/>
+        <rect x="30" y="21" width="6" height="6" rx="1" fill="#fafaf7" opacity="0.4"/>
+      </svg>
+    </div>
+    <div class="big dark">
+      <svg width="72" height="72" viewBox="0 0 48 48" fill="none">
+        <rect x="2" y="2" width="44" height="44" rx="10" fill="#fafaf7"/>
+        <rect x="12" y="21" width="6" height="6" rx="1" fill="#141414"/>
+        <rect x="21" y="21" width="6" height="6" rx="1" fill="#141414" opacity="0.7"/>
+        <rect x="30" y="21" width="6" height="6" rx="1" fill="#141414" opacity="0.4"/>
+      </svg>
+    </div>
+    <div class="row">
+      <span class="lbl">title</span>
+      <span class="titlebar-mock">
+        <svg width="18" height="18" viewBox="0 0 48 48" style="border-radius:4px">
+          <rect width="48" height="48" rx="10" fill="#141414"/>
+          <rect x="12" y="21" width="6" height="6" rx="1" fill="#fafaf7"/>
+          <rect x="21" y="21" width="6" height="6" rx="1" fill="#fafaf7" opacity="0.7"/>
+          <rect x="30" y="21" width="6" height="6" rx="1" fill="#fafaf7" opacity="0.4"/>
+        </svg>
+        OpenDeploy
+        <span class="tb-sep">—</span>
+        <span class="tb-sub">川沙诚信商贸 · V9.1</span>
+      </span>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top: 50px; padding: 20px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 10px; font-size: 13px; color: var(--muted); line-height: 1.6;">
+  <b style="color: var(--ink);">下一步</b>：告诉我哪个（例如 "B"），我就把它替换到顶栏 + 欢迎向导里，并同步改好 <code style="font-family: ui-monospace, Menlo, monospace; background: var(--surface); padding: 1px 5px; border-radius: 3px;">"客户项目" → "项目"</code> 那件事。
+</div>
+
+</body>
+</html>
