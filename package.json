@@ -37,14 +37,14 @@
     "autoprefixer": "^10.5.0",
     "electron": "^41.2.1",
     "electron-vite": "^5.0.0",
-    "eslint": "^10.2.1",
+    "eslint": "^9.39.4",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "postcss": "^8.5.10",
     "prettier": "^3.8.3",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.3",
-    "vite": "^8.0.8",
+    "vite": "^7.3.2",
     "vitest": "^4.1.4"
   }
 }
