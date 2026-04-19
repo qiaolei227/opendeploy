@@ -86,6 +86,31 @@
   "common": {
     "search": "全局搜索"
   },
+  "wizard": {
+    "tagline": "开达是本地运行的 ERP 实施交付智能体，首批支持金蝶云星空。安装完成 — 下面几步让它跑起来。",
+    "stepWelcome": "欢迎",
+    "stepProvider": "LLM provider",
+    "stepDone": "完成",
+    "welcomeHeading": "你的工具箱，不是 SaaS",
+    "welcomeDesc": "开达完全在你本机运行。你带自己的 LLM API Key，客户业务数据永不离开客户 ERP 环境。",
+    "welcomeEmphasis": "没有我们的服务器。",
+    "feat1Title": "零服务器",
+    "feat1Desc": "一切本地，审计可回溯",
+    "feat2Title": "自备 LLM",
+    "feat2Desc": "DeepSeek · Qwen · GLM · Kimi · 豆包 · Claude …",
+    "feat3Title": "ERP 实施专用",
+    "feat3Desc": "元数据驱动 · 从云星空开始",
+    "providerHeading": "选择一个 LLM provider",
+    "providerDesc": "API Key 加密存储在本地钥匙串。任何时候都可以更换或增加 provider。",
+    "doneHeading": "一切准备就绪",
+    "doneDesc": "进入工作台后，在「项目」页点 + 新建项目：选 ERP 产品 → 填数据库连接 → 从账套下拉里选一个。",
+    "skillLib": "技能库",
+    "next": "下一步",
+    "nextAction": "新建项目 →",
+    "back": "返回",
+    "continue": "继续",
+    "finish": "开始工作"
+  },
   "errors": {
     "unexpected": "发生了意外错误",
     "reload": "重新加载",
