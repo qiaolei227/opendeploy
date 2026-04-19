@@ -15,6 +15,26 @@
     "send": "Send",
     "empty": "Start your first conversation"
   },
+  "workspace": {
+    "emptyHeading": "Describe a requirement",
+    "emptyDesc": "Describe what the client wants. OpenDeploy clarifies, reads BOS metadata, and hands you a paste-ready Python plugin.",
+    "prompt1Title": "Credit limit guard",
+    "prompt1Desc": "Block approval when A/R exceeds limit",
+    "prompt2Title": "Material code rule",
+    "prompt2Desc": "Auto-generate codes by category",
+    "prompt3Title": "Auto A/P on inbound",
+    "prompt3Desc": "Create A/P from PO receipts",
+    "prompt4Title": "Missing invoice check",
+    "prompt4Desc": "Scan unmatched A/P at period-end",
+    "securityReassurance": "This session does not read business data. SQL whitelist hard-blocks T_SAL_*/T_AR_*; only T_META_* structure is allowed."
+  },
+  "composer": {
+    "placeholder": "Describe a Kingdee customization need…",
+    "send": "Send",
+    "hintLeft": "⌘K palette · ⌘/ toggle skills",
+    "hintRight": "streaming · audit on",
+    "attach": "Attach"
+  },
   "side": {
     "conversations": "Project conversations",
     "noProjects": "No projects yet. Click + to create",

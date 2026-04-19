@@ -15,6 +15,26 @@
     "send": "发送",
     "empty": "开始你的第一次对话"
   },
+  "workspace": {
+    "emptyHeading": "描述一个需求",
+    "emptyDesc": "用日常语言说清楚客户想要什么。OpenDeploy 会先问澄清问题，再读取 BOS 元数据，最后给你可直接粘贴到客户环境的 Python 插件。",
+    "prompt1Title": "信用额度预警",
+    "prompt1Desc": "客户应收超限时阻止审核",
+    "prompt2Title": "物料编码规则",
+    "prompt2Desc": "按分类自动生成物料编号",
+    "prompt3Title": "入库自动应付",
+    "prompt3Desc": "采购入库同步生成应付单",
+    "prompt4Title": "欠票检查",
+    "prompt4Desc": "结账前扫描未到票应付",
+    "securityReassurance": "本次会话不会访问你客户的业务数据。SQL 白名单硬拦截 T_SAL_* / T_AR_* 等业务表，仅允许 T_META_* 结构信息。"
+  },
+  "composer": {
+    "placeholder": "描述一个金蝶二开需求…",
+    "send": "发送",
+    "hintLeft": "⌘K 命令面板 · ⌘/ 切换知识",
+    "hintRight": "流式 · 审计开启",
+    "attach": "附加元数据"
+  },
   "side": {
     "conversations": "本项目对话",
     "noProjects": "暂无项目，点击 + 新建",
