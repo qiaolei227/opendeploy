@@ -1,0 +1,32 @@
+{
+  "app": {
+    "name": "OpenDeploy",
+    "tagline": "AI Delivery Agent"
+  },
+  "nav": {
+    "chat": "Chat",
+    "settings": "Settings"
+  },
+  "chat": {
+    "placeholder": "Describe a Kingdee customization need...",
+    "send": "Send",
+    "empty": "Start your first conversation"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "theme": "Theme",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "System",
+    "llmProvider": "LLM Provider",
+    "apiKey": "API Key",
+    "save": "Save",
+    "saved": "Saved"
+  },
+  "errors": {
+    "unexpected": "An unexpected error occurred",
+    "reload": "Reload",
+    "saveSettings": "Failed to save settings"
+  }
+}

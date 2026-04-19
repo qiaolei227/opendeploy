@@ -1,0 +1,32 @@
+{
+  "app": {
+    "name": "OpenDeploy",
+    "tagline": "实施交付智能体"
+  },
+  "nav": {
+    "chat": "对话",
+    "settings": "设置"
+  },
+  "chat": {
+    "placeholder": "描述一个金蝶二开需求...",
+    "send": "发送",
+    "empty": "开始你的第一次对话"
+  },
+  "settings": {
+    "title": "设置",
+    "language": "语言",
+    "theme": "主题",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "themeSystem": "跟随系统",
+    "llmProvider": "大模型服务",
+    "apiKey": "API 密钥",
+    "save": "保存",
+    "saved": "已保存"
+  },
+  "errors": {
+    "unexpected": "发生了意外错误",
+    "reload": "重新加载",
+    "saveSettings": "保存设置失败"
+  }
+}
