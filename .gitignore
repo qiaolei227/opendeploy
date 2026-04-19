@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+pnpm-lock.yaml.bak
+
+# Build output
+dist/
+out/
+build/
+*.asar
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Electron
+release/
+*.dmg
+*.exe
+*.deb
+*.rpm
+*.AppImage
+
+# Cache
+.cache/
+.parcel-cache/
+.vite/
+
+# Test coverage
+coverage/
+*.lcov
+
+# User data (不应提交)
+*.opendeploy/
+user-data/
