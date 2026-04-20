@@ -20,6 +20,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,json,css}\""
   },
   "dependencies": {
+    "eventsource-parser": "^3.0.8",
     "i18next": "^26.0.6",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
