@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "OpenDeploy",
+    "name": "开达",
     "tagline": "实施交付智能体"
   },
   "nav": {
@@ -116,7 +116,8 @@
     "nextAction": "新建项目 →",
     "back": "返回",
     "continue": "继续",
-    "finish": "开始工作"
+    "finish": "开始工作",
+    "startCta": "开始使用"
   },
   "errors": {
     "unexpected": "发生了意外错误",

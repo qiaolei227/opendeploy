@@ -116,7 +116,8 @@
     "nextAction": "Create first project →",
     "back": "Back",
     "continue": "Continue",
-    "finish": "Start"
+    "finish": "Start",
+    "startCta": "Get started"
   },
   "errors": {
     "unexpected": "An unexpected error occurred",
