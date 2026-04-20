@@ -273,6 +273,22 @@ input, textarea, select { font: inherit; color: inherit; }
   font-family: var(--font-mono); text-transform: none; letter-spacing: 0;
   background: var(--surface); border: 1px solid var(--border);
   padding: 0 4px; border-radius: 3px; font-size: 9.5px; color: var(--muted);
+  margin-left: auto;
+}
+.side-action {
+  margin-left: 6px;
+  width: 18px; height: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted); font-size: 13px; line-height: 1;
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.side-action:hover {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  border-color: var(--accent);
 }
 
 .proj-item {

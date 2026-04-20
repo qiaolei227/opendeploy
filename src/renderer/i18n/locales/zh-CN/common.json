@@ -24,10 +24,12 @@
     "send": "发送"
   },
   "side": {
-    "conversations": "本项目对话",
+    "conversations": "最近对话",
     "noProjects": "暂无项目，点击 + 新建",
     "noConversations": "暂无对话",
-    "addProject": "+ 新建项目"
+    "addProject": "+ 新建项目",
+    "newConversation": "新对话",
+    "untitledConversation": "未命名对话"
   },
   "status": {
     "updateAvailable": "有新版",

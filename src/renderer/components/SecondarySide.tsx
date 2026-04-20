@@ -34,6 +34,8 @@ export interface SecondarySideProps {
   activeConversationId?: string;
   onProjectSelect?: (id: string) => void;
   onConversationSelect?: (id: string) => void;
+  /** Called when the user hits the "new chat" button in the workspace rail. */
+  onNewConversation?: () => void;
 }
 
 /**
@@ -60,7 +62,8 @@ export function SecondarySide({
   activeProjectId,
   activeConversationId,
   onProjectSelect,
-  onConversationSelect
+  onConversationSelect,
+  onNewConversation
 }: SecondarySideProps) {
   const { t } = useTranslation();
 
@@ -132,6 +135,17 @@ export function SecondarySide({
         <div className="side-label">
           <span>{t('side.conversations')}</span>
           <span className="count">{conversations.length}</span>
+          {onNewConversation && (
+            <button
+              type="button"
+              onClick={onNewConversation}
+              className="side-action"
+              title={t('side.newConversation')}
+              aria-label={t('side.newConversation')}
+            >
+              +
+            </button>
+          )}
         </div>
         {conversations.length === 0
           ? emptyConversations

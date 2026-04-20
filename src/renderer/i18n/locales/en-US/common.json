@@ -24,10 +24,12 @@
     "send": "Send"
   },
   "side": {
-    "conversations": "Project conversations",
+    "conversations": "Recent conversations",
     "noProjects": "No projects yet. Click + to create",
     "noConversations": "No conversations yet",
-    "addProject": "+ New project"
+    "addProject": "+ New project",
+    "newConversation": "New chat",
+    "untitledConversation": "Untitled"
   },
   "status": {
     "updateAvailable": "update available",

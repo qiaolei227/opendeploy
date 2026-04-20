@@ -19,6 +19,7 @@ interface ChatState {
 
   sendMessage: (text: string, providerId: string, apiKey: string | undefined) => Promise<void>;
   clear: () => void;
+  loadConversation: (id: string) => Promise<void>;
 }
 
 function makeId() { return `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; }
@@ -94,5 +95,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  clear: () => set({ messages: [], conversationId: null, error: null })
+  clear: () => set({ messages: [], conversationId: null, error: null }),
+
+  loadConversation: async (id) => {
+    const conv = await window.opendeploy.conversationsLoad(id);
+    const messages: ChatMessage[] = conv.messages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({
+        id: m.id,
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+        createdAt: m.createdAt
+      }));
+    set({ messages, conversationId: conv.id, error: null, isStreaming: false });
+  }
 }));

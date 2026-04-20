@@ -1,17 +1,29 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSettingsStore } from '@renderer/stores/settings-store';
 import { useSkillsStore } from '@renderer/stores/skills-store';
+import { useChatStore } from '@renderer/stores/chat-store';
 import { ErrorBoundary } from '@renderer/components/ErrorBoundary';
 import { ThemeProvider } from '@renderer/components/ThemeProvider';
 import { TitleBar } from '@renderer/components/TitleBar';
 import { NavRail, type PageKey } from '@renderer/components/NavRail';
-import { SecondarySide } from '@renderer/components/SecondarySide';
+import { SecondarySide, type ConversationSummary } from '@renderer/components/SecondarySide';
 import { StatusBar } from '@renderer/components/StatusBar';
 import { WorkspacePage } from '@renderer/pages/WorkspacePage';
 import { SettingsPage } from '@renderer/pages/SettingsPage';
 import { SkillsPage } from '@renderer/pages/SkillsPage';
 import { WizardPage } from '@renderer/pages/WizardPage';
+
+/** Short relative time label: "刚刚" / "14:23" / "4月18日". Terminal-width safe. */
+function formatConvDate(iso: string, lang: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) {
+    return d.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+  return d.toLocaleDateString(lang, { month: 'short', day: 'numeric' });
+}
 
 /**
  * App — root component that composes every surface in the renderer.
@@ -38,8 +50,28 @@ export function App() {
 
   const [page, setPage] = useState<PageKey>('workspace');
   const [wizardCompleted, setWizardCompleted] = useState(false);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
 
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const chatConversationId = useChatStore((s) => s.conversationId);
+  const chatMessages = useChatStore((s) => s.messages);
+  const chatClear = useChatStore((s) => s.clear);
+  const chatLoadConversation = useChatStore((s) => s.loadConversation);
+
+  const refreshConversations = useCallback(async () => {
+    try {
+      const list = await window.opendeploy.conversationsList();
+      // Map backend shape → SecondarySide ConversationSummary.
+      const mapped: ConversationSummary[] = list.map((c) => ({
+        id: c.id,
+        title: c.title || t('side.untitledConversation'),
+        date: formatConvDate(c.savedAt, i18n.language)
+      }));
+      setConversations(mapped);
+    } catch {
+      // Swallow — disk access can race with background writes. UI stays on last snapshot.
+    }
+  }, [t, i18n.language]);
 
   // Window/document title is pinned to the English brand so the OS taskbar
   // / window chrome stays stable across language switches.
@@ -63,6 +95,12 @@ export function App() {
     void skillsStore.load();
     void skillsStore.checkUpdates();
   }, []);
+
+  // Seed conversation list on mount + whenever the active chat changes
+  // (sending the first message creates a file; we want it to show up).
+  useEffect(() => {
+    void refreshConversations();
+  }, [refreshConversations, chatConversationId, chatMessages.length]);
 
   // First-launch detection: show wizard if setup is incomplete.
   // Incomplete = no provider OR (non-Ollama provider without API key).
@@ -116,7 +154,21 @@ export function App() {
         <div className={appClass}>
           {!isWizard && <TitleBar />}
           {!isWizard && <NavRail current={page} onChange={setPage} />}
-          {!isWizard && <SecondarySide page={page} />}
+          {!isWizard && (
+            <SecondarySide
+              page={page}
+              conversations={conversations}
+              activeConversationId={chatConversationId ?? undefined}
+              onConversationSelect={(id) => {
+                void chatLoadConversation(id);
+                setPage('workspace');
+              }}
+              onNewConversation={() => {
+                chatClear();
+                setPage('workspace');
+              }}
+            />
+          )}
 
           <main className="main">
             {page === 'workspace' && (
