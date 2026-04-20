@@ -54,7 +54,7 @@ export function WizardPage({ onFinish }: WizardPageProps) {
         {step === 0 ? (
           <div className="wiz-hero">
             <div className="mark">
-              <LogoMark size={80} variant="default" label="开达" />
+              <LogoMark size={80} variant="default" label={t('app.name')} />
             </div>
             <h1>{t('app.name')}</h1>
             <p className="tagline">{t('wizard.tagline')}</p>
@@ -219,6 +219,7 @@ export function WizardPage({ onFinish }: WizardPageProps) {
             </div>
 
             <div className="wiz-foot">
+              {/* Back from Step 1 intentionally returns to the Step 0 hero. */}
               <button
                 className="btn"
                 type="button"
