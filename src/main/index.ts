@@ -3,7 +3,7 @@ import { createMainWindow } from './window';
 import { registerIpcHandlers } from './ipc';
 import { registerLlmIpc } from './ipc-llm';
 import { registerSkillIpc } from './ipc-skills';
-import { seedKnowledgeIfEmpty } from './skills/seed';
+import { seedOrRefreshKnowledge } from './skills/seed';
 
 // Must run before app `ready` so Electron's userData path uses this name.
 app.setName('OpenDeploy');
@@ -14,7 +14,7 @@ app.whenReady().then(async () => {
   registerIpcHandlers();
   registerLlmIpc(() => mainWin);
   registerSkillIpc();
-  await seedKnowledgeIfEmpty();
+  await seedOrRefreshKnowledge();
   mainWin = createMainWindow();
 
   app.on('activate', () => {
