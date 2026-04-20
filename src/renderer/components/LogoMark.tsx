@@ -37,7 +37,6 @@ export function LogoMark({ size, variant = 'default', label }: LogoMarkProps): R
         d="M18 10 Q12 10 12 16 L12 22 Q12 24 8 24 Q12 24 12 26 L12 32 Q12 38 18 38"
         stroke={strokeColor}
         strokeWidth={2.5}
-        fill="none"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -46,5 +45,3 @@ export function LogoMark({ size, variant = 'default', label }: LogoMarkProps): R
     </svg>
   );
 }
-
-export default LogoMark;
