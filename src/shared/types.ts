@@ -1,5 +1,6 @@
 /// <reference types="node" />
 
+import type { ErpConnectionState, Project } from './erp-types';
 import type { KnowledgeSource, LoadedSkill, SkillMeta } from './skill-types';
 
 export type Language = 'zh-CN' | 'en-US';
@@ -12,12 +13,17 @@ export interface AppSettings {
   apiKeys?: Record<string, string>;
   /** User-configured knowledge sources (github / gitee / local). Defaults to empty. */
   knowledgeSources?: KnowledgeSource[];
+  /** Projects configured by the user. Each owns its own ERP connection config. */
+  projects?: Project[];
+  /** Id of the project whose connection pool drives agent metadata queries. */
+  activeProjectId?: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   language: 'zh-CN',
   theme: 'system',
-  knowledgeSources: []
+  knowledgeSources: [],
+  projects: []
 };
 
 export interface LlmChatRequest {
