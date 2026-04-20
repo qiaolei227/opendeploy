@@ -49,7 +49,7 @@ export interface SecondarySideProps {
  * Behavior by page:
  *   - `workspace` — projects (top, capped at 4) + conversations (bottom, scrolls).
  *   - `projects`  — full projects list, scrollable.
- *   - `settings`  — compact projects section (first 3) for settings context.
+ *   - `settings`  — returns `null` (settings page has its own sub-nav).
  *   - `skills`    — returns `null` (skills page has its own built-in rail).
  *   - `wizard`    — returns `null` (first-run wizard is chromeless).
  */
@@ -64,8 +64,9 @@ export function SecondarySide({
 }: SecondarySideProps) {
   const { t } = useTranslation();
 
-  // Skills and wizard hide the secondary rail entirely.
-  if (page === 'skills' || page === 'wizard') {
+  // Skills, wizard, and settings hide the secondary rail entirely.
+  // Settings has its own sub-nav, so the global rail would be redundant.
+  if (page === 'skills' || page === 'wizard' || page === 'settings') {
     return null;
   }
 
@@ -95,22 +96,6 @@ export function SecondarySide({
       {t('side.noConversations')}
     </div>
   );
-
-  if (page === 'settings') {
-    // Settings sidebar shows a compact projects peek (first 3).
-    const shown = projects.slice(0, 3);
-    return (
-      <aside className="side">
-        <div className="side-head">
-          <h2>{t('nav.settings')}</h2>
-        </div>
-        <div className="side-sec">
-          <div className="side-label">{t('nav.projects')}</div>
-          {shown.length === 0 ? emptyProjects : shown.map(renderProjectItem)}
-        </div>
-      </aside>
-    );
-  }
 
   if (page === 'projects') {
     return (

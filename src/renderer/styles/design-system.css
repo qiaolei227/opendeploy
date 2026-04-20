@@ -101,7 +101,8 @@ input, textarea, select { font: inherit; color: inherit; }
   background: var(--bg);
 }
 .app.mode-boss,
-.app.mode-skills {
+.app.mode-skills,
+.app.mode-settings {
   grid-template-columns: 56px 0 1fr;
 }
 .app.mode-skills .side { display: none; }
