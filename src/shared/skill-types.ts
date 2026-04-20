@@ -6,6 +6,23 @@
  * instruction markdown the agent loads on demand.
  */
 
+/**
+ * Primary category buckets used by the Skills page nav. Keeping this closed
+ * enum-ish (vs free-form string) so the UI can show a stable filter row and
+ * agents get consistent hints. Add values here deliberately — rebuilding the
+ * seed manifest is cheap but UI copy is not.
+ */
+export type SkillCategory =
+  | 'workflow'      // 流程方法论（需求澄清、交付节奏）
+  | 'plugin-dev'    // 插件/二开技术骨架
+  | 'sales'         // 销售域
+  | 'purchase'      // 采购域
+  | 'inventory'     // 库存域
+  | 'finance'       // 财务域（AR/AP/GL）
+  | 'basedata'      // 基础资料
+  | 'metadata'      // 元数据查询 / 逆向
+  | 'debugging';    // 调试诊断
+
 /** YAML frontmatter contract for every SKILL.md file. */
 export interface SkillFrontmatter {
   /** Human-facing display name. Matches the enclosing directory name by convention. */
@@ -14,7 +31,9 @@ export interface SkillFrontmatter {
   description: string;
   /** Semver string (e.g. "1.0.0" or "0.2.0-beta.1"). */
   version: string;
-  /** Free-form labels (e.g. ["common", "requirements"]) surfaced in UI filters. */
+  /** Primary category — used by the Skills page nav. Required for bundled skills. */
+  category?: SkillCategory;
+  /** Free-form labels (e.g. ["credit", "before-save"]) surfaced in UI filters. */
   tags?: string[];
   /** ERP provider this skill applies to (e.g. "kingdee-cosmic-v9"). Missing = generic. */
   erpProvider?: string;

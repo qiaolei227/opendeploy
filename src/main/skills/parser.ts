@@ -1,8 +1,20 @@
 import yaml from 'js-yaml';
-import type { SkillFrontmatter } from '@shared/skill-types';
+import type { SkillCategory, SkillFrontmatter } from '@shared/skill-types';
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[\w.]+)?(?:\+[\w.]+)?$/;
+
+const VALID_CATEGORIES: readonly SkillCategory[] = [
+  'workflow',
+  'plugin-dev',
+  'sales',
+  'purchase',
+  'inventory',
+  'finance',
+  'basedata',
+  'metadata',
+  'debugging'
+];
 
 export interface ParsedSkill extends SkillFrontmatter {
   body: string;
@@ -40,8 +52,19 @@ export function parseSkill(src: string): ParsedSkill {
   const tags = obj.tags === undefined ? undefined : asStringArray(obj.tags, 'tags');
   const erpProvider =
     obj.erpProvider === undefined ? undefined : requireString(obj, 'erpProvider');
+  const category =
+    obj.category === undefined ? undefined : asCategory(obj.category);
 
-  return { name, description, version, tags, erpProvider, body: m[2] };
+  return { name, description, version, category, tags, erpProvider, body: m[2] };
+}
+
+function asCategory(v: unknown): SkillCategory {
+  if (typeof v !== 'string' || !VALID_CATEGORIES.includes(v as SkillCategory)) {
+    throw new Error(
+      `Invalid category: "${String(v)}" (expected one of ${VALID_CATEGORIES.join(', ')})`
+    );
+  }
+  return v as SkillCategory;
 }
 
 function requireString(obj: Record<string, unknown>, key: string): string {

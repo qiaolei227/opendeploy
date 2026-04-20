@@ -2,9 +2,11 @@
 name: bos-plugin-anatomy
 description: Use when the user needs to implement a Kingdee Cloud Cosmic V9.x BOS form plugin (表单插件) in Python. Provides the standard skeleton — base class, event hooks, SDK imports, registration — plus the most common gotchas so the agent emits a minimal working plugin instead of a hallucinated one.
 version: 1.0.0
+category: plugin-dev
 tags:
-  - kingdee
-  - plugin-template
+  - form-plugin
+  - python
+  - ironpython
 erpProvider: kingdee-cosmic-v9
 ---
 

@@ -5,12 +5,12 @@
     {
       "id": "common/requirements-clarification",
       "version": "1.0.0",
-      "sha256": "72ff2ec641de1455a2c985d1fee9af3b8632bdf62ad3df649165d83cb126e838"
+      "sha256": "f307bfa15256e8f50df11f4b432f78f4345778e2b5aee2cde852413467433569"
     },
     {
       "id": "kingdee-cosmic-v9/bos-plugin-anatomy",
       "version": "1.0.0",
-      "sha256": "d3c5661c06cbf1f2e4c3e51a38ec3557b37f605115886cfb3e7be587c09bc065"
+      "sha256": "eaeab26c84153c103d4dd1e242f9ece93220810b29bf73f8358edffcb4dbeb8b"
     }
   ]
 }

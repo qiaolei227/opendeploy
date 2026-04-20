@@ -80,4 +80,19 @@ describe('parseSkill', () => {
     const src = makeSkill('name: x\ndescription: y\nversion: 1.0.0\ntags: [1, 2]');
     expect(() => parseSkill(src)).toThrow(/tags/);
   });
+
+  it('accepts a valid category', () => {
+    const src = makeSkill('name: x\ndescription: y\nversion: 1.0.0\ncategory: sales');
+    expect(parseSkill(src).category).toBe('sales');
+  });
+
+  it('leaves category undefined when absent', () => {
+    const src = makeSkill('name: x\ndescription: y\nversion: 1.0.0');
+    expect(parseSkill(src).category).toBeUndefined();
+  });
+
+  it('rejects an unknown category', () => {
+    const src = makeSkill('name: x\ndescription: y\nversion: 1.0.0\ncategory: bogus');
+    expect(() => parseSkill(src)).toThrow(/category/i);
+  });
 });

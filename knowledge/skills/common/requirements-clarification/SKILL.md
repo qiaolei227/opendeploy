@@ -2,9 +2,10 @@
 name: requirements-clarification
 description: Use when the user describes an ERP customization need but essential details are missing. Drives a short, targeted Q&A pass to pin down the primary business object, the triggering event, the success / failure criteria, and approval / unapproval behavior before any metadata reads or code generation begins.
 version: 1.0.0
+category: workflow
 tags:
-  - common
-  - workflow
+  - clarification
+  - pre-implementation
 ---
 
 # 需求澄清 · Requirements Clarification
