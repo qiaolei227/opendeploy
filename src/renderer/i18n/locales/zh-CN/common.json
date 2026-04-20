@@ -104,8 +104,51 @@
     "reload": "重新加载",
     "saveSettings": "保存设置失败"
   },
-  "placeholders": {
-    "projectsSoon": "项目管理功能将在 MVP-1 上线。"
+  "placeholders": {},
+  "projects": {
+    "intro": "每个项目绑定一套金蝶云星空 K/3 Cloud 连接；Agent 的元数据查询会走当前激活项目的连接。",
+    "new": "+ 新建项目",
+    "newHeading": "新建项目",
+    "editHeading": "编辑项目",
+    "empty": "还没有项目。点击右上角「新建项目」填入 K/3 Cloud 的数据库连接。",
+    "loading": "加载中…",
+    "name": "项目名称",
+    "namePlaceholder": "客户简称 + 备注，如「川沙诚信商贸」",
+    "server": "服务器",
+    "port": "端口",
+    "database": "数据库",
+    "user": "用户名",
+    "password": "密码",
+    "edition": "版次",
+    "editionStandard": "标准版",
+    "editionEnterprise": "企业版",
+    "editionShort": {
+      "standard": "标准",
+      "enterprise": "企业"
+    },
+    "version": "版本",
+    "encrypt": "加密连接",
+    "encryptHint": "SQL Server 2022+ 默认强制加密；除非连旧版否则保持开启",
+    "trustCert": "信任证书",
+    "trustCertHint": "本地开发勾选；客户证书由 CA 签发时取消",
+    "save": "保存",
+    "saving": "保存中…",
+    "cancel": "取消",
+    "edit": "编辑",
+    "delete": "删除",
+    "deleteConfirm": "确定删除该项目？对应连接会断开。",
+    "testConnection": "测试连接",
+    "testing": "测试中…",
+    "testOk": "连接成功",
+    "testFailed": "连接失败",
+    "setActive": "设为当前",
+    "deactivate": "取消激活",
+    "status": {
+      "idle": "未连接",
+      "connecting": "连接中…",
+      "connected": "已连接",
+      "error": "连接失败"
+    }
   },
   "skills": {
     "intro": "技能是一组 Markdown 指令，帮助 Agent 在特定场景下给出更专业的答复。Agent 会根据技能描述自动判断何时加载。",

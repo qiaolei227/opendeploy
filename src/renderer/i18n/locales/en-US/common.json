@@ -104,8 +104,51 @@
     "reload": "Reload",
     "saveSettings": "Failed to save settings"
   },
-  "placeholders": {
-    "projectsSoon": "Projects will arrive in MVP-1."
+  "placeholders": {},
+  "projects": {
+    "intro": "Each project binds a K/3 Cloud database connection. Agent metadata queries use the currently active project.",
+    "new": "+ New project",
+    "newHeading": "New project",
+    "editHeading": "Edit project",
+    "empty": "No projects yet. Click “New project” and fill in the K/3 Cloud database connection.",
+    "loading": "Loading…",
+    "name": "Name",
+    "namePlaceholder": "Customer shortname + note, e.g. “Chuansha Chengxin”",
+    "server": "Server",
+    "port": "Port",
+    "database": "Database",
+    "user": "User",
+    "password": "Password",
+    "edition": "Edition",
+    "editionStandard": "Standard",
+    "editionEnterprise": "Enterprise",
+    "editionShort": {
+      "standard": "std",
+      "enterprise": "ent"
+    },
+    "version": "Version",
+    "encrypt": "Encrypt",
+    "encryptHint": "SQL Server 2022+ requires TLS; keep on unless talking to older servers",
+    "trustCert": "Trust cert",
+    "trustCertHint": "On for local dev; off when the DB has a CA-issued cert",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "edit": "Edit",
+    "delete": "Delete",
+    "deleteConfirm": "Delete this project? The connection will be torn down.",
+    "testConnection": "Test connection",
+    "testing": "Testing…",
+    "testOk": "Connected",
+    "testFailed": "Connection failed",
+    "setActive": "Set active",
+    "deactivate": "Deactivate",
+    "status": {
+      "idle": "Idle",
+      "connecting": "Connecting…",
+      "connected": "Connected",
+      "error": "Error"
+    }
   },
   "skills": {
     "intro": "Skills are markdown instructions the agent loads on demand. Each skill's description tells the agent when to use it.",

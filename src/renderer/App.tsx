@@ -12,6 +12,7 @@ import { StatusBar } from '@renderer/components/StatusBar';
 import { WorkspacePage } from '@renderer/pages/WorkspacePage';
 import { SettingsPage } from '@renderer/pages/SettingsPage';
 import { SkillsPage } from '@renderer/pages/SkillsPage';
+import { ProjectsPage } from '@renderer/pages/ProjectsPage';
 import { WizardPage } from '@renderer/pages/WizardPage';
 
 /** Short relative time label: "刚刚" / "14:23" / "4月18日". Terminal-width safe. */
@@ -189,7 +190,7 @@ export function App() {
             )}
             {page === 'settings' && <SettingsPage />}
             {page === 'wizard' && <WizardPage onFinish={handleWizardFinish} />}
-            {page === 'projects' && <ProjectsPlaceholder />}
+            {page === 'projects' && <ProjectsPage />}
             {page === 'skills' && <SkillsPage />}
           </main>
 
@@ -202,17 +203,6 @@ export function App() {
         </div>
       </ThemeProvider>
     </ErrorBoundary>
-  );
-}
-
-/** Placeholder for the Projects page — full implementation lands in MVP-1. */
-function ProjectsPlaceholder() {
-  const { t } = useTranslation();
-  return (
-    <div style={{ padding: '40px', color: 'var(--muted)' }}>
-      <h2>{t('nav.projects')}</h2>
-      <p>{t('placeholders.projectsSoon')}</p>
-    </div>
   );
 }
 
