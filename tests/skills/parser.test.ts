@@ -32,21 +32,16 @@ describe('parseSkill', () => {
         'name: demo',
         'description: optional fields',
         'version: 0.2.0',
-        'tags:',
-        '  - common',
-        '  - core',
         'erpProvider: kingdee-cosmic-v9'
       ].join('\n')
     );
     const r = parseSkill(src);
-    expect(r.tags).toEqual(['common', 'core']);
     expect(r.erpProvider).toBe('kingdee-cosmic-v9');
   });
 
   it('leaves optional fields undefined when absent', () => {
     const src = makeSkill('name: demo\ndescription: no extras\nversion: 1.0.0');
     const r = parseSkill(src);
-    expect(r.tags).toBeUndefined();
     expect(r.erpProvider).toBeUndefined();
   });
 
@@ -74,11 +69,6 @@ describe('parseSkill', () => {
   it('rejects empty description', () => {
     const src = makeSkill('name: x\ndescription: ""\nversion: 1.0.0');
     expect(() => parseSkill(src)).toThrow(/description/);
-  });
-
-  it('rejects non-string tags', () => {
-    const src = makeSkill('name: x\ndescription: y\nversion: 1.0.0\ntags: [1, 2]');
-    expect(() => parseSkill(src)).toThrow(/tags/);
   });
 
   it('accepts a valid category', () => {

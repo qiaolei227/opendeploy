@@ -39,8 +39,6 @@ export interface SkillFrontmatter {
   version: string;
   /** Primary category — used by the Skills page nav. Required for bundled skills. */
   category?: SkillCategory;
-  /** Free-form labels (e.g. ["credit", "before-save"]) surfaced in UI filters. */
-  tags?: string[];
   /** ERP provider this skill applies to (e.g. "kingdee-cosmic-v9"). Missing = generic. */
   erpProvider?: string;
 }

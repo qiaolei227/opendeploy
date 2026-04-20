@@ -238,15 +238,6 @@ export function SkillsPage() {
                       {t(`skills.category.${s.category}`)}
                     </span>
                   )}
-                  {s.tags?.map((tag) => (
-                    <span
-                      key={tag}
-                      className="chip"
-                      style={{ fontSize: 10, opacity: 0.7 }}
-                    >
-                      #{tag}
-                    </span>
-                  ))}
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--muted)' }}>{s.description}</div>
               </div>

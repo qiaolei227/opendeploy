@@ -50,13 +50,12 @@ export function parseSkill(src: string): ParsedSkill {
   }
 
   const title = obj.title === undefined ? undefined : requireString(obj, 'title');
-  const tags = obj.tags === undefined ? undefined : asStringArray(obj.tags, 'tags');
   const erpProvider =
     obj.erpProvider === undefined ? undefined : requireString(obj, 'erpProvider');
   const category =
     obj.category === undefined ? undefined : asCategory(obj.category);
 
-  return { name, title, description, version, category, tags, erpProvider, body: m[2] };
+  return { name, title, description, version, category, erpProvider, body: m[2] };
 }
 
 function asCategory(v: unknown): SkillCategory {
@@ -76,9 +75,3 @@ function requireString(obj: Record<string, unknown>, key: string): string {
   return v;
 }
 
-function asStringArray(v: unknown, key: string): string[] {
-  if (!Array.isArray(v) || !v.every((x) => typeof x === 'string')) {
-    throw new Error(`Frontmatter field ${key} must be an array of strings`);
-  }
-  return v as string[];
-}
