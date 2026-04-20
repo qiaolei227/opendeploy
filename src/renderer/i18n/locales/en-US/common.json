@@ -31,7 +31,7 @@
   "composer": {
     "placeholder": "Describe a Kingdee customization need…",
     "send": "Send",
-    "hintLeft": "⌘K palette · ⌘/ toggle skills",
+    "hintLeft": "{{mod}}K palette · {{mod}}/ toggle skills",
     "hintRight": "streaming · audit on",
     "attach": "Attach"
   },

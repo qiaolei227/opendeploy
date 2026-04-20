@@ -4,6 +4,7 @@ import { useChatStore } from '@renderer/stores/chat-store';
 import { useSettingsStore } from '@renderer/stores/settings-store';
 import { PROVIDER_BY_ID } from '@renderer/data/providers';
 import { Icons } from './icons';
+import { getModKey } from '@renderer/utils/platform';
 
 interface ComposerProps {
   llmProviderId?: string;
@@ -65,7 +66,7 @@ export function Composer({ llmProviderId, presetText }: ComposerProps) {
           </div>
         </div>
         <div className="chint">
-          <span><span className="kbd">⌘K</span> {t('composer.hintLeft')}</span>
+          <span>{t('composer.hintLeft', { mod: getModKey() })}</span>
           <span>{t('composer.hintRight')}</span>
         </div>
       </div>

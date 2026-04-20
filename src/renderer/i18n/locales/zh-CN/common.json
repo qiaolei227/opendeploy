@@ -31,7 +31,7 @@
   "composer": {
     "placeholder": "描述一个金蝶二开需求…",
     "send": "发送",
-    "hintLeft": "⌘K 命令面板 · ⌘/ 切换知识",
+    "hintLeft": "{{mod}}K 命令面板 · {{mod}}/ 切换知识",
     "hintRight": "流式 · 审计开启",
     "attach": "附加元数据"
   },

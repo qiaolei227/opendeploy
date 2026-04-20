@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Icons } from '@renderer/components/icons';
 import { LogoMark } from '@renderer/components/LogoMark';
+import { getModKey } from '@renderer/utils/platform';
 
 export interface TitleBarProps {
   /** Current project label shown after the brand (e.g., "川沙诚信商贸 · V9.1"). */
@@ -42,7 +43,7 @@ export function TitleBar({
       <div className="tb-search">
         {Icons.search}
         <span>{t('common.search')}</span>
-        <span className="kbd">Ctrl K</span>
+        <span className="kbd">{getModKey()} K</span>
       </div>
 
     </header>
