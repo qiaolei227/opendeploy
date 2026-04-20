@@ -1,0 +1,98 @@
+import { create } from 'zustand';
+import type { LlmStreamEvent } from '@shared/types';
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'tool';
+  content: string;
+  toolCalls?: Array<{ name: string; args: string; result?: string }>;
+  isStreaming?: boolean;
+  createdAt: string;
+}
+
+interface ChatState {
+  messages: ChatMessage[];
+  isStreaming: boolean;
+  error: string | null;
+  currentRequestId: string | null;
+  conversationId: string | null;
+
+  sendMessage: (text: string, providerId: string, apiKey: string | undefined) => Promise<void>;
+  clear: () => void;
+}
+
+function makeId() { return `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; }
+
+export const useChatStore = create<ChatState>((set, get) => ({
+  messages: [],
+  isStreaming: false,
+  error: null,
+  currentRequestId: null,
+  conversationId: null,
+
+  sendMessage: async (text, providerId, apiKey) => {
+    const userMsg: ChatMessage = {
+      id: makeId(), role: 'user', content: text, createdAt: new Date().toISOString()
+    };
+    const assistantMsg: ChatMessage = {
+      id: makeId(), role: 'assistant', content: '', isStreaming: true, createdAt: new Date().toISOString()
+    };
+    set({
+      messages: [...get().messages, userMsg, assistantMsg],
+      isStreaming: true, error: null
+    });
+
+    // Subscribe to stream events (unsubscribe when done)
+    const unsubscribe = window.opendeploy.llmOnStream((ev: LlmStreamEvent) => {
+      if (ev.requestId !== get().currentRequestId) return;
+
+      if (ev.type === 'delta' && ev.content) {
+        const msgs = [...get().messages];
+        const last = msgs[msgs.length - 1];
+        if (last && last.role === 'assistant') {
+          msgs[msgs.length - 1] = { ...last, content: last.content + ev.content };
+          set({ messages: msgs });
+        }
+      } else if (ev.type === 'tool_call') {
+        const msgs = [...get().messages];
+        const last = msgs[msgs.length - 1];
+        if (last && last.role === 'assistant') {
+          const tcs = [...(last.toolCalls ?? []), { name: ev.toolCallName ?? '?', args: ev.toolCallArgs ?? '' }];
+          msgs[msgs.length - 1] = { ...last, toolCalls: tcs };
+          set({ messages: msgs });
+        }
+      } else if (ev.type === 'tool_result') {
+        const msgs = [...get().messages];
+        const last = msgs[msgs.length - 1];
+        if (last && last.role === 'assistant' && last.toolCalls && last.toolCalls.length > 0) {
+          const tcs = [...last.toolCalls];
+          tcs[tcs.length - 1] = { ...tcs[tcs.length - 1], result: ev.content ?? '' };
+          msgs[msgs.length - 1] = { ...last, toolCalls: tcs };
+          set({ messages: msgs });
+        }
+      } else if (ev.type === 'done') {
+        const msgs = [...get().messages];
+        const last = msgs[msgs.length - 1];
+        if (last) msgs[msgs.length - 1] = { ...last, isStreaming: false };
+        set({ messages: msgs, isStreaming: false, currentRequestId: null });
+        unsubscribe();
+      } else if (ev.type === 'error') {
+        set({ error: ev.error ?? 'Unknown error', isStreaming: false, currentRequestId: null });
+        unsubscribe();
+      }
+    });
+
+    try {
+      const { requestId } = await window.opendeploy.llmSendMessage({
+        conversationId: get().conversationId ?? undefined,
+        providerId, apiKey, userMessage: text
+      });
+      set({ currentRequestId: requestId, conversationId: get().conversationId ?? requestId });
+    } catch (err) {
+      unsubscribe();
+      set({ error: err instanceof Error ? err.message : String(err), isStreaming: false });
+    }
+  },
+
+  clear: () => set({ messages: [], conversationId: null, error: null })
+}));
