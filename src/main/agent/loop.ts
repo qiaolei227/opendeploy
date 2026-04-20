@@ -16,6 +16,12 @@ interface RunAgentLoopParams {
   providerId: string;
   apiKey?: string;
   model?: string;
+  /**
+   * Optional system prompt prepended as a `system` role message. Only added
+   * when the initial messages don't already start with a system message, so
+   * resuming a conversation doesn't duplicate the prompt.
+   */
+  systemPrompt?: string;
   onEvent?: (e: AgentLoopEvent) => void;
   maxIterations?: number;
   signal?: AbortSignal;
@@ -28,6 +34,14 @@ function makeId(): string {
 export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[]> {
   const maxIter = params.maxIterations ?? 10;
   const messages: Message[] = [...params.initialMessages];
+  if (params.systemPrompt && params.systemPrompt.trim() !== '' && messages[0]?.role !== 'system') {
+    messages.unshift({
+      id: makeId(),
+      role: 'system',
+      content: params.systemPrompt,
+      createdAt: new Date().toISOString()
+    });
+  }
   const emit = params.onEvent ?? (() => {});
   const toolDefs = params.tools.definitions();
 
