@@ -1002,33 +1002,6 @@ body.theme-dark .nm { color: oklch(0.80 0.13 25); }
   padding: 36px 40px;
   box-shadow: var(--shadow-md);
 }
-.wiz-logo {
-  width: 56px; height: 56px; border-radius: 12px;
-  display: grid; place-items: center;
-  overflow: hidden;
-  margin-bottom: 14px;
-  box-shadow: 0 2px 8px rgba(61,122,90,0.22), 0 0 0 1px rgba(0,0,0,0.04);
-}
-.wiz-logo svg { display: block; }
-.wiz-card h1 {
-  margin: 0 0 6px; font-size: 28px; letter-spacing: -0.02em; font-weight: 600;
-  display: flex; align-items: baseline; gap: 10px; justify-content: center;
-}
-.wiz-card h1 .ser { font-family: var(--font-serif); font-weight: 500; }
-.wiz-brand-cn { font-family: var(--font-serif); font-weight: 600; font-size: 30px; color: var(--ink); letter-spacing: -0.02em; }
-.wiz-brand-en {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--muted);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  padding: 2px 8px;
-  border-radius: 4px;
-  letter-spacing: 0.01em;
-  align-self: center;
-}
-.wiz-card .wsub { color: var(--muted); font-size: 14px; margin-bottom: 28px; line-height: 1.5; }
 .wiz-stepper {
   display: flex; gap: 8px; margin-bottom: 28px;
   font-family: var(--font-mono); font-size: 10.5px;
