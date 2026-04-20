@@ -46,7 +46,13 @@ function renderCatalog(skills: SkillMeta[]): string {
   const lines = [
     'You have access to the following skills. Each skill is a set of specialist instructions for a specific situation. When a skill description matches the task in front of you, call the `load_skill` tool with its id *before* responding, then follow the returned instructions.',
     '',
-    ...skills.map((s) => `- \`${s.id}\`: ${s.description}`)
+    // Include the human-readable title when present so the model has an easy
+    // handle to show the user when referencing a skill; the id stays as the
+    // argument to load_skill.
+    ...skills.map((s) => {
+      const label = s.title ? `${s.title} · \`${s.id}\`` : `\`${s.id}\``;
+      return `- ${label}: ${s.description}`;
+    })
   ];
   return lines.join('\n');
 }

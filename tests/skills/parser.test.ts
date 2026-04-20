@@ -95,4 +95,19 @@ describe('parseSkill', () => {
     const src = makeSkill('name: x\ndescription: y\nversion: 1.0.0\ncategory: bogus');
     expect(() => parseSkill(src)).toThrow(/category/i);
   });
+
+  it('parses an optional title', () => {
+    const src = makeSkill('name: x\ndescription: y\nversion: 1.0.0\ntitle: 技能激活自检');
+    expect(parseSkill(src).title).toBe('技能激活自检');
+  });
+
+  it('leaves title undefined when absent', () => {
+    const src = makeSkill('name: x\ndescription: y\nversion: 1.0.0');
+    expect(parseSkill(src).title).toBeUndefined();
+  });
+
+  it('rejects an empty title', () => {
+    const src = makeSkill('name: x\ndescription: y\nversion: 1.0.0\ntitle: ""');
+    expect(() => parseSkill(src)).toThrow(/title/i);
+  });
 });

@@ -204,14 +204,29 @@ export function SkillsPage() {
               <div key={s.id} className="card" style={{ padding: 14 }}>
                 <div
                   style={{
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: 'var(--ink)',
+                    marginBottom: 4
+                  }}
+                >
+                  {s.title ?? s.name}
+                </div>
+                <div
+                  style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 8,
-                    marginBottom: 6,
+                    gap: 6,
+                    marginBottom: 8,
                     flexWrap: 'wrap'
                   }}
                 >
-                  <span className="mono small">{s.id}</span>
+                  <span
+                    className="mono"
+                    style={{ fontSize: 10, color: 'var(--dim)' }}
+                  >
+                    {s.id}
+                  </span>
                   <span className="chip" style={{ fontSize: 10 }}>
                     v{s.version}
                   </span>
@@ -233,7 +248,7 @@ export function SkillsPage() {
                     </span>
                   ))}
                 </div>
-                <div style={{ fontSize: 13 }}>{s.description}</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)' }}>{s.description}</div>
               </div>
             ))}
           </div>

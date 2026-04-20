@@ -25,8 +25,14 @@ export type SkillCategory =
 
 /** YAML frontmatter contract for every SKILL.md file. */
 export interface SkillFrontmatter {
-  /** Human-facing display name. Matches the enclosing directory name by convention. */
+  /** Stable machine identifier. Matches the enclosing directory name by convention. */
   name: string;
+  /**
+   * Human-readable display title shown on the Skills page card as the primary
+   * label. When absent, the UI falls back to `name`. Authors are encouraged to
+   * write this in the consultant's working language (usually 中文 here).
+   */
+  title?: string;
   /** One paragraph explaining when the agent should load this skill. Used for discovery. */
   description: string;
   /** Semver string (e.g. "1.0.0" or "0.2.0-beta.1"). */

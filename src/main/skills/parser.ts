@@ -49,13 +49,14 @@ export function parseSkill(src: string): ParsedSkill {
     throw new Error(`Invalid semver version: "${version}" (expected e.g. "1.0.0")`);
   }
 
+  const title = obj.title === undefined ? undefined : requireString(obj, 'title');
   const tags = obj.tags === undefined ? undefined : asStringArray(obj.tags, 'tags');
   const erpProvider =
     obj.erpProvider === undefined ? undefined : requireString(obj, 'erpProvider');
   const category =
     obj.category === undefined ? undefined : asCategory(obj.category);
 
-  return { name, description, version, category, tags, erpProvider, body: m[2] };
+  return { name, title, description, version, category, tags, erpProvider, body: m[2] };
 }
 
 function asCategory(v: unknown): SkillCategory {

@@ -1,5 +1,6 @@
 ---
 name: skill-demo
+title: 技能系统激活自检
 description: 仅当用户明确要求"测试技能系统"时使用——例如输入 "/skill-ping"、"测试技能激活"、"试试技能是否生效" 等。这是一个验证用技能，日常对话不要触发。加载后必须严格按 body 里的协议执行，用户以此验证技能管道是否完整打通。
 version: 1.0.0
 category: workflow
