@@ -133,7 +133,6 @@ export function SecondarySide({
     <aside className="side">
       <div className="side-head">
         <h2>{t('nav.workspace')}</h2>
-        <span className="sub">⌘N</span>
       </div>
       <div className="side-sec">
         <div className="side-label">
