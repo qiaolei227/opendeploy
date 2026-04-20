@@ -37,6 +37,15 @@ export function App() {
   const [page, setPage] = useState<PageKey>('workspace');
   const [wizardCompleted, setWizardCompleted] = useState(false);
 
+  const { t, i18n } = useTranslation();
+
+  // Sync document title and native window title to the current language.
+  useEffect(() => {
+    const title = t('app.name');
+    document.title = title;
+    void window.opendeploy.setWindowTitle(title);
+  }, [t, i18n.language]);
+
   // Fetch settings if the bootstrap didn't pre-hydrate the store (defensive).
   useEffect(() => {
     if (!loaded) {
