@@ -1,5 +1,7 @@
 /// <reference types="node" />
 
+import type { KnowledgeSource, LoadedSkill, SkillMeta } from './skill-types';
+
 export type Language = 'zh-CN' | 'en-US';
 export type Theme = 'light' | 'dark' | 'system';
 
@@ -8,11 +10,14 @@ export interface AppSettings {
   theme: Theme;
   llmProvider?: string;
   apiKeys?: Record<string, string>;
+  /** User-configured knowledge sources (github / gitee / local). Defaults to empty. */
+  knowledgeSources?: KnowledgeSource[];
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   language: 'zh-CN',
-  theme: 'system'
+  theme: 'system',
+  knowledgeSources: []
 };
 
 export interface LlmChatRequest {
@@ -40,4 +45,9 @@ export interface IpcApi {
   llmOnStream: (cb: (ev: LlmStreamEvent) => void) => () => void;
   conversationsList: () => Promise<Array<{ id: string; title: string; savedAt: string; messageCount: number }>>;
   conversationsLoad: (id: string) => Promise<{ id: string; title: string; messages: Array<{ id: string; role: string; content: string; createdAt: string }> }>;
+  skillsList: () => Promise<SkillMeta[]>;
+  skillsLoad: (id: string) => Promise<LoadedSkill>;
+  skillsInstall: (source: KnowledgeSource) => Promise<void>;
+  skillsCheckUpdates: (source: KnowledgeSource) => Promise<{ local: string | null; remote: string }>;
+  skillsRemoveAll: () => Promise<void>;
 }

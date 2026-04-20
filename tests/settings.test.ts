@@ -32,7 +32,7 @@ describe('settings', () => {
     const input = { language: 'en-US' as const, theme: 'dark' as const };
     await saveSettings(input);
     const loaded = await loadSettings();
-    expect(loaded).toEqual(input);
+    expect(loaded).toEqual({ ...DEFAULT_SETTINGS, ...input });
   });
 
   it('merges with defaults when file is partial', async () => {

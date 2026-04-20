@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron';
 import { createMainWindow } from './window';
 import { registerIpcHandlers } from './ipc';
 import { registerLlmIpc } from './ipc-llm';
+import { registerSkillIpc } from './ipc-skills';
 
 // Must run before app `ready` so Electron's userData path uses this name.
 app.setName('OpenDeploy');
@@ -11,6 +12,7 @@ let mainWin: BrowserWindow | null = null;
 app.whenReady().then(() => {
   registerIpcHandlers();
   registerLlmIpc(() => mainWin);
+  registerSkillIpc();
   mainWin = createMainWindow();
 
   app.on('activate', () => {
