@@ -19,6 +19,15 @@
     "emptyHeading": "描述一个需求",
     "emptyDesc": "用日常语言说清楚客户想要什么。OpenDeploy 会先问澄清问题，再读取 ERP 元数据，最后给你可直接粘贴到客户环境的 Python 插件。"
   },
+  "artifacts": {
+    "title": "本次会话产物",
+    "lines": "{{count}} 行",
+    "overwritten": "已覆盖",
+    "copy": "复制",
+    "copied": "已复制",
+    "close": "关闭",
+    "loading": "加载中…"
+  },
   "composer": {
     "placeholder": "描述一个 ERP 二开需求…",
     "send": "发送"

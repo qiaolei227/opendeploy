@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { LlmStreamEvent } from '@shared/types';
+import { useArtifactsStore } from './artifacts-store';
 
 export interface ChatMessage {
   id: string;
@@ -67,9 +68,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const last = msgs[msgs.length - 1];
         if (last && last.role === 'assistant' && last.toolCalls && last.toolCalls.length > 0) {
           const tcs = [...last.toolCalls];
-          tcs[tcs.length - 1] = { ...tcs[tcs.length - 1], result: ev.content ?? '' };
+          const matched = tcs[tcs.length - 1];
+          tcs[tcs.length - 1] = { ...matched, result: ev.content ?? '' };
           msgs[msgs.length - 1] = { ...last, toolCalls: tcs };
           set({ messages: msgs });
+          // Let the artifacts panel pick up write_plugin results.
+          useArtifactsStore.getState().addFromToolResult(matched.name, ev.content ?? '');
         }
       } else if (ev.type === 'done') {
         const msgs = [...get().messages];
@@ -95,7 +99,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  clear: () => set({ messages: [], conversationId: null, error: null }),
+  clear: () => {
+    useArtifactsStore.getState().clear();
+    set({ messages: [], conversationId: null, error: null });
+  },
 
   loadConversation: async (id) => {
     const conv = await window.opendeploy.conversationsLoad(id);

@@ -19,6 +19,15 @@
     "emptyHeading": "Describe a requirement",
     "emptyDesc": "Describe what the client wants. OpenDeploy clarifies, reads ERP metadata, and hands you a paste-ready Python plugin."
   },
+  "artifacts": {
+    "title": "Session artifacts",
+    "lines": "{{count}} lines",
+    "overwritten": "overwritten",
+    "copy": "Copy",
+    "copied": "Copied",
+    "close": "Close",
+    "loading": "Loading…"
+  },
   "composer": {
     "placeholder": "Describe an ERP customization need…",
     "send": "Send"

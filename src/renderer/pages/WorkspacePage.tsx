@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { useChatStore } from '@renderer/stores/chat-store';
 import { Composer } from '@renderer/components/Composer';
 import { MessageList } from '@renderer/components/MessageList';
+import { ArtifactsPanel } from '@renderer/components/ArtifactsPanel';
 
 interface WorkspacePageProps {
   llmProviderId?: string;
@@ -12,8 +13,8 @@ export function WorkspacePage({ llmProviderId }: WorkspacePageProps) {
   const error = useChatStore((s) => s.error);
 
   return (
-    <div className="ws">
-      <div className="chat-col">
+    <div className="ws" style={{ display: 'flex', height: '100%' }}>
+      <div className="chat-col" style={{ flex: 1, minWidth: 0 }}>
         {messages.length === 0 ? (
           <div className="chat-scroll">
             <div className="chat-inner">
@@ -30,6 +31,7 @@ export function WorkspacePage({ llmProviderId }: WorkspacePageProps) {
         )}
         <Composer llmProviderId={llmProviderId} />
       </div>
+      <ArtifactsPanel />
     </div>
   );
 }
