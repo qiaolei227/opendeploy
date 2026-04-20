@@ -3,6 +3,7 @@
   "version": "0.1.0-alpha.1",
   "description": "Open-source AI delivery agent for Kingdee ERP implementation",
   "main": "./out/main/index.js",
+  "productName": "OpenDeploy",
   "author": "qiaolei",
   "license": "MIT",
   "type": "module",
