@@ -1,5 +1,12 @@
 import sql from 'mssql';
 import { openPool as defaultOpenPool } from '../pool';
+import {
+  getFields as qGetFields,
+  getObject as qGetObject,
+  listObjects as qListObjects,
+  listSubsystems as qListSubsystems,
+  searchMetadata as qSearchMetadata
+} from './queries';
 import type {
   FieldMeta,
   K3CloudConnectionConfig,
@@ -66,23 +73,30 @@ export class K3CloudConnector implements ErpConnector {
     }
   }
 
-  listObjects(_opts?: ListObjectsOptions): Promise<ObjectMeta[]> {
-    return Promise.reject(new Error('K3CloudConnector.listObjects: not implemented (Plan 4 Task 12)'));
+  private async requirePool(): Promise<sql.ConnectionPool> {
+    if (!this.pool) {
+      throw new Error('connector is not connected — call connect() first');
+    }
+    return this.pool;
   }
 
-  getObject(_id: string, _locale?: number): Promise<ObjectMeta | null> {
-    return Promise.reject(new Error('K3CloudConnector.getObject: not implemented (Plan 4 Task 12)'));
+  async listObjects(opts?: ListObjectsOptions): Promise<ObjectMeta[]> {
+    return qListObjects(await this.requirePool(), opts);
   }
 
-  getFields(_formId: string, _locale?: number): Promise<FieldMeta[]> {
-    return Promise.reject(new Error('K3CloudConnector.getFields: not implemented (Plan 4 Task 12)'));
+  async getObject(id: string, locale?: number): Promise<ObjectMeta | null> {
+    return qGetObject(await this.requirePool(), id, locale);
   }
 
-  listSubsystems(_locale?: number): Promise<SubsystemMeta[]> {
-    return Promise.reject(new Error('K3CloudConnector.listSubsystems: not implemented (Plan 4 Task 12)'));
+  async getFields(formId: string, locale?: number): Promise<FieldMeta[]> {
+    return qGetFields(await this.requirePool(), formId, locale);
   }
 
-  searchMetadata(_keyword: string, _locale?: number): Promise<ObjectMeta[]> {
-    return Promise.reject(new Error('K3CloudConnector.searchMetadata: not implemented (Plan 4 Task 12)'));
+  async listSubsystems(locale?: number): Promise<SubsystemMeta[]> {
+    return qListSubsystems(await this.requirePool(), locale);
+  }
+
+  async searchMetadata(keyword: string, locale?: number): Promise<ObjectMeta[]> {
+    return qSearchMetadata(await this.requirePool(), keyword, locale);
   }
 }

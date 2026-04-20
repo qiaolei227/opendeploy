@@ -134,13 +134,55 @@ describe('K3CloudConnector connect/disconnect', () => {
   });
 });
 
-describe('K3CloudConnector metadata methods (Task 12 placeholders)', () => {
-  it('all metadata methods reject with not-implemented until Task 12', async () => {
+describe('K3CloudConnector metadata methods', () => {
+  it('reject when called before connect()', async () => {
     const c = new K3CloudConnector(config, { openPool: async () => makeFakePool({}) });
-    await expect(c.listObjects()).rejects.toThrow(/not implemented/);
-    await expect(c.getObject('x')).rejects.toThrow(/not implemented/);
-    await expect(c.getFields('x')).rejects.toThrow(/not implemented/);
-    await expect(c.listSubsystems()).rejects.toThrow(/not implemented/);
-    await expect(c.searchMetadata('x')).rejects.toThrow(/not implemented/);
+    await expect(c.listObjects()).rejects.toThrow(/not connected/);
+    await expect(c.getObject('x')).rejects.toThrow(/not connected/);
+    await expect(c.getFields('x')).rejects.toThrow(/not connected/);
+    await expect(c.listSubsystems()).rejects.toThrow(/not connected/);
+    await expect(c.searchMetadata('x')).rejects.toThrow(/not connected/);
+  });
+
+  it('listObjects returns mapped ObjectMeta rows after connect()', async () => {
+    const c = new K3CloudConnector(config, {
+      openPool: async () =>
+        makeFakePool({
+          queryResult: {
+            recordset: [
+              {
+                FID: 'SAL_SaleOrder',
+                FNAME: '销售订单',
+                FMODELTYPEID: 100,
+                FSUBSYSID: 'SAL',
+                FISTEMPLATE: 0,
+                FMODIFYDATE: new Date('2026-01-01T00:00:00Z')
+              }
+            ]
+          }
+        })
+    });
+    await c.connect();
+
+    const rows = await c.listObjects({ keyword: '销售' });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: 'SAL_SaleOrder',
+      name: '销售订单',
+      modelTypeId: 100,
+      subsystemId: 'SAL',
+      isTemplate: false
+    });
+    expect(rows[0].modifyDate).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it('getObject returns null when the recordset is empty', async () => {
+    const c = new K3CloudConnector(config, {
+      openPool: async () => makeFakePool({ queryResult: { recordset: [] } })
+    });
+    await c.connect();
+
+    expect(await c.getObject('nope')).toBeNull();
   });
 });
