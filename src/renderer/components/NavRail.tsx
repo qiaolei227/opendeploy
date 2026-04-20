@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { Icons } from '@renderer/components/icons';
+import { useSkillsStore } from '@renderer/stores/skills-store';
 import type { ReactElement } from 'react';
 
 /** Top-level page identifier for the nav rail. */
@@ -14,6 +15,8 @@ interface NavItem {
   id: PageKey;
   icon: ReactElement;
   label: string;
+  /** Show a small red dot badge (e.g. skill update available). */
+  badge?: boolean;
 }
 
 /**
@@ -25,11 +28,17 @@ interface NavItem {
  */
 export function NavRail({ current, onChange }: NavRailProps) {
   const { t } = useTranslation();
+  const skillsUpdateAvailable = useSkillsStore((s) => s.updateStatus === 'available');
 
   const items: NavItem[] = [
     { id: 'workspace', icon: Icons.chat, label: t('nav.workspace') },
     { id: 'projects', icon: Icons.folder, label: t('nav.projects') },
-    { id: 'skills', icon: Icons.sparkles, label: t('nav.skills') }
+    {
+      id: 'skills',
+      icon: Icons.sparkles,
+      label: t('nav.skills'),
+      badge: skillsUpdateAvailable
+    }
   ];
 
   return (
@@ -42,6 +51,7 @@ export function NavRail({ current, onChange }: NavRailProps) {
           onClick={() => onChange(it.id)}
         >
           {it.icon}
+          {it.badge && <span className="nav-badge" aria-hidden="true" />}
           <span className="lbl">{it.label}</span>
         </button>
       ))}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSettingsStore } from '@renderer/stores/settings-store';
+import { useSkillsStore } from '@renderer/stores/skills-store';
 import { ErrorBoundary } from '@renderer/components/ErrorBoundary';
 import { ThemeProvider } from '@renderer/components/ThemeProvider';
 import { TitleBar } from '@renderer/components/TitleBar';
@@ -53,6 +54,15 @@ export function App() {
       void load();
     }
   }, [loaded, load]);
+
+  // Startup silent check: populate the Skills store once on mount so the
+  // NavRail can surface an update badge without the user visiting the page.
+  // Failures are stored in the store but don't surface outside the Skills page.
+  useEffect(() => {
+    const skillsStore = useSkillsStore.getState();
+    void skillsStore.load();
+    void skillsStore.checkUpdates();
+  }, []);
 
   // First-launch detection: show wizard if setup is incomplete.
   // Incomplete = no provider OR (non-Ollama provider without API key).

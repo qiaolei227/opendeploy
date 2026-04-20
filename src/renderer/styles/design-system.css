@@ -252,6 +252,12 @@ input, textarea, select { font: inherit; color: inherit; }
   z-index: 50;
 }
 .nav-item:hover .lbl { opacity: 1; transform: translateX(0); }
+.nav-badge {
+  position: absolute; top: 7px; right: 7px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg);
+}
 .nav-rule { width: 24px; height: 1px; background: var(--border); margin: 4px 0; }
 .nav .spacer { flex: 1; }
 

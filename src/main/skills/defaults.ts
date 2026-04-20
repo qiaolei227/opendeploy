@@ -20,7 +20,8 @@ export const DEFAULT_KNOWLEDGE_SOURCES: KnowledgeSource[] = [
   {
     id: 'official-gitee',
     kind: 'gitee',
-    location: 'qiaolei227/opendeploy-skills',
+    // Note: Gitee owner is 'QiaOo', separate account from the GitHub user.
+    location: 'QiaOo/opendeploy-skills',
     label: 'OpenDeploy Skills (Gitee 镜像)'
   }
 ];
