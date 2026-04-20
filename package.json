@@ -19,13 +19,15 @@
     "test:watch": "vitest",
     "lint": "eslint src --ext .ts,.tsx",
     "format": "prettier --write \"src/**/*.{ts,tsx,json,css}\"",
-    "knowledge:manifest": "node --experimental-strip-types scripts/gen-knowledge-manifest.ts"
+    "knowledge:manifest": "node --experimental-strip-types scripts/gen-knowledge-manifest.ts",
+    "k3cloud:discover": "node --experimental-strip-types scripts/discover-k3cloud-schema.ts"
   },
   "dependencies": {
     "eventsource-parser": "^3.0.8",
     "highlight.js": "^11.11.1",
     "i18next": "^26.0.6",
     "js-yaml": "^4.1.1",
+    "mssql": "^12.3.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-i18next": "^17.0.4",
@@ -38,6 +40,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.2",
     "@types/js-yaml": "^4.0.9",
+    "@types/mssql": "^12.3.0",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
