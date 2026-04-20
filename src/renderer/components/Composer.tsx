@@ -1,49 +1,31 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Icons } from '@renderer/components/icons';
+import { useChatStore } from '@renderer/stores/chat-store';
+import { useSettingsStore } from '@renderer/stores/settings-store';
 import { PROVIDER_BY_ID } from '@renderer/data/providers';
+import { Icons } from './icons';
 
-export interface ComposerProps {
-  /** Optional placeholder override. Falls back to `composer.placeholder` i18n key. */
-  placeholder?: string;
-  /** Submit handler — not wired to any backend in MVP-0.1. */
-  onSubmit?: (text: string) => void;
-  /** Currently selected LLM provider id (e.g. 'deepseek'). Undefined shows "not set". */
+interface ComposerProps {
   llmProviderId?: string;
-  /**
-   * Allows a parent to pre-fill the textarea (e.g. when a prompt card in the
-   * EmptyState is clicked). Changes to this prop replace the current draft.
-   */
   presetText?: string;
 }
 
-/**
- * Composer — chat input box at the bottom of the Workspace.
- *
- * Ported from `design/components/Workspace.jsx` `Composer` function,
- * simplified for MVP-0.1:
- *
- * - No project / skill chips are shown yet (no project selected in MVP-0.1).
- * - "Attach" button is a placeholder.
- * - Submit is not wired to a backend; `onSubmit` is optional and only called
- *   if provided. Real chat orchestration lands in Plan 2.
- */
-export function Composer({ placeholder, onSubmit, llmProviderId, presetText }: ComposerProps) {
+export function Composer({ llmProviderId, presetText }: ComposerProps) {
   const { t } = useTranslation();
-  const [val, setVal] = useState(presetText ?? '');
+  const [text, setText] = useState(presetText ?? '');
+  const sendMessage = useChatStore((s) => s.sendMessage);
+  const isStreaming = useChatStore((s) => s.isStreaming);
+  const settings = useSettingsStore((s) => s.settings);
 
-  // Sync external preset (e.g. prompt card click) into the textarea.
-  useEffect(() => {
-    if (presetText !== undefined) setVal(presetText);
-  }, [presetText]);
+  const effectiveProviderId = llmProviderId ?? settings.llmProvider ?? 'deepseek';
+  const provider = PROVIDER_BY_ID[effectiveProviderId];
+  const apiKey = settings.apiKeys?.[effectiveProviderId];
 
-  const provider = llmProviderId ? PROVIDER_BY_ID[llmProviderId] : undefined;
-
-  const submit = () => {
-    const text = val.trim();
-    if (!text) return;
-    onSubmit?.(text);
-    setVal('');
+  const submit = async () => {
+    if (!text.trim() || isStreaming) return;
+    const msg = text;
+    setText('');
+    await sendMessage(msg, effectiveProviderId, apiKey);
   };
 
   return (
@@ -52,15 +34,16 @@ export function Composer({ placeholder, onSubmit, llmProviderId, presetText }: C
         <div className="cbox">
           <textarea
             rows={2}
-            value={val}
-            onChange={(e) => setVal(e.target.value)}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                submit();
+                void submit();
               }
             }}
-            placeholder={placeholder ?? t('composer.placeholder')}
+            placeholder={t('composer.placeholder')}
+            disabled={isStreaming}
           />
           <div className="ctools">
             <button type="button" className="comp-chip" disabled>
@@ -68,31 +51,24 @@ export function Composer({ placeholder, onSubmit, llmProviderId, presetText }: C
             </button>
             <span className="spacer" />
             <button type="button" className="comp-chip">
-              {provider ? (
-                <>
-                  <span className={`prov-dot ${provider.dot}`}>{provider.letter}</span>
-                  {provider.short}
-                </>
-              ) : (
-                <>
-                  <span className="prov-dot">·</span>
-                  {t('status.llmNotConfigured')}
-                </>
-              )}{' '}
-              {Icons.down}
+              <span className={`prov-dot ${provider?.dot ?? ''}`}>{provider?.letter ?? '?'}</span>
+              {provider?.short ?? '—'}
             </button>
-            <button type="button" className="btn accent" onClick={submit}>
+            <button
+              type="button"
+              className="btn accent"
+              onClick={() => void submit()}
+              disabled={isStreaming || !text.trim()}
+            >
               {t('composer.send')} {Icons.send}
             </button>
           </div>
         </div>
         <div className="chint">
-          <span>{t('composer.hintLeft')}</span>
+          <span><span className="kbd">⌘K</span> {t('composer.hintLeft')}</span>
           <span>{t('composer.hintRight')}</span>
         </div>
       </div>
     </div>
   );
 }
-
-export default Composer;
