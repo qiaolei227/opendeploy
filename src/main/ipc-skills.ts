@@ -3,6 +3,8 @@ import { loadSkillBody, scanSkills } from './skills/registry';
 import { knowledgeDir } from './skills/paths';
 import {
   checkUpdates,
+  checkUpdatesFromDefaults,
+  installFromDefaults,
   installFromSource,
   removeAll
 } from './skills/manager';
@@ -27,4 +29,14 @@ export function registerSkillIpc(): void {
   );
 
   ipcMain.handle('skills:remove-all', async () => removeAll());
+
+  ipcMain.handle('skills:install-defaults', async () => {
+    const r = await installFromDefaults();
+    return { sourceId: r.source.id };
+  });
+
+  ipcMain.handle('skills:check-updates-defaults', async () => {
+    const r = await checkUpdatesFromDefaults();
+    return { sourceId: r.source.id, local: r.local, remote: r.remote };
+  });
 }

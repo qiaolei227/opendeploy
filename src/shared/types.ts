@@ -50,4 +50,10 @@ export interface IpcApi {
   skillsInstall: (source: KnowledgeSource) => Promise<void>;
   skillsCheckUpdates: (source: KnowledgeSource) => Promise<{ local: string | null; remote: string }>;
   skillsRemoveAll: () => Promise<void>;
+  skillsInstallDefaults: () => Promise<{ sourceId: string }>;
+  skillsCheckUpdatesDefaults: () => Promise<{
+    sourceId: string;
+    local: string | null;
+    remote: string;
+  }>;
 }

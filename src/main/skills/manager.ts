@@ -7,6 +7,7 @@ import { adapterFor } from './remote';
 import { readManifest } from './manifest';
 import { scanSkills } from './registry';
 import { verifyIntegrity } from './integrity';
+import { DEFAULT_KNOWLEDGE_SOURCES } from './defaults';
 import type { KnowledgeManifest, KnowledgeSource } from '@shared/skill-types';
 
 /** Root + fetchFn can be overridden so the same code path works in tests and prod. */
@@ -119,4 +120,68 @@ export async function checkUpdates(
 /** Wipe the whole local knowledge cache. No-op if the dir doesn't exist. */
 export async function removeAll(opts: ManagerOptions = {}): Promise<void> {
   await fs.rm(resolveRoot(opts), { recursive: true, force: true });
+}
+
+// ─── Defaults + fallback ────────────────────────────────────────────────
+
+export interface DefaultsOptions extends ManagerOptions {
+  /** Sources to try in order. Defaults to `DEFAULT_KNOWLEDGE_SOURCES`. */
+  sources?: KnowledgeSource[];
+}
+
+function resolveSources(opts: DefaultsOptions): KnowledgeSource[] {
+  return opts.sources ?? DEFAULT_KNOWLEDGE_SOURCES;
+}
+
+/**
+ * Install from the first reachable default source.
+ *
+ * Tries sources in order and returns as soon as one succeeds. Integrity is
+ * checked per-source, so a tampered GitHub response doesn't poison the fallback
+ * — we just move on to Gitee. If every source fails, aggregates the errors so
+ * the UI can show which attempts went wrong.
+ */
+export async function installFromDefaults(
+  opts: DefaultsOptions = {}
+): Promise<{ source: KnowledgeSource }> {
+  const sources = resolveSources(opts);
+  const errors: Array<{ source: KnowledgeSource; error: string }> = [];
+  for (const source of sources) {
+    try {
+      await installFromSource(source, opts);
+      return { source };
+    } catch (err) {
+      errors.push({ source, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  throw new Error(
+    `all default sources failed:\n${errors
+      .map((e) => `  - ${e.source.kind}:${e.source.location} → ${e.error}`)
+      .join('\n')}`
+  );
+}
+
+/**
+ * Ask every default source for its manifest version. Returns the first
+ * successful response. Used by the Skills page "check updates" button and the
+ * startup silent check.
+ */
+export async function checkUpdatesFromDefaults(
+  opts: DefaultsOptions = {}
+): Promise<{ source: KnowledgeSource; local: string | null; remote: string }> {
+  const sources = resolveSources(opts);
+  const errors: Array<{ source: KnowledgeSource; error: string }> = [];
+  for (const source of sources) {
+    try {
+      const r = await checkUpdates(source, opts);
+      return { source, ...r };
+    } catch (err) {
+      errors.push({ source, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  throw new Error(
+    `all default sources failed:\n${errors
+      .map((e) => `  - ${e.source.kind}:${e.source.location} → ${e.error}`)
+      .join('\n')}`
+  );
 }

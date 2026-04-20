@@ -8,7 +8,9 @@ import {
   installFromSource,
   removeAll,
   currentVersion,
-  checkUpdates
+  checkUpdates,
+  installFromDefaults,
+  checkUpdatesFromDefaults
 } from '../../src/main/skills/manager';
 import type { KnowledgeSource } from '@shared/skill-types';
 
@@ -207,6 +209,70 @@ describe('checkUpdates', () => {
         { root, fetchFn }
       )
     ).rejects.toThrow(/500/);
+  });
+});
+
+describe('installFromDefaults (fallback chain)', () => {
+  it('uses the second source when the first fails', async () => {
+    const bundle = await makeBundleDir(scratch, 'fallback body');
+    const primary: KnowledgeSource = { id: 'p', kind: 'github', location: 'owner/repo' };
+    const fallback: KnowledgeSource = { id: 'f', kind: 'local', location: bundle };
+
+    // fetchFn is only invoked by the github source; the local fallback bypasses
+    // fetch entirely and just reads from disk.
+    const fetchFn = async () => new Response('nope', { status: 500 });
+
+    const r = await installFromDefaults({
+      root,
+      fetchFn,
+      sources: [primary, fallback]
+    });
+
+    expect(r.source.id).toBe('f');
+    const manifest = JSON.parse(await fs.readFile(path.join(root, 'manifest.json'), 'utf8'));
+    expect(manifest.version).toBe('1.0.0');
+  });
+
+  it('throws with every attempted source when all fail', async () => {
+    const fetchFn = async () => new Response('nope', { status: 500 });
+    const sources: KnowledgeSource[] = [
+      { id: 'a', kind: 'github', location: 'owner/a' },
+      { id: 'b', kind: 'gitee', location: 'owner/b' }
+    ];
+
+    await expect(
+      installFromDefaults({ root, fetchFn, sources })
+    ).rejects.toThrow(/owner\/a[\s\S]*owner\/b/);
+  });
+});
+
+describe('checkUpdatesFromDefaults', () => {
+  it('returns the first reachable manifest and records which source answered', async () => {
+    const bundle = await makeBundleDir(scratch, 'x', { version: '1.0.0' });
+    await installFromSource({ id: 's', kind: 'local', location: bundle }, { root });
+
+    let calls = 0;
+    const fetchFn = async () => {
+      calls++;
+      if (calls === 1) return new Response('down', { status: 502 });
+      return new Response(
+        JSON.stringify({ schema: '1', version: '1.2.0', skills: [] }),
+        { status: 200 }
+      );
+    };
+
+    const r = await checkUpdatesFromDefaults({
+      root,
+      fetchFn,
+      sources: [
+        { id: 'gh', kind: 'github', location: 'owner/repo' },
+        { id: 'gt', kind: 'gitee', location: 'owner/repo' }
+      ]
+    });
+
+    expect(r.source.id).toBe('gt');
+    expect(r.local).toBe('1.0.0');
+    expect(r.remote).toBe('1.2.0');
   });
 });
 

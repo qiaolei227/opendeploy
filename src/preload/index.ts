@@ -20,7 +20,9 @@ const api: IpcApi = {
   skillsInstall: (source: KnowledgeSource) => ipcRenderer.invoke('skills:install', source),
   skillsCheckUpdates: (source: KnowledgeSource) =>
     ipcRenderer.invoke('skills:check-updates', source),
-  skillsRemoveAll: () => ipcRenderer.invoke('skills:remove-all')
+  skillsRemoveAll: () => ipcRenderer.invoke('skills:remove-all'),
+  skillsInstallDefaults: () => ipcRenderer.invoke('skills:install-defaults'),
+  skillsCheckUpdatesDefaults: () => ipcRenderer.invoke('skills:check-updates-defaults')
 };
 
 contextBridge.exposeInMainWorld('opendeploy', api);
