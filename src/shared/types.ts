@@ -1,6 +1,11 @@
 /// <reference types="node" />
 
-import type { ErpConnectionState, Project } from './erp-types';
+import type {
+  ErpConnectionState,
+  K3CloudConnectionConfig,
+  Project,
+  TestConnectionResult
+} from './erp-types';
 import type { KnowledgeSource, LoadedSkill, SkillMeta } from './skill-types';
 
 export type Language = 'zh-CN' | 'en-US';
@@ -65,4 +70,18 @@ export interface IpcApi {
   }>;
   /** Returns the bundle-level version from the local manifest.json, or null when nothing is installed. */
   skillsBundleVersion: () => Promise<string | null>;
+
+  // ─── Projects & ERP connection ─────────────────────────────────────
+  projectsList: () => Promise<Project[]>;
+  projectsCreate: (input: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Project>;
+  projectsUpdate: (
+    id: string,
+    patch: Partial<Omit<Project, 'id' | 'createdAt'>>
+  ) => Promise<Project>;
+  projectsDelete: (id: string) => Promise<void>;
+  projectsSetActive: (id: string | null) => Promise<void>;
+  projectsTestConnection: (config: K3CloudConnectionConfig) => Promise<TestConnectionResult>;
+  projectsConnectionState: () => Promise<ErpConnectionState>;
+  /** Subscribe to live connection-state changes. Returns an unsubscribe fn. */
+  erpOnConnectionState: (cb: (s: ErpConnectionState) => void) => () => void;
 }

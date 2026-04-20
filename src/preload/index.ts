@@ -1,6 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { AppSettings, IpcApi, LlmChatRequest, LlmStreamEvent } from '@shared/types';
 import type { KnowledgeSource } from '@shared/skill-types';
+import type {
+  ErpConnectionState,
+  K3CloudConnectionConfig,
+  Project
+} from '@shared/erp-types';
 
 const api: IpcApi = {
   getSettings: () => ipcRenderer.invoke('settings:get'),
@@ -24,7 +29,23 @@ const api: IpcApi = {
   skillsRemoveAll: () => ipcRenderer.invoke('skills:remove-all'),
   skillsInstallDefaults: () => ipcRenderer.invoke('skills:install-defaults'),
   skillsCheckUpdatesDefaults: () => ipcRenderer.invoke('skills:check-updates-defaults'),
-  skillsBundleVersion: () => ipcRenderer.invoke('skills:bundle-version')
+  skillsBundleVersion: () => ipcRenderer.invoke('skills:bundle-version'),
+
+  projectsList: () => ipcRenderer.invoke('projects:list'),
+  projectsCreate: (input: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>) =>
+    ipcRenderer.invoke('projects:create', input),
+  projectsUpdate: (id: string, patch: Partial<Omit<Project, 'id' | 'createdAt'>>) =>
+    ipcRenderer.invoke('projects:update', id, patch),
+  projectsDelete: (id: string) => ipcRenderer.invoke('projects:delete', id),
+  projectsSetActive: (id: string | null) => ipcRenderer.invoke('projects:set-active', id),
+  projectsTestConnection: (config: K3CloudConnectionConfig) =>
+    ipcRenderer.invoke('projects:test-connection', config),
+  projectsConnectionState: () => ipcRenderer.invoke('projects:connection-state'),
+  erpOnConnectionState: (cb: (s: ErpConnectionState) => void) => {
+    const listener = (_event: unknown, s: ErpConnectionState) => cb(s);
+    ipcRenderer.on('erp:connection-state', listener);
+    return () => ipcRenderer.removeListener('erp:connection-state', listener);
+  }
 };
 
 contextBridge.exposeInMainWorld('opendeploy', api);
