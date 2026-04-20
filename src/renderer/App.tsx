@@ -37,14 +37,14 @@ export function App() {
   const [page, setPage] = useState<PageKey>('workspace');
   const [wizardCompleted, setWizardCompleted] = useState(false);
 
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
 
-  // Sync document title and native window title to the current language.
+  // Window/document title is pinned to the English brand so the OS taskbar
+  // / window chrome stays stable across language switches.
   useEffect(() => {
-    const title = t('app.name');
-    document.title = title;
-    void window.opendeploy.setWindowTitle(title);
-  }, [t, i18n.language]);
+    document.title = 'OpenDeploy';
+    void window.opendeploy.setWindowTitle('OpenDeploy');
+  }, []);
 
   // Fetch settings if the bootstrap didn't pre-hydrate the store (defensive).
   useEffect(() => {
@@ -120,7 +120,6 @@ export function App() {
           {!isWizard && (
             <StatusBar
               llmProviderId={settings.llmProvider}
-              erpConnected={false}
               appVersion="v0.1.0-alpha.1"
             />
           )}

@@ -27,7 +27,8 @@ export function LogoMark({ size, variant = 'default', label }: LogoMarkProps): R
     <svg
       width={size}
       height={size}
-      viewBox="0 0 48 48"
+      viewBox="4 6 40 36"
+      preserveAspectRatio="xMidYMid meet"
       fill="none"
       role={label ? 'img' : undefined}
       aria-label={label}

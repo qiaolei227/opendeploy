@@ -1,78 +1,56 @@
 import { useTranslation } from 'react-i18next';
 import { Icons } from '@renderer/components/icons';
 import { PROVIDER_BY_ID } from '@renderer/data/providers';
+import { useChatStore } from '@renderer/stores/chat-store';
 
 export interface StatusBarProps {
   /** Currently selected LLM provider id (e.g. 'deepseek'). `undefined` means not configured. */
   llmProviderId?: string;
-  /** Whether the target ERP is currently connected. */
-  erpConnected?: boolean;
-  /** ERP version string shown next to the connection state, e.g. "V9.1.0.2". */
-  erpVersion?: string;
-  /** Skills bundle short git hash, e.g. "@4a7f1b2". */
-  skillsVersion?: string;
-  /** Number of installed skill packs. `0` or missing falls back to built-in label. */
-  skillsCount?: number;
   /** App version, e.g. "v0.1.3". */
   appVersion?: string;
   /** Whether a product update is available. */
   updateAvailable?: boolean;
-  /** Tokens consumed this session. */
-  tokensUsed?: number;
 }
 
-/**
- * StatusBar — bottom status/footer bar.
- *
- * Ported from `design/components/App.jsx` `StatusBar` function.
- *
- * MVP-0.1 reality: most props are optional/undefined — there is no real ERP
- * connection yet, skills don't exist, update channel isn't wired. The component
- * renders gracefully with missing values, showing "not connected" / "built-in"
- * / "not set" fallbacks instead of crashing.
- */
+/** Rough mixed zh/en token estimator. 2.5 chars per token is a conservative midpoint. */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 2.5);
+}
+
+/** Compact token formatter: 1234 → "1.2k", 1_000_000 → "1M". */
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return String(n);
+}
+
+/** StatusBar — bottom status bar showing app version, current LLM and context usage. */
 export function StatusBar({
   llmProviderId,
-  erpConnected = false,
-  erpVersion,
-  skillsVersion,
-  skillsCount = 0,
   appVersion,
-  updateAvailable = false,
-  tokensUsed = 0
+  updateAvailable = false
 }: StatusBarProps) {
   const { t } = useTranslation();
-
-  const erpLabel = erpConnected
-    ? `${t('status.erpConnected')}${erpVersion ? ` · ${erpVersion}` : ''}`
-    : t('status.erpDisconnected');
-
-  const skillsLabel =
-    skillsCount > 0
-      ? `${t('status.skillPacks', { count: skillsCount })}${skillsVersion ? ` · ${skillsVersion}` : ''}`
-      : t('status.skillsBuiltin');
+  const messages = useChatStore((s) => s.messages);
 
   const provider = llmProviderId ? PROVIDER_BY_ID[llmProviderId] : undefined;
-  const providerLabel = provider
-    ? `${provider.short} · user key`
-    : t('status.llmNotConfigured');
+  const providerLabel = provider ? provider.short : t('status.llmNotConfigured');
 
-  const tokensFormatted = new Intl.NumberFormat('en-US').format(tokensUsed);
+  const usedTokens = messages.reduce((sum, m) => {
+    let n = estimateTokens(m.content);
+    if (m.toolCalls) {
+      for (const tc of m.toolCalls) {
+        n += estimateTokens(tc.args) + estimateTokens(tc.result ?? '');
+      }
+    }
+    return sum + n;
+  }, 0);
+  const maxTokens = provider?.contextWindow ?? 0;
+  const pct = maxTokens > 0 ? Math.min(100, (usedTokens / maxTokens) * 100) : 0;
+  const fillClass = pct >= 85 ? 'hot' : pct >= 50 ? 'warm' : '';
 
   return (
     <footer className="statusbar">
-      <span className={`sbseg ${erpConnected ? 'good' : ''}`.trim()}>
-        <span className="sbdot" />
-        {erpLabel}
-      </span>
-      <span className="sbseg">
-        {Icons.shield}
-        <span>{t('status.metadataReadonly')}</span>
-      </span>
-      <span className="sbseg">
-        {Icons.sparkles}
-        <span>{skillsLabel}</span>
-      </span>
       {appVersion ? (
         <span className="sbseg">
           {Icons.git}
@@ -87,8 +65,23 @@ export function StatusBar({
         {Icons.brain}
         <span>{providerLabel}</span>
       </span>
-      <span className="sbseg">tokens {tokensFormatted}</span>
-      <span className="sbseg">zh-CN · en-US</span>
+      {provider && (
+        <span
+          className="sbseg ctx-meter"
+          title={t('status.contextTooltip', {
+            used: usedTokens.toLocaleString('en-US'),
+            max: maxTokens.toLocaleString('en-US'),
+            pct: pct.toFixed(1)
+          })}
+        >
+          <span className="ctx-bar">
+            <span className={`ctx-fill ${fillClass}`} style={{ width: `${pct}%` }} />
+          </span>
+          <span className="ctx-label">
+            {formatTokens(usedTokens)} / {formatTokens(maxTokens)}
+          </span>
+        </span>
+      )}
     </footer>
   );
 }

@@ -17,23 +17,11 @@
   },
   "workspace": {
     "emptyHeading": "描述一个需求",
-    "emptyDesc": "用日常语言说清楚客户想要什么。OpenDeploy 会先问澄清问题，再读取 ERP 元数据，最后给你可直接粘贴到客户环境的 Python 插件。",
-    "prompt1Title": "信用额度预警",
-    "prompt1Desc": "客户应收超限时阻止审核",
-    "prompt2Title": "物料编码规则",
-    "prompt2Desc": "按分类自动生成物料编号",
-    "prompt3Title": "入库自动应付",
-    "prompt3Desc": "采购入库同步生成应付单",
-    "prompt4Title": "欠票检查",
-    "prompt4Desc": "结账前扫描未到票应付",
-    "securityReassurance": "本次会话不会访问你客户的业务数据。SQL 白名单硬拦截客户业务表，仅允许元数据结构信息。"
+    "emptyDesc": "用日常语言说清楚客户想要什么。OpenDeploy 会先问澄清问题，再读取 ERP 元数据，最后给你可直接粘贴到客户环境的 Python 插件。"
   },
   "composer": {
     "placeholder": "描述一个 ERP 二开需求…",
-    "send": "发送",
-    "hintLeft": "{{mod}}K 命令面板 · {{mod}}/ 切换知识",
-    "hintRight": "流式 · 审计开启",
-    "attach": "附加元数据"
+    "send": "发送"
   },
   "side": {
     "conversations": "本项目对话",
@@ -42,13 +30,9 @@
     "addProject": "+ 新建项目"
   },
   "status": {
-    "erpConnected": "ERP 已连接",
-    "erpDisconnected": "ERP 未连接",
-    "metadataReadonly": "metadata-readonly",
-    "skillPacks": "{{count}} 个技能",
-    "skillsBuiltin": "技能 · 内置",
     "updateAvailable": "有新版",
-    "llmNotConfigured": "LLM · 未配置"
+    "llmNotConfigured": "LLM · 未配置",
+    "contextTooltip": "上下文用量：{{used}} / {{max}} tokens（{{pct}}%，估算）"
   },
   "settings": {
     "title": "设置",
@@ -88,7 +72,9 @@
     "minimize": "最小化",
     "maximize": "最大化",
     "close": "关闭",
-    "userDefault": "顾问"
+    "userDefault": "顾问",
+    "editionCommunity": "社区版",
+    "editionEnterprise": "企业版"
   },
   "common": {
     "search": "全局搜索"

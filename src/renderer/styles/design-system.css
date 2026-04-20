@@ -157,6 +157,13 @@ input, textarea, select { font: inherit; color: inherit; }
   border: 1px solid var(--border);
   border-radius: 3px;
 }
+.brand-name-en {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
 .brand-slash { color: var(--dim); font-weight: 400; }
 .brand-project { color: var(--muted); font-weight: 500; }
 .brand-edition {
@@ -169,6 +176,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .tb-spacer { flex: 1; }
 .tb-search {
   width: 320px; max-width: 40vw;
+  margin-right: 8px;
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 10px;
   background: var(--surface-2);
@@ -627,10 +635,6 @@ body.theme-dark .nm { color: oklch(0.80 0.13 25); }
 }
 .comp-chip:hover { background: var(--surface-2); color: var(--ink); }
 .comp-chip.on { color: var(--accent-deep); border-color: var(--accent); background: var(--accent-soft); }
-.chint {
-  margin-top: 6px; display: flex; justify-content: space-between;
-  font-size: 10.5px; color: var(--dim); font-family: var(--font-mono);
-}
 .kbd { padding: 1px 5px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface); }
 
 /* ─── Inspector ─── */
@@ -746,6 +750,24 @@ body.theme-dark .nm { color: oklch(0.80 0.13 25); }
 .sbseg.warn { color: oklch(0.55 0.14 75); }
 .sbdot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 2px var(--good-soft); }
 .statusbar .spacer { flex: 1; }
+
+.ctx-meter { cursor: default; gap: 8px; }
+.ctx-meter .ctx-bar {
+  width: 90px; height: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+.ctx-meter .ctx-fill {
+  display: block; height: 100%;
+  background: var(--good);
+  transition: width 200ms ease, background 200ms ease;
+}
+.ctx-meter .ctx-fill.warm { background: oklch(0.72 0.14 75); }
+.ctx-meter .ctx-fill.hot { background: oklch(0.60 0.18 28); }
+.ctx-meter .ctx-label { font-variant-numeric: tabular-nums; }
 
 /* ─── Page views ─── */
 .page-scroll { flex: 1; overflow-y: auto; }

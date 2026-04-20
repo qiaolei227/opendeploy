@@ -17,23 +17,11 @@
   },
   "workspace": {
     "emptyHeading": "Describe a requirement",
-    "emptyDesc": "Describe what the client wants. OpenDeploy clarifies, reads ERP metadata, and hands you a paste-ready Python plugin.",
-    "prompt1Title": "Credit limit guard",
-    "prompt1Desc": "Block approval when A/R exceeds limit",
-    "prompt2Title": "Material code rule",
-    "prompt2Desc": "Auto-generate codes by category",
-    "prompt3Title": "Auto A/P on inbound",
-    "prompt3Desc": "Create A/P from PO receipts",
-    "prompt4Title": "Missing invoice check",
-    "prompt4Desc": "Scan unmatched A/P at period-end",
-    "securityReassurance": "This session does not read business data. SQL whitelist hard-blocks client business tables; only metadata structure is allowed."
+    "emptyDesc": "Describe what the client wants. OpenDeploy clarifies, reads ERP metadata, and hands you a paste-ready Python plugin."
   },
   "composer": {
     "placeholder": "Describe an ERP customization need…",
-    "send": "Send",
-    "hintLeft": "{{mod}}K palette · {{mod}}/ toggle skills",
-    "hintRight": "streaming · audit on",
-    "attach": "Attach"
+    "send": "Send"
   },
   "side": {
     "conversations": "Project conversations",
@@ -42,13 +30,9 @@
     "addProject": "+ New project"
   },
   "status": {
-    "erpConnected": "ERP connected",
-    "erpDisconnected": "ERP not connected",
-    "metadataReadonly": "metadata-readonly",
-    "skillPacks": "{{count}} skill packs",
-    "skillsBuiltin": "skills · built-in",
     "updateAvailable": "update available",
-    "llmNotConfigured": "LLM · not set"
+    "llmNotConfigured": "LLM · not set",
+    "contextTooltip": "Context: {{used}} / {{max}} tokens ({{pct}}%, estimated)"
   },
   "settings": {
     "title": "Settings",
@@ -88,7 +72,9 @@
     "minimize": "Minimize",
     "maximize": "Maximize",
     "close": "Close",
-    "userDefault": "User"
+    "userDefault": "User",
+    "editionCommunity": "Community",
+    "editionEnterprise": "Enterprise"
   },
   "common": {
     "search": "Search everything"
