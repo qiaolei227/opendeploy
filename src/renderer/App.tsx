@@ -9,6 +9,7 @@ import { SecondarySide } from '@renderer/components/SecondarySide';
 import { StatusBar } from '@renderer/components/StatusBar';
 import { WorkspacePage } from '@renderer/pages/WorkspacePage';
 import { SettingsPage } from '@renderer/pages/SettingsPage';
+import { SkillsPage } from '@renderer/pages/SkillsPage';
 import { WizardPage } from '@renderer/pages/WizardPage';
 
 /**
@@ -114,7 +115,7 @@ export function App() {
             {page === 'settings' && <SettingsPage />}
             {page === 'wizard' && <WizardPage onFinish={handleWizardFinish} />}
             {page === 'projects' && <ProjectsPlaceholder />}
-            {page === 'skills' && <SkillsPlaceholder />}
+            {page === 'skills' && <SkillsPage />}
           </main>
 
           {!isWizard && (
@@ -136,17 +137,6 @@ function ProjectsPlaceholder() {
     <div style={{ padding: '40px', color: 'var(--muted)' }}>
       <h2>{t('nav.projects')}</h2>
       <p>{t('placeholders.projectsSoon')}</p>
-    </div>
-  );
-}
-
-/** Placeholder for the Skills page — full implementation lands in MVP-1. */
-function SkillsPlaceholder() {
-  const { t } = useTranslation();
-  return (
-    <div style={{ padding: '40px', color: 'var(--muted)' }}>
-      <h2>{t('nav.skills')}</h2>
-      <p>{t('placeholders.skillsSoon')}</p>
     </div>
   );
 }

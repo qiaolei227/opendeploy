@@ -104,8 +104,22 @@
     "saveSettings": "保存设置失败"
   },
   "placeholders": {
-    "projectsSoon": "项目管理功能将在 MVP-1 上线。",
-    "skillsSoon": "技能包市场将在 MVP-1 上线。"
+    "projectsSoon": "项目管理功能将在 MVP-1 上线。"
+  },
+  "skills": {
+    "intro": "技能是一组 Markdown 指令，帮助 Agent 处理特定场景。Agent 会根据技能描述判断何时需要它们，再按需加载。",
+    "installHeading": "安装技能包",
+    "installHint": "从 GitHub / Gitee 仓库拉取（owner/repo 或 owner/repo@ref），或选择本地目录。安装前会自动校验完整性（SHA-256）。",
+    "install": "安装",
+    "installed": "已安装",
+    "removed": "已移除",
+    "kindLocal": "本地目录",
+    "locationPlaceholderRepo": "owner/repo 或 owner/repo@ref",
+    "locationPlaceholderLocal": "本地绝对路径",
+    "installedHeading": "已安装（{{count}}）",
+    "removeAll": "全部移除",
+    "loading": "加载中…",
+    "empty": "暂无技能。从上方安装第一个技能包，或等 installer 首次启动时注入内置包。"
   },
   "messages": {
     "user": "顾问",

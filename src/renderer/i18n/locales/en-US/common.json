@@ -104,8 +104,22 @@
     "saveSettings": "Failed to save settings"
   },
   "placeholders": {
-    "projectsSoon": "Projects will arrive in MVP-1.",
-    "skillsSoon": "Skill packs will arrive in MVP-1."
+    "projectsSoon": "Projects will arrive in MVP-1."
+  },
+  "skills": {
+    "intro": "Skills are markdown instructions the agent loads on demand. Each skill's description tells the agent when to use it.",
+    "installHeading": "Install a skill pack",
+    "installHint": "Pull from a GitHub / Gitee repo (owner/repo or owner/repo@ref), or pick a local directory. SHA-256 integrity is checked before install.",
+    "install": "Install",
+    "installed": "Installed",
+    "removed": "Removed",
+    "kindLocal": "Local dir",
+    "locationPlaceholderRepo": "owner/repo or owner/repo@ref",
+    "locationPlaceholderLocal": "Absolute local path",
+    "installedHeading": "Installed ({{count}})",
+    "removeAll": "Remove all",
+    "loading": "Loading…",
+    "empty": "No skills yet. Install a pack above, or wait for the installer to seed the built-in bundle on first launch."
   },
   "messages": {
     "user": "You",
