@@ -119,5 +119,9 @@
   "placeholders": {
     "projectsSoon": "项目管理功能将在 MVP-1 上线。",
     "skillsSoon": "技能包市场将在 MVP-1 上线。"
+  },
+  "messages": {
+    "user": "顾问",
+    "assistant": "开达"
   }
 }
