@@ -5,10 +5,10 @@ import { PROVIDER_BY_ID } from '@renderer/data/providers';
 export interface StatusBarProps {
   /** Currently selected LLM provider id (e.g. 'deepseek'). `undefined` means not configured. */
   llmProviderId?: string;
-  /** Whether BOS (Kingdee K/3 Cloud) is currently connected. */
-  bosConnected?: boolean;
-  /** BOS version string shown next to the connection state, e.g. "V9.1.0.2". */
-  bosVersion?: string;
+  /** Whether the target ERP is currently connected. */
+  erpConnected?: boolean;
+  /** ERP version string shown next to the connection state, e.g. "V9.1.0.2". */
+  erpVersion?: string;
   /** Skills bundle short git hash, e.g. "@4a7f1b2". */
   skillsVersion?: string;
   /** Number of installed skill packs. `0` or missing falls back to built-in label. */
@@ -26,15 +26,15 @@ export interface StatusBarProps {
  *
  * Ported from `design/components/App.jsx` `StatusBar` function.
  *
- * MVP-0.1 reality: most props are optional/undefined — there is no real BOS
+ * MVP-0.1 reality: most props are optional/undefined — there is no real ERP
  * connection yet, skills don't exist, update channel isn't wired. The component
  * renders gracefully with missing values, showing "not connected" / "built-in"
  * / "not set" fallbacks instead of crashing.
  */
 export function StatusBar({
   llmProviderId,
-  bosConnected = false,
-  bosVersion,
+  erpConnected = false,
+  erpVersion,
   skillsVersion,
   skillsCount = 0,
   appVersion,
@@ -43,9 +43,9 @@ export function StatusBar({
 }: StatusBarProps) {
   const { t } = useTranslation();
 
-  const bosLabel = bosConnected
-    ? `${t('status.bosConnected')}${bosVersion ? ` · ${bosVersion}` : ''}`
-    : t('status.bosDisconnected');
+  const erpLabel = erpConnected
+    ? `${t('status.erpConnected')}${erpVersion ? ` · ${erpVersion}` : ''}`
+    : t('status.erpDisconnected');
 
   const skillsLabel =
     skillsCount > 0
@@ -61,9 +61,9 @@ export function StatusBar({
 
   return (
     <footer className="statusbar">
-      <span className={`sbseg ${bosConnected ? 'good' : ''}`.trim()}>
+      <span className={`sbseg ${erpConnected ? 'good' : ''}`.trim()}>
         <span className="sbdot" />
-        {bosLabel}
+        {erpLabel}
       </span>
       <span className="sbseg">
         {Icons.shield}

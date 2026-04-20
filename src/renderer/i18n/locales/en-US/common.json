@@ -11,13 +11,13 @@
     "settings": "Settings"
   },
   "chat": {
-    "placeholder": "Describe a Kingdee customization need...",
+    "placeholder": "Describe an ERP customization need...",
     "send": "Send",
     "empty": "Start your first conversation"
   },
   "workspace": {
     "emptyHeading": "Describe a requirement",
-    "emptyDesc": "Describe what the client wants. OpenDeploy clarifies, reads BOS metadata, and hands you a paste-ready Python plugin.",
+    "emptyDesc": "Describe what the client wants. OpenDeploy clarifies, reads ERP metadata, and hands you a paste-ready Python plugin.",
     "prompt1Title": "Credit limit guard",
     "prompt1Desc": "Block approval when A/R exceeds limit",
     "prompt2Title": "Material code rule",
@@ -26,10 +26,10 @@
     "prompt3Desc": "Create A/P from PO receipts",
     "prompt4Title": "Missing invoice check",
     "prompt4Desc": "Scan unmatched A/P at period-end",
-    "securityReassurance": "This session does not read business data. SQL whitelist hard-blocks T_SAL_*/T_AR_*; only T_META_* structure is allowed."
+    "securityReassurance": "This session does not read business data. SQL whitelist hard-blocks client business tables; only metadata structure is allowed."
   },
   "composer": {
-    "placeholder": "Describe a Kingdee customization need…",
+    "placeholder": "Describe an ERP customization need…",
     "send": "Send",
     "hintLeft": "{{mod}}K palette · {{mod}}/ toggle skills",
     "hintRight": "streaming · audit on",
@@ -42,8 +42,8 @@
     "addProject": "+ New project"
   },
   "status": {
-    "bosConnected": "BOS connected",
-    "bosDisconnected": "BOS not connected",
+    "erpConnected": "ERP connected",
+    "erpDisconnected": "ERP not connected",
     "metadataReadonly": "metadata-readonly",
     "skillPacks": "{{count}} skill packs",
     "skillsBuiltin": "skills · built-in",

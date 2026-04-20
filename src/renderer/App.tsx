@@ -91,7 +91,8 @@ export function App() {
   // not used yet in MVP-0.1, but the class logic matches the design prototype
   // so design-system CSS continues to line up once SkillsPage lands.
   const isBare = page === 'skills';
-  const appClass = `app ${isWizard ? 'mode-wizard' : ''} ${isBare ? 'mode-skills' : ''}`;
+  const isSettings = page === 'settings';
+  const appClass = `app ${isWizard ? 'mode-wizard' : ''} ${isBare ? 'mode-skills' : ''} ${isSettings ? 'mode-settings' : ''}`;
 
   const handleWizardFinish = (): void => {
     setWizardCompleted(true);
@@ -119,7 +120,7 @@ export function App() {
           {!isWizard && (
             <StatusBar
               llmProviderId={settings.llmProvider}
-              bosConnected={false}
+              erpConnected={false}
               appVersion="v0.1.0-alpha.1"
             />
           )}

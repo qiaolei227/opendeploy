@@ -11,13 +11,13 @@
     "settings": "设置"
   },
   "chat": {
-    "placeholder": "描述一个金蝶二开需求...",
+    "placeholder": "描述一个 ERP 二开需求...",
     "send": "发送",
     "empty": "开始你的第一次对话"
   },
   "workspace": {
     "emptyHeading": "描述一个需求",
-    "emptyDesc": "用日常语言说清楚客户想要什么。OpenDeploy 会先问澄清问题，再读取 BOS 元数据，最后给你可直接粘贴到客户环境的 Python 插件。",
+    "emptyDesc": "用日常语言说清楚客户想要什么。OpenDeploy 会先问澄清问题，再读取 ERP 元数据，最后给你可直接粘贴到客户环境的 Python 插件。",
     "prompt1Title": "信用额度预警",
     "prompt1Desc": "客户应收超限时阻止审核",
     "prompt2Title": "物料编码规则",
@@ -26,10 +26,10 @@
     "prompt3Desc": "采购入库同步生成应付单",
     "prompt4Title": "欠票检查",
     "prompt4Desc": "结账前扫描未到票应付",
-    "securityReassurance": "本次会话不会访问你客户的业务数据。SQL 白名单硬拦截 T_SAL_* / T_AR_* 等业务表，仅允许 T_META_* 结构信息。"
+    "securityReassurance": "本次会话不会访问你客户的业务数据。SQL 白名单硬拦截客户业务表，仅允许元数据结构信息。"
   },
   "composer": {
-    "placeholder": "描述一个金蝶二开需求…",
+    "placeholder": "描述一个 ERP 二开需求…",
     "send": "发送",
     "hintLeft": "{{mod}}K 命令面板 · {{mod}}/ 切换知识",
     "hintRight": "流式 · 审计开启",
@@ -42,8 +42,8 @@
     "addProject": "+ 新建项目"
   },
   "status": {
-    "bosConnected": "BOS 已连接",
-    "bosDisconnected": "BOS 未连接",
+    "erpConnected": "ERP 已连接",
+    "erpDisconnected": "ERP 未连接",
     "metadataReadonly": "metadata-readonly",
     "skillPacks": "{{count}} 个技能",
     "skillsBuiltin": "技能 · 内置",
