@@ -174,25 +174,6 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 
 .tb-spacer { flex: 1; }
-.tb-search {
-  width: 320px; max-width: 40vw;
-  margin-right: 8px;
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 10px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--muted);
-  font-size: 12px;
-  cursor: text;
-}
-.tb-search .kbd {
-  margin-left: auto;
-  font-family: var(--font-mono); font-size: 10px;
-  color: var(--dim);
-  padding: 0 4px; border: 1px solid var(--border); border-radius: 3px;
-  background: var(--bg);
-}
 
 .tb-actions { display: flex; gap: 3px; }
 .tb-btn {

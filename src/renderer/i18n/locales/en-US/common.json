@@ -76,9 +76,7 @@
     "editionCommunity": "Community",
     "editionEnterprise": "Enterprise"
   },
-  "common": {
-    "search": "Search everything"
-  },
+  "common": {},
   "wizard": {
     "tagline": "Your ERP implementation agent",
     "stepProvider": "LLM provider",

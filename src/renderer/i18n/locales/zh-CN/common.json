@@ -76,9 +76,7 @@
     "editionCommunity": "社区版",
     "editionEnterprise": "企业版"
   },
-  "common": {
-    "search": "全局搜索"
-  },
+  "common": {},
   "wizard": {
     "tagline": "你的实施交付智能体",
     "stepProvider": "LLM provider",
