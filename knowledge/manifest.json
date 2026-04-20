@@ -3,14 +3,9 @@
   "version": "0.1.0",
   "skills": [
     {
-      "id": "common/requirements-clarification",
+      "id": "common/skill-demo",
       "version": "1.0.0",
-      "sha256": "f307bfa15256e8f50df11f4b432f78f4345778e2b5aee2cde852413467433569"
-    },
-    {
-      "id": "kingdee-cosmic-v9/bos-plugin-anatomy",
-      "version": "1.0.0",
-      "sha256": "eaeab26c84153c103d4dd1e242f9ece93220810b29bf73f8358edffcb4dbeb8b"
+      "sha256": "04727dd9217141bd5d8668a0dd4cd7c95366937529f5fa5d729e43f6c3042d96"
     }
   ]
 }
