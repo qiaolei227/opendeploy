@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { BrowserWindow, ipcMain } from 'electron';
 import { loadSettings, saveSettings } from './settings';
 import type { AppSettings } from '@shared/types';
 
@@ -16,5 +16,12 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('app:platform', () => {
     return process.platform;
+  });
+
+  ipcMain.handle('app:set-window-title', (event, title: string) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win && !win.isDestroyed()) {
+      win.setTitle(title);
+    }
   });
 }

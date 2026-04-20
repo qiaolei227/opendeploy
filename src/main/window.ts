@@ -17,6 +17,8 @@ export function createMainWindow(): BrowserWindow {
     }
   });
 
+  win.setTitle('开达');
+
   win.on('ready-to-show', () => {
     win.show();
   });
