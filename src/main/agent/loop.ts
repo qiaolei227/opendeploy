@@ -1,0 +1,99 @@
+import type { Message, ToolCall } from '@shared/llm-types';
+import type { LlmClient } from '../llm/types';
+import type { ToolRegistry } from './tools';
+
+export type AgentLoopEvent =
+  | { type: 'delta'; content: string }
+  | { type: 'tool_call'; toolCall: ToolCall }
+  | { type: 'tool_result'; toolCallId: string; content: string; isError: boolean }
+  | { type: 'iteration_start'; iteration: number }
+  | { type: 'done' };
+
+interface RunAgentLoopParams {
+  client: LlmClient;
+  tools: ToolRegistry;
+  initialMessages: Message[];
+  providerId: string;
+  apiKey?: string;
+  model?: string;
+  onEvent?: (e: AgentLoopEvent) => void;
+  maxIterations?: number;
+  signal?: AbortSignal;
+}
+
+function makeId(): string {
+  return `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[]> {
+  const maxIter = params.maxIterations ?? 10;
+  const messages: Message[] = [...params.initialMessages];
+  const emit = params.onEvent ?? (() => {});
+  const toolDefs = params.tools.definitions();
+
+  for (let iter = 0; iter < maxIter; iter++) {
+    emit({ type: 'iteration_start', iteration: iter });
+
+    let assistantContent = '';
+    const toolCalls: ToolCall[] = [];
+    let finishReason: 'stop' | 'tool_calls' | 'length' | 'error' = 'stop';
+    let errored = false;
+
+    for await (const ev of params.client.stream({
+      providerId: params.providerId,
+      apiKey: params.apiKey,
+      model: params.model,
+      messages,
+      tools: toolDefs.length > 0 ? toolDefs : undefined
+    }, params.signal)) {
+      if (ev.type === 'delta') {
+        assistantContent += ev.content;
+        emit({ type: 'delta', content: ev.content });
+      } else if (ev.type === 'tool_call') {
+        toolCalls.push(ev.toolCall);
+        emit({ type: 'tool_call', toolCall: ev.toolCall });
+      } else if (ev.type === 'done') {
+        finishReason = ev.finishReason;
+      } else if (ev.type === 'error') {
+        errored = true;
+        assistantContent = ev.error;
+        break;
+      }
+    }
+
+    const assistantMsg: Message = {
+      id: makeId(),
+      role: 'assistant',
+      content: assistantContent,
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      createdAt: new Date().toISOString()
+    };
+    messages.push(assistantMsg);
+
+    if (errored || finishReason !== 'tool_calls' || toolCalls.length === 0) {
+      emit({ type: 'done' });
+      return messages;
+    }
+
+    // Execute tools, append tool result messages, loop again
+    for (const tc of toolCalls) {
+      const result = await params.tools.execute(tc.name, tc.arguments);
+      const resultWithId = { ...result, toolCallId: tc.id };
+      emit({
+        type: 'tool_result',
+        toolCallId: tc.id,
+        content: resultWithId.content,
+        isError: resultWithId.isError ?? false
+      });
+      messages.push({
+        id: makeId(),
+        role: 'tool',
+        content: resultWithId.content,
+        toolCallId: tc.id,
+        createdAt: new Date().toISOString()
+      });
+    }
+  }
+
+  throw new Error(`Agent loop exceeded max iterations (${maxIter})`);
+}
