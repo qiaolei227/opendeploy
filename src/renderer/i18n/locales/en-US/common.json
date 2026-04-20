@@ -122,6 +122,10 @@
     "empty": "No skills yet. The installer seeds the built-in bundle on first launch, or click “Check for updates” to pull from the official repo.",
     "emptyForFilter": "No skills in this category.",
     "filterAll": "All",
+    "erp": {
+      "common": "Common",
+      "kingdee-cosmic-v9": "Kingdee Cosmic V9"
+    },
     "category": {
       "workflow": "Workflow",
       "plugin-dev": "Plugin dev",

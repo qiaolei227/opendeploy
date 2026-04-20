@@ -1,31 +1,33 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSkillsStore } from '@renderer/stores/skills-store';
-import type { SkillCategory } from '@shared/skill-types';
-
-const CATEGORY_ORDER: SkillCategory[] = [
-  'workflow',
-  'plugin-dev',
-  'sales',
-  'purchase',
-  'inventory',
-  'finance',
-  'basedata',
-  'metadata',
-  'debugging'
-];
-
-type FilterKey = 'all' | SkillCategory;
 
 /**
- * SkillsPage — consultant-facing surface. One big "检查更新 / 更新" button,
- * one row of category filters, then the installed skills.
+ * Bucket used for skills without an `erpProvider` — shown as "通用 / Common".
+ * Kept as a string constant rather than `undefined` so the filter chip can
+ * still be a React key.
+ */
+const COMMON_BUCKET = '__common__';
+
+type FilterKey = 'all' | string;
+
+/** Map known erpProvider ids to display names. Unknown ids fall back to the raw string. */
+function erpDisplayName(erpProvider: string | undefined, t: (k: string) => string): string {
+  if (!erpProvider) return t('skills.erp.common');
+  // Look up via i18n so new ERPs can be added without code. Fallback to raw id
+  // when the key doesn't exist (i18next returns the key itself on miss).
+  const key = `skills.erp.${erpProvider}`;
+  const resolved = t(key);
+  return resolved === key ? erpProvider : resolved;
+}
+
+/**
+ * SkillsPage — consultant-facing surface.
  *
- * The repo URL is hidden: checkUpdates / installUpdate always hit the
- * DEFAULT_KNOWLEDGE_SOURCES (GitHub → Gitee fallback) wired in
- * src/main/skills/defaults.ts. Advanced single-source install lives behind
- * `store.installFrom()` — not surfaced here yet, will move to Settings when
- * the enterprise edition needs private repos.
+ * Organization: **by product (erpProvider)**, not by capability category.
+ * Consultants reach for skills based on which ERP they're implementing, so
+ * that's the first cut. Category sticks around as a secondary chip on each
+ * card for agent-visible hints / future sub-nav.
  */
 export function SkillsPage() {
   const { t } = useTranslation();
@@ -48,24 +50,38 @@ export function SkillsPage() {
 
   useEffect(() => {
     void load();
-    // Fire a silent update check once on first visit. Failures are shown in
-    // the hero area but don't block rendering.
     void checkUpdates();
   }, [load, checkUpdates]);
 
-  const filtered = useMemo(() => {
-    if (filter === 'all') return skills;
-    return skills.filter((s) => s.category === filter);
-  }, [skills, filter]);
+  // Unique erpProvider buckets discovered from installed skills. Order:
+  // common first, then alphabetical. Consistent bucket ordering keeps the
+  // filter row visually stable as skills are added/removed.
+  const buckets = useMemo(() => {
+    const set = new Set<string>();
+    let hasCommon = false;
+    for (const s of skills) {
+      if (!s.erpProvider) hasCommon = true;
+      else set.add(s.erpProvider);
+    }
+    const erps = [...set].sort();
+    return hasCommon ? [COMMON_BUCKET, ...erps] : erps;
+  }, [skills]);
 
   const counts = useMemo(() => {
     const map = new Map<FilterKey, number>([['all', skills.length]]);
-    for (const cat of CATEGORY_ORDER) map.set(cat, 0);
+    for (const b of buckets) map.set(b, 0);
     for (const s of skills) {
-      if (s.category) map.set(s.category, (map.get(s.category) ?? 0) + 1);
+      const key = s.erpProvider ?? COMMON_BUCKET;
+      map.set(key, (map.get(key) ?? 0) + 1);
     }
     return map;
-  }, [skills]);
+  }, [skills, buckets]);
+
+  const filtered = useMemo(() => {
+    if (filter === 'all') return skills;
+    if (filter === COMMON_BUCKET) return skills.filter((s) => !s.erpProvider);
+    return skills.filter((s) => s.erpProvider === filter);
+  }, [skills, filter]);
 
   const localVersion = bundleVersion;
 
@@ -81,9 +97,7 @@ export function SkillsPage() {
         <section className="card" style={{ padding: 20, margin: '20px 0 24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 260 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>
-                {t('skills.bundleLabel')}
-              </div>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{t('skills.bundleLabel')}</div>
               <div
                 style={{
                   display: 'flex',
@@ -105,7 +119,8 @@ export function SkillsPage() {
                 )}
                 {lastCheckedAt && (
                   <span>
-                    · {t('skills.lastChecked', {
+                    ·{' '}
+                    {t('skills.lastChecked', {
                       time: new Date(lastCheckedAt).toLocaleTimeString()
                     })}
                   </span>
@@ -142,32 +157,37 @@ export function SkillsPage() {
           )}
         </section>
 
-        {/* Category filter */}
-        <div
-          style={{
-            display: 'flex',
-            gap: 6,
-            flexWrap: 'wrap',
-            marginBottom: 16
-          }}
-        >
-          <FilterChip
-            active={filter === 'all'}
-            onClick={() => setFilter('all')}
-            label={t('skills.filterAll')}
-            count={counts.get('all') ?? 0}
-          />
-          {CATEGORY_ORDER.map((cat) => (
+        {/* Product filter */}
+        {buckets.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 6,
+              flexWrap: 'wrap',
+              marginBottom: 16
+            }}
+          >
             <FilterChip
-              key={cat}
-              active={filter === cat}
-              onClick={() => setFilter(cat)}
-              label={t(`skills.category.${cat}`)}
-              count={counts.get(cat) ?? 0}
-              hidden={(counts.get(cat) ?? 0) === 0}
+              active={filter === 'all'}
+              onClick={() => setFilter('all')}
+              label={t('skills.filterAll')}
+              count={counts.get('all') ?? 0}
             />
-          ))}
-        </div>
+            {buckets.map((b) => (
+              <FilterChip
+                key={b}
+                active={filter === b}
+                onClick={() => setFilter(b)}
+                label={
+                  b === COMMON_BUCKET
+                    ? t('skills.erp.common')
+                    : erpDisplayName(b, t)
+                }
+                count={counts.get(b) ?? 0}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Skill list */}
         {loading ? (
@@ -195,18 +215,20 @@ export function SkillsPage() {
                   <span className="chip" style={{ fontSize: 10 }}>
                     v{s.version}
                   </span>
+                  <span className="chip accent" style={{ fontSize: 10 }}>
+                    {erpDisplayName(s.erpProvider, t)}
+                  </span>
                   {s.category && (
-                    <span className="chip accent" style={{ fontSize: 10 }}>
+                    <span className="chip" style={{ fontSize: 10 }}>
                       {t(`skills.category.${s.category}`)}
                     </span>
                   )}
-                  {s.erpProvider && (
-                    <span className="chip" style={{ fontSize: 10 }}>
-                      {s.erpProvider}
-                    </span>
-                  )}
                   {s.tags?.map((tag) => (
-                    <span key={tag} className="chip" style={{ fontSize: 10, opacity: 0.7 }}>
+                    <span
+                      key={tag}
+                      className="chip"
+                      style={{ fontSize: 10, opacity: 0.7 }}
+                    >
                       #{tag}
                     </span>
                   ))}
@@ -278,16 +300,13 @@ function FilterChip({
   active,
   onClick,
   label,
-  count,
-  hidden
+  count
 }: {
   active: boolean;
   onClick: () => void;
   label: string;
   count: number;
-  hidden?: boolean;
 }) {
-  if (hidden) return null;
   return (
     <button
       type="button"

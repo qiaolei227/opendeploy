@@ -122,6 +122,10 @@
     "empty": "暂无技能。首次启动 installer 会自动注入内置包，或点击上方「检查更新」从官方仓库拉取。",
     "emptyForFilter": "当前分类下没有技能。",
     "filterAll": "全部",
+    "erp": {
+      "common": "通用",
+      "kingdee-cosmic-v9": "金蝶云星空 V9"
+    },
     "category": {
       "workflow": "工作流程",
       "plugin-dev": "插件开发",
