@@ -1,14 +1,18 @@
 import { app, BrowserWindow } from 'electron';
 import { createMainWindow } from './window';
 import { registerIpcHandlers } from './ipc';
+import { registerLlmIpc } from './ipc-llm';
+
+let mainWin: BrowserWindow | null = null;
 
 app.whenReady().then(() => {
   registerIpcHandlers();
-  createMainWindow();
+  registerLlmIpc(() => mainWin);
+  mainWin = createMainWindow();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
+      mainWin = createMainWindow();
     }
   });
 });
