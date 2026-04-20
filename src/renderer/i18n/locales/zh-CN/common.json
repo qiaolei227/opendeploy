@@ -94,7 +94,7 @@
     "search": "全局搜索"
   },
   "wizard": {
-    "tagline": "你的实施交付工具箱",
+    "tagline": "你的实施交付智能体",
     "stepProvider": "LLM provider",
     "stepDone": "完成",
     "feat1Title": "零服务器",

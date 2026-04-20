@@ -94,7 +94,7 @@
     "search": "Search everything"
   },
   "wizard": {
-    "tagline": "Your ERP implementation toolkit",
+    "tagline": "Your ERP implementation agent",
     "stepProvider": "LLM provider",
     "stepDone": "Done",
     "feat1Title": "Zero server",
