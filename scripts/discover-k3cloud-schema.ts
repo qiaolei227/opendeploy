@@ -59,7 +59,7 @@ async function main(): Promise<void> {
     options: {
       instanceName: INSTANCE || undefined,
       trustServerCertificate: true,
-      encrypt: false
+      encrypt: true
     },
     pool: { max: 2, min: 0, idleTimeoutMillis: 10_000 }
   };
