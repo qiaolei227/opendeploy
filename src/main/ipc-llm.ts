@@ -5,6 +5,7 @@ import { runAgentLoop } from './agent/loop';
 import { ToolRegistry } from './agent/tools';
 import { BUILTIN_TOOLS } from './agent/builtin-tools';
 import { buildSkillsContext } from './agent/skills-integration';
+import { activeProjectTag, buildK3CloudTools } from './agent/k3cloud-tools';
 import {
   deleteConversation,
   listConversations,
@@ -43,15 +44,19 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
     // Run asynchronously — don't block IPC
     void (async () => {
       try {
-        // Fresh registry + skill catalog per request so skills installed
-        // between turns are picked up without an app restart.
+        // Fresh registry + skill catalog + k3cloud tools per request so
+        // project switches / skill installs between turns are picked up
+        // without an app restart.
         const registry = new ToolRegistry();
         for (const t of BUILTIN_TOOLS) registry.register(t);
         const { systemPromptFragment, loadSkillTool } = await buildSkillsContext();
         registry.register(loadSkillTool);
-        const systemPrompt = systemPromptFragment
-          ? `${BASE_SYSTEM_PROMPT}\n\n${systemPromptFragment}`
-          : BASE_SYSTEM_PROMPT;
+        for (const t of buildK3CloudTools()) registry.register(t);
+
+        const projectTag = activeProjectTag();
+        const systemPrompt = [BASE_SYSTEM_PROMPT, projectTag, systemPromptFragment]
+          .filter((s) => s && s.trim() !== '')
+          .join('\n\n');
 
         const client = createLlmClient(req.providerId);
         const finalMessages = await runAgentLoop({
