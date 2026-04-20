@@ -44,12 +44,21 @@ export function App() {
     }
   }, [loaded, load]);
 
-  // First-launch detection: no provider configured → show the wizard.
+  // First-launch detection: show wizard if setup is incomplete.
+  // Incomplete = no provider OR (non-Ollama provider without API key).
   useEffect(() => {
-    if (loaded && !settings.llmProvider && !wizardCompleted) {
+    if (!loaded || wizardCompleted) return;
+    const provider = settings.llmProvider;
+    if (!provider) {
+      setPage('wizard');
+      return;
+    }
+    const needsApiKey = provider !== 'ollama';
+    const hasApiKey = !needsApiKey || !!settings.apiKeys?.[provider];
+    if (!hasApiKey) {
       setPage('wizard');
     }
-  }, [loaded, settings.llmProvider, wizardCompleted]);
+  }, [loaded, settings.llmProvider, settings.apiKeys, wizardCompleted]);
 
   if (!loaded) {
     return (
