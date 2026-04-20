@@ -29,7 +29,9 @@ export function WizardPage({ onFinish }: WizardPageProps) {
   const { t } = useTranslation();
   const [step, setStep] = useState(0);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState('');
   const setLlmProvider = useSettingsStore((s) => s.setLlmProvider);
+  const setApiKey = useSettingsStore((s) => s.setApiKey);
 
   const steps = [
     t('wizard.stepWelcome'),
@@ -49,6 +51,9 @@ export function WizardPage({ onFinish }: WizardPageProps) {
   const handleFinish = async (): Promise<void> => {
     if (selectedProvider) {
       await setLlmProvider(selectedProvider);
+      if (selectedProvider !== 'ollama' && apiKeyInput.trim()) {
+        await setApiKey(selectedProvider, apiKeyInput.trim());
+      }
     }
     onFinish();
   };
@@ -162,6 +167,42 @@ export function WizardPage({ onFinish }: WizardPageProps) {
                   );
                 })}
               </div>
+              {selectedProvider && (
+                <div style={{ marginTop: 16 }}>
+                  {selectedProvider === 'ollama' ? (
+                    <div className="hint">{t('settings.ollamaNoKey')}</div>
+                  ) : (
+                    <>
+                      <label
+                        style={{
+                          display: 'block',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          marginBottom: 6
+                        }}
+                      >
+                        {t('settings.apiKey')}
+                      </label>
+                      <input
+                        type="password"
+                        value={apiKeyInput}
+                        onChange={(e) => setApiKeyInput(e.target.value)}
+                        placeholder={t('settings.apiKeyPlaceholder')}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: '1px solid var(--border)',
+                          borderRadius: 6,
+                          background: 'var(--surface)',
+                          color: 'var(--ink)',
+                          fontSize: 13,
+                          fontFamily: 'var(--font-mono)'
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
+              )}
             </>
           )}
 
@@ -217,7 +258,11 @@ export function WizardPage({ onFinish }: WizardPageProps) {
             <button
               className="btn primary lg"
               type="button"
-              disabled={step === 1 && !selectedProvider}
+              disabled={
+                step === 1 &&
+                (!selectedProvider ||
+                  (selectedProvider !== 'ollama' && !apiKeyInput.trim()))
+              }
               onClick={() => setStep((s) => Math.min(steps.length - 1, s + 1))}
             >
               {t('wizard.continue')}

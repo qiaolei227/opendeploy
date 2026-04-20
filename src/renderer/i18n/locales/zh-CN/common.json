@@ -75,7 +75,14 @@
       "Local": "本地"
     },
     "save": "保存",
-    "saved": "已保存"
+    "saved": "已保存",
+    "sectionAppearance": "外观",
+    "sectionLlm": "LLM 服务",
+    "sectionAbout": "关于",
+    "aboutVersion": "版本",
+    "aboutLicense": "开源协议",
+    "aboutSource": "源码",
+    "aboutCopyright": "© 2026 乔磊"
   },
   "titlebar": {
     "minimize": "最小化",

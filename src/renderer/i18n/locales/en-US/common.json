@@ -75,7 +75,14 @@
       "Local": "Local"
     },
     "save": "Save",
-    "saved": "Saved"
+    "saved": "Saved",
+    "sectionAppearance": "Appearance",
+    "sectionLlm": "LLM Provider",
+    "sectionAbout": "About",
+    "aboutVersion": "Version",
+    "aboutLicense": "License",
+    "aboutSource": "Source",
+    "aboutCopyright": "© 2026 qiaolei"
   },
   "titlebar": {
     "minimize": "Minimize",
