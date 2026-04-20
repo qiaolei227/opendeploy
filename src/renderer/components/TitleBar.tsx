@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { Icons } from '@renderer/components/icons';
+import { LogoMark } from '@renderer/components/LogoMark';
 
 export interface TitleBarProps {
   /** Current project label shown after the brand (e.g., "川沙诚信商贸 · V9.1"). */
@@ -22,28 +23,8 @@ export function TitleBar({
   return (
     <header className="titlebar win">
       <div className="brand">
-        <div className="brand-mark" aria-label="开达 OpenDeploy">
-          <svg width="22" height="22" viewBox="0 0 48 48" fill="none">
-            <rect width="48" height="48" rx="10" fill="#3d7a5a" />
-            <rect x="14" y="11" width="20" height="12" rx="2" fill="#fafaf7" />
-            <path
-              d="M20 27 L24 31 L28 27"
-              stroke="#fafaf7"
-              strokeWidth="2.5"
-              fill="none"
-              strokeLinecap="square"
-              strokeLinejoin="miter"
-            />
-            <line
-              x1="10"
-              y1="37"
-              x2="38"
-              y2="37"
-              stroke="#fafaf7"
-              strokeWidth="2.5"
-              strokeLinecap="square"
-            />
-          </svg>
+        <div className="brand-mark">
+          <LogoMark size={22} variant="inverse" label="开达 OpenDeploy" />
         </div>
         <span className="brand-cn">开达</span>
         <span className="brand-en">OpenDeploy</span>
