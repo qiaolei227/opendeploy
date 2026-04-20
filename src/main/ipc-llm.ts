@@ -6,6 +6,7 @@ import { ToolRegistry } from './agent/tools';
 import { BUILTIN_TOOLS } from './agent/builtin-tools';
 import { buildSkillsContext } from './agent/skills-integration';
 import { activeProjectTag, buildK3CloudTools } from './agent/k3cloud-tools';
+import { buildPluginTools } from './agent/plugin-tools';
 import {
   deleteConversation,
   listConversations,
@@ -52,6 +53,7 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
         const { systemPromptFragment, loadSkillTool } = await buildSkillsContext();
         registry.register(loadSkillTool);
         for (const t of buildK3CloudTools()) registry.register(t);
+        for (const t of buildPluginTools()) registry.register(t);
 
         const projectTag = activeProjectTag();
         const systemPrompt = [BASE_SYSTEM_PROMPT, projectTag, systemPromptFragment]

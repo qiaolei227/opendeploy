@@ -45,7 +45,15 @@ const api: IpcApi = {
     const listener = (_event: unknown, s: ErpConnectionState) => cb(s);
     ipcRenderer.on('erp:connection-state', listener);
     return () => ipcRenderer.removeListener('erp:connection-state', listener);
-  }
+  },
+
+  pluginsList: (projectId: string) => ipcRenderer.invoke('plugins:list', projectId),
+  pluginsRead: (projectId: string, name: string) =>
+    ipcRenderer.invoke('plugins:read', projectId, name),
+  pluginsWrite: (projectId: string, name: string, content: string) =>
+    ipcRenderer.invoke('plugins:write', projectId, name, content),
+  pluginsDelete: (projectId: string, name: string) =>
+    ipcRenderer.invoke('plugins:delete', projectId, name)
 };
 
 contextBridge.exposeInMainWorld('opendeploy', api);

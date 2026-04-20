@@ -6,6 +6,7 @@ import type {
   Project,
   TestConnectionResult
 } from './erp-types';
+import type { PluginFile, PluginWriteResult } from './plugin-types';
 import type { KnowledgeSource, LoadedSkill, SkillMeta } from './skill-types';
 
 export type Language = 'zh-CN' | 'en-US';
@@ -84,4 +85,14 @@ export interface IpcApi {
   projectsConnectionState: () => Promise<ErpConnectionState>;
   /** Subscribe to live connection-state changes. Returns an unsubscribe fn. */
   erpOnConnectionState: (cb: (s: ErpConnectionState) => void) => () => void;
+
+  // ─── Plugin artifacts ──────────────────────────────────────────────
+  pluginsList: (projectId: string) => Promise<PluginFile[]>;
+  pluginsRead: (projectId: string, name: string) => Promise<string>;
+  pluginsWrite: (
+    projectId: string,
+    name: string,
+    content: string
+  ) => Promise<PluginWriteResult>;
+  pluginsDelete: (projectId: string, name: string) => Promise<void>;
 }
