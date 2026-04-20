@@ -3,6 +3,13 @@
  * produces into a project's `plugins/` directory.
  */
 
+/**
+ * The agent-tool name both sides of the IPC filter on when a `write_plugin`
+ * result lands. Keeping it here means renaming the tool is a single-file
+ * edit, not a silent contract break between main and renderer.
+ */
+export const WRITE_PLUGIN_TOOL_NAME = 'write_plugin';
+
 export interface PluginFile {
   /** File name relative to the project plugins dir — e.g. "credit_limit_guard.py". */
   name: string;

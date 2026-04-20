@@ -1,12 +1,11 @@
 import { promises as fs } from 'node:fs';
-import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
+import { openDeployHome } from './paths';
 
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
 
 export function getLogPath(): string {
-  const home = process.env.OPENDEPLOY_HOME ?? join(homedir(), '.opendeploy');
-  return join(home, 'logs', 'app.log');
+  return join(openDeployHome(), 'logs', 'app.log');
 }
 
 async function ensureLogDir(): Promise<void> {

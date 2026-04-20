@@ -1,12 +1,11 @@
 import { promises as fs } from 'node:fs';
-import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import type { AppSettings } from '@shared/types';
 import { DEFAULT_SETTINGS } from '@shared/types';
+import { openDeployHome } from './paths';
 
 export function getSettingsPath(): string {
-  const home = process.env.OPENDEPLOY_HOME ?? join(homedir(), '.opendeploy');
-  return join(home, 'settings.json');
+  return join(openDeployHome(), 'settings.json');
 }
 
 export async function loadSettings(): Promise<AppSettings> {

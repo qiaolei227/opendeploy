@@ -4,6 +4,7 @@ import {
   readPlugin,
   writePlugin
 } from '../plugins/store';
+import { WRITE_PLUGIN_TOOL_NAME } from '@shared/plugin-types';
 import type { ToolHandler } from './tools';
 
 /**
@@ -28,7 +29,7 @@ function requireActiveProject(): string {
 function writePluginTool(): ToolHandler {
   return {
     definition: {
-      name: 'write_plugin',
+      name: WRITE_PLUGIN_TOOL_NAME,
       description:
         '把一段 Python 代码保存为当前项目的表单插件文件。仅在需求澄清 + 元数据查询完成后调用。filename 必须以 .py 结尾、不含路径分隔符、不含中文或空格，例如 "credit_limit_guard.py"。写完后你应告知用户文件路径，并提示他们按 skill 指导注册到金蝶客户端。',
       parameters: {

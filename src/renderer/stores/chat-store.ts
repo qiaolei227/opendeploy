@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { LlmStreamEvent } from '@shared/types';
+import { makeId } from '@shared/id';
 import { useArtifactsStore } from './artifacts-store';
 
 export interface ChatMessage {
@@ -23,7 +24,7 @@ interface ChatState {
   loadConversation: (id: string) => Promise<void>;
 }
 
-function makeId() { return `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`; }
+const makeChatId = () => makeId('c');
 
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
@@ -34,10 +35,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   sendMessage: async (text, providerId, apiKey) => {
     const userMsg: ChatMessage = {
-      id: makeId(), role: 'user', content: text, createdAt: new Date().toISOString()
+      id: makeChatId(), role: 'user', content: text, createdAt: new Date().toISOString()
     };
     const assistantMsg: ChatMessage = {
-      id: makeId(), role: 'assistant', content: '', isStreaming: true, createdAt: new Date().toISOString()
+      id: makeChatId(), role: 'assistant', content: '', isStreaming: true, createdAt: new Date().toISOString()
     };
     set({
       messages: [...get().messages, userMsg, assistantMsg],

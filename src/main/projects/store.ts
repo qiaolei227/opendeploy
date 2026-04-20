@@ -1,4 +1,5 @@
 import { loadSettings, saveSettings } from '../settings';
+import { makeId } from '@shared/id';
 import type { Project } from '@shared/erp-types';
 
 export type NewProjectInput = Omit<Project, 'id' | 'createdAt' | 'updatedAt'>;
@@ -10,10 +11,6 @@ export type NewProjectInput = Omit<Project, 'id' | 'createdAt' | 'updatedAt'>;
  * amplification of saving the whole blob is acceptable at project-CRUD
  * frequency.
  */
-
-function makeId(): string {
-  return `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-}
 
 export async function listProjects(): Promise<Project[]> {
   return (await loadSettings()).projects ?? [];
@@ -29,7 +26,7 @@ export async function createProject(input: NewProjectInput): Promise<Project> {
   const now = new Date().toISOString();
   const project: Project = {
     ...input,
-    id: makeId(),
+    id: makeId('p'),
     createdAt: now,
     updatedAt: now
   };

@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Message } from '@shared/llm-types';
+import { openDeployHome } from '../paths';
 
 export interface ConversationSummary {
   id: string;
@@ -18,8 +18,7 @@ export interface Conversation {
 }
 
 export function getConversationsDir(): string {
-  const home = process.env.OPENDEPLOY_HOME ?? join(homedir(), '.opendeploy');
-  return join(home, 'conversations');
+  return join(openDeployHome(), 'conversations');
 }
 
 function sanitizeFilename(title: string): string {

@@ -9,7 +9,7 @@ import type { PluginFile, PluginWriteResult } from '@shared/plugin-types';
  *
  * - `listPlugins` / `readPlugin`: plain FS reads, return [] / throw ENOENT
  * - `writePlugin`: validates filename, mkdir -p the plugins dir, writes the
- *   content, reports whether it was a create or an overwrite via mtime/stat
+ *   content, reports whether it was a create or an overwrite
  * - `deletePlugin`: unlink with force:true (missing-file = no-op)
  */
 
@@ -23,17 +23,25 @@ export async function listPlugins(projectId: string): Promise<PluginFile[]> {
     throw err;
   }
 
+  const candidates = entries.filter((n) => n.endsWith('.py'));
+  const stats = await Promise.all(
+    candidates.map((name) => {
+      const abs = path.join(dir, name);
+      return fs.stat(abs).then(
+        (stat) => ({ name, abs, stat }),
+        () => null
+      );
+    })
+  );
+
   const out: PluginFile[] = [];
-  for (const name of entries) {
-    if (!name.endsWith('.py')) continue;
-    const abs = path.join(dir, name);
-    const stat = await fs.stat(abs).catch(() => null);
-    if (!stat?.isFile()) continue;
+  for (const row of stats) {
+    if (!row?.stat.isFile()) continue;
     out.push({
-      name,
-      path: abs,
-      modifiedAt: stat.mtime.toISOString(),
-      size: stat.size
+      name: row.name,
+      path: row.abs,
+      modifiedAt: row.stat.mtime.toISOString(),
+      size: row.stat.size
     });
   }
   out.sort((a, b) => (a.modifiedAt < b.modifiedAt ? 1 : -1));
@@ -59,18 +67,18 @@ export async function writePlugin(
   await fs.mkdir(dir, { recursive: true });
   const abs = path.join(dir, name);
 
-  // Stat before write to determine create vs overwrite.
+  // Pre-stat only to distinguish create vs overwrite. The post-write mtime
+  // and size are deterministic from the write we just did — no second stat.
   const existed = (await fs.stat(abs).catch(() => null)) != null;
   await fs.writeFile(abs, content, 'utf8');
-  const stat = await fs.stat(abs);
 
   return {
     projectId,
     file: {
       name,
       path: abs,
-      modifiedAt: stat.mtime.toISOString(),
-      size: stat.size
+      modifiedAt: new Date().toISOString(),
+      size: Buffer.byteLength(content, 'utf8')
     },
     lines: content.split(/\r?\n/).length,
     created: !existed
