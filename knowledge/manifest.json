@@ -1,0 +1,16 @@
+{
+  "schema": "1",
+  "version": "0.1.0",
+  "skills": [
+    {
+      "id": "common/requirements-clarification",
+      "version": "1.0.0",
+      "sha256": "72ff2ec641de1455a2c985d1fee9af3b8632bdf62ad3df649165d83cb126e838"
+    },
+    {
+      "id": "kingdee-cosmic-v9/bos-plugin-anatomy",
+      "version": "1.0.0",
+      "sha256": "d3c5661c06cbf1f2e4c3e51a38ec3557b37f605115886cfb3e7be587c09bc065"
+    }
+  ]
+}
