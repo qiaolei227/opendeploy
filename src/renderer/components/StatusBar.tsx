@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Icons } from '@renderer/components/icons';
 import { PROVIDER_BY_ID } from '@renderer/data/providers';
 import { useChatStore } from '@renderer/stores/chat-store';
+import { useProjectsStore } from '@renderer/stores/projects-store';
 
 export interface StatusBarProps {
   /** Currently selected LLM provider id (e.g. 'deepseek'). `undefined` means not configured. */
@@ -32,6 +33,10 @@ export function StatusBar({
 }: StatusBarProps) {
   const { t } = useTranslation();
   const messages = useChatStore((s) => s.messages);
+  const projects = useProjectsStore((s) => s.projects);
+  const connectionState = useProjectsStore((s) => s.connectionState);
+
+  const activeProject = projects.find((p) => p.id === connectionState.projectId);
 
   const provider = llmProviderId ? PROVIDER_BY_ID[llmProviderId] : undefined;
   const providerLabel = provider ? provider.short : t('status.llmNotConfigured');
@@ -49,6 +54,13 @@ export function StatusBar({
   const pct = maxTokens > 0 ? Math.min(100, (usedTokens / maxTokens) * 100) : 0;
   const fillClass = pct >= 85 ? 'hot' : pct >= 50 ? 'warm' : '';
 
+  const projectStatusClass =
+    connectionState.status === 'connected'
+      ? 'good'
+      : connectionState.status === 'error'
+        ? 'warn'
+        : '';
+
   return (
     <footer className="statusbar">
       {appVersion ? (
@@ -60,6 +72,18 @@ export function StatusBar({
           </span>
         </span>
       ) : null}
+      {activeProject && (
+        <span
+          className={`sbseg ${projectStatusClass}`.trim()}
+          title={connectionState.error ?? undefined}
+        >
+          <span className="sbdot" />
+          <span>{activeProject.name}</span>
+          <span style={{ opacity: 0.6 }}>
+            · {t(`projects.status.${connectionState.status}`)}
+          </span>
+        </span>
+      )}
       <span className="spacer" />
       <span className="sbseg">
         {Icons.brain}

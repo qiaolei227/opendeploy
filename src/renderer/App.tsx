@@ -3,11 +3,16 @@ import { useTranslation } from 'react-i18next';
 import { useSettingsStore } from '@renderer/stores/settings-store';
 import { useSkillsStore } from '@renderer/stores/skills-store';
 import { useChatStore } from '@renderer/stores/chat-store';
+import { useProjectsStore } from '@renderer/stores/projects-store';
 import { ErrorBoundary } from '@renderer/components/ErrorBoundary';
 import { ThemeProvider } from '@renderer/components/ThemeProvider';
 import { TitleBar } from '@renderer/components/TitleBar';
 import { NavRail, type PageKey } from '@renderer/components/NavRail';
-import { SecondarySide, type ConversationSummary } from '@renderer/components/SecondarySide';
+import {
+  SecondarySide,
+  type ConversationSummary,
+  type ProjectSummary
+} from '@renderer/components/SecondarySide';
 import { StatusBar } from '@renderer/components/StatusBar';
 import { WorkspacePage } from '@renderer/pages/WorkspacePage';
 import { SettingsPage } from '@renderer/pages/SettingsPage';
@@ -60,6 +65,22 @@ export function App() {
   const chatClear = useChatStore((s) => s.clear);
   const chatLoadConversation = useChatStore((s) => s.loadConversation);
 
+  const projects = useProjectsStore((s) => s.projects);
+  const projectsConnectionState = useProjectsStore((s) => s.connectionState);
+  const projectSummaries: ProjectSummary[] = projects.map((p) => ({
+    id: p.id,
+    name: p.name,
+    env: `V${p.connection.version}`,
+    state:
+      projectsConnectionState.projectId === p.id
+        ? projectsConnectionState.status === 'connected'
+          ? 'live'
+          : projectsConnectionState.status === 'connecting'
+            ? 'conn'
+            : 'idle'
+        : 'idle'
+  }));
+
   const refreshConversations = useCallback(async () => {
     try {
       const list = await window.opendeploy.conversationsList();
@@ -96,6 +117,15 @@ export function App() {
     const skillsStore = useSkillsStore.getState();
     void skillsStore.load();
     void skillsStore.checkUpdates();
+  }, []);
+
+  // Projects: load once + subscribe to live connection-state pushes. Both the
+  // StatusBar and the workspace rail read from the same store so they stay
+  // consistent without manual prop threading.
+  useEffect(() => {
+    const store = useProjectsStore.getState();
+    void store.load();
+    store.subscribeConnection();
   }, []);
 
   // Seed conversation list on mount + whenever the active chat changes.
@@ -162,6 +192,11 @@ export function App() {
           {!isWizard && (
             <SecondarySide
               page={page}
+              projects={projectSummaries}
+              activeProjectId={projectsConnectionState.projectId ?? undefined}
+              onProjectSelect={(id) => {
+                void useProjectsStore.getState().setActive(id);
+              }}
               conversations={conversations}
               activeConversationId={chatConversationId ?? undefined}
               onConversationSelect={(id) => {
