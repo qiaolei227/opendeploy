@@ -4,6 +4,7 @@ import { knowledgeDir } from './skills/paths';
 import {
   checkUpdates,
   checkUpdatesFromDefaults,
+  currentVersion,
   installFromDefaults,
   installFromSource,
   removeAll
@@ -39,4 +40,6 @@ export function registerSkillIpc(): void {
     const r = await checkUpdatesFromDefaults();
     return { sourceId: r.source.id, local: r.local, remote: r.remote };
   });
+
+  ipcMain.handle('skills:bundle-version', async () => currentVersion());
 }

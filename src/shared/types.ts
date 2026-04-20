@@ -56,4 +56,6 @@ export interface IpcApi {
     local: string | null;
     remote: string;
   }>;
+  /** Returns the bundle-level version from the local manifest.json, or null when nothing is installed. */
+  skillsBundleVersion: () => Promise<string | null>;
 }

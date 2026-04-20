@@ -21,6 +21,8 @@ export type UpdateStatus =
 
 interface SkillsState {
   skills: SkillMeta[];
+  /** Bundle-level version read from `manifest.json`. Distinct from any individual skill's version. */
+  bundleVersion: string | null;
   loading: boolean;
   error: string | null;
 
@@ -38,15 +40,9 @@ interface SkillsState {
   clearError: () => void;
 }
 
-function currentVersionOf(skills: SkillMeta[]): string | null {
-  // The registry doesn't read manifest.json directly; we read bundle version
-  // lazily from the first skill's version as a rough proxy until we wire a
-  // dedicated IPC. For MVP that's enough to drive badge state.
-  return skills[0]?.version ?? null;
-}
-
-export const useSkillsStore = create<SkillsState>((set, get) => ({
+export const useSkillsStore = create<SkillsState>((set) => ({
   skills: [],
+  bundleVersion: null,
   loading: false,
   error: null,
   updateStatus: 'idle',
@@ -56,8 +52,11 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
   load: async () => {
     set({ loading: true, error: null });
     try {
-      const skills = await window.opendeploy.skillsList();
-      set({ skills, loading: false });
+      const [skills, bundleVersion] = await Promise.all([
+        window.opendeploy.skillsList(),
+        window.opendeploy.skillsBundleVersion()
+      ]);
+      set({ skills, bundleVersion, loading: false });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err), loading: false });
     }
@@ -67,10 +66,12 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
     set({ updateStatus: 'checking', error: null });
     try {
       const r = await window.opendeploy.skillsCheckUpdatesDefaults();
-      const localGuess = currentVersionOf(get().skills);
-      const isNewer = r.remote !== (r.local ?? localGuess);
+      // r.local comes straight from manifest.json — trust it and mirror into state
+      // so the hero card uses the same value for both sides of the comparison.
+      const isNewer = r.remote !== r.local;
       set({
         updateStatus: isNewer ? 'available' : 'up-to-date',
+        bundleVersion: r.local,
         remoteVersion: r.remote,
         lastCheckedAt: new Date().toISOString()
       });
@@ -87,9 +88,13 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
     set({ updateStatus: 'installing', error: null });
     try {
       await window.opendeploy.skillsInstallDefaults();
-      const skills = await window.opendeploy.skillsList();
+      const [skills, bundleVersion] = await Promise.all([
+        window.opendeploy.skillsList(),
+        window.opendeploy.skillsBundleVersion()
+      ]);
       set({
         skills,
+        bundleVersion,
         updateStatus: 'up-to-date',
         lastCheckedAt: new Date().toISOString()
       });
@@ -105,8 +110,11 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
     set({ updateStatus: 'installing', error: null });
     try {
       await window.opendeploy.skillsInstall(source);
-      const skills = await window.opendeploy.skillsList();
-      set({ skills, updateStatus: 'idle' });
+      const [skills, bundleVersion] = await Promise.all([
+        window.opendeploy.skillsList(),
+        window.opendeploy.skillsBundleVersion()
+      ]);
+      set({ skills, bundleVersion, updateStatus: 'idle' });
     } catch (err) {
       set({
         updateStatus: 'error',
@@ -119,7 +127,12 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
     set({ error: null });
     try {
       await window.opendeploy.skillsRemoveAll();
-      set({ skills: [], updateStatus: 'idle', remoteVersion: null });
+      set({
+        skills: [],
+        bundleVersion: null,
+        updateStatus: 'idle',
+        remoteVersion: null
+      });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
     }

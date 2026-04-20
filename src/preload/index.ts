@@ -22,7 +22,8 @@ const api: IpcApi = {
     ipcRenderer.invoke('skills:check-updates', source),
   skillsRemoveAll: () => ipcRenderer.invoke('skills:remove-all'),
   skillsInstallDefaults: () => ipcRenderer.invoke('skills:install-defaults'),
-  skillsCheckUpdatesDefaults: () => ipcRenderer.invoke('skills:check-updates-defaults')
+  skillsCheckUpdatesDefaults: () => ipcRenderer.invoke('skills:check-updates-defaults'),
+  skillsBundleVersion: () => ipcRenderer.invoke('skills:bundle-version')
 };
 
 contextBridge.exposeInMainWorld('opendeploy', api);

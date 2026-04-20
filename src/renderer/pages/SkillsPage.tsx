@@ -31,6 +31,7 @@ export function SkillsPage() {
   const { t } = useTranslation();
   const {
     skills,
+    bundleVersion,
     loading,
     error,
     updateStatus,
@@ -66,7 +67,7 @@ export function SkillsPage() {
     return map;
   }, [skills]);
 
-  const localVersion = skills[0]?.version ?? null;
+  const localVersion = bundleVersion;
 
   return (
     <div className="page-scroll">
