@@ -55,6 +55,7 @@ export function App() {
   const { t, i18n } = useTranslation();
   const chatConversationId = useChatStore((s) => s.conversationId);
   const chatMessages = useChatStore((s) => s.messages);
+  const chatIsStreaming = useChatStore((s) => s.isStreaming);
   const chatClear = useChatStore((s) => s.clear);
   const chatLoadConversation = useChatStore((s) => s.loadConversation);
 
@@ -96,11 +97,14 @@ export function App() {
     void skillsStore.checkUpdates();
   }, []);
 
-  // Seed conversation list on mount + whenever the active chat changes
-  // (sending the first message creates a file; we want it to show up).
+  // Seed conversation list on mount + whenever the active chat changes.
+  // The important signal for "file just landed on disk" is isStreaming going
+  // true → false: saveConversation runs right before the `done` event, so once
+  // the store flips to idle the .md file exists. Including it in the deps
+  // guarantees the recent list refreshes the moment a first reply finishes.
   useEffect(() => {
     void refreshConversations();
-  }, [refreshConversations, chatConversationId, chatMessages.length]);
+  }, [refreshConversations, chatConversationId, chatMessages.length, chatIsStreaming]);
 
   // First-launch detection: show wizard if setup is incomplete.
   // Incomplete = no provider OR (non-Ollama provider without API key).
@@ -166,6 +170,15 @@ export function App() {
               onNewConversation={() => {
                 chatClear();
                 setPage('workspace');
+              }}
+              onConversationDelete={(id) => {
+                void (async () => {
+                  await window.opendeploy.conversationsDelete(id);
+                  // If the user killed the active conversation, clear the chat
+                  // so the workspace doesn't keep the orphan transcript.
+                  if (id === chatConversationId) chatClear();
+                  await refreshConversations();
+                })();
               }}
             />
           )}

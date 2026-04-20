@@ -15,6 +15,7 @@ const api: IpcApi = {
   },
   conversationsList: () => ipcRenderer.invoke('conversations:list'),
   conversationsLoad: (id: string) => ipcRenderer.invoke('conversations:load', id),
+  conversationsDelete: (id: string) => ipcRenderer.invoke('conversations:delete', id),
   skillsList: () => ipcRenderer.invoke('skills:list'),
   skillsLoad: (id: string) => ipcRenderer.invoke('skills:load', id),
   skillsInstall: (source: KnowledgeSource) => ipcRenderer.invoke('skills:install', source),

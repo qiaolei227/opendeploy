@@ -45,6 +45,7 @@ export interface IpcApi {
   llmOnStream: (cb: (ev: LlmStreamEvent) => void) => () => void;
   conversationsList: () => Promise<Array<{ id: string; title: string; savedAt: string; messageCount: number }>>;
   conversationsLoad: (id: string) => Promise<{ id: string; title: string; messages: Array<{ id: string; role: string; content: string; createdAt: string }> }>;
+  conversationsDelete: (id: string) => Promise<void>;
   skillsList: () => Promise<SkillMeta[]>;
   skillsLoad: (id: string) => Promise<LoadedSkill>;
   skillsInstall: (source: KnowledgeSource) => Promise<void>;

@@ -309,9 +309,22 @@ input, textarea, select { font: inherit; color: inherit; }
   padding: 7px 10px; margin-bottom: 1px;
   border-radius: 5px; cursor: pointer;
   border-left: 2px solid transparent;
+  position: relative;
 }
 .conv-item:hover { background: var(--surface-2); }
 .conv-item.active { background: var(--surface); border-left-color: var(--accent); box-shadow: var(--shadow-xs); }
+.conv-delete {
+  position: absolute; top: 6px; right: 6px;
+  width: 18px; height: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: none;
+  color: var(--dim); font-size: 14px; line-height: 1;
+  border-radius: 3px; cursor: pointer;
+  opacity: 0; transition: opacity 120ms, color 120ms, background 120ms;
+}
+.conv-item:hover .conv-delete,
+.conv-delete:focus { opacity: 1; }
+.conv-delete:hover { color: var(--danger); background: var(--surface); }
 .conv-title { font-size: 12.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conv-item.active .conv-title { color: var(--ink); font-weight: 500; }
 .conv-meta { margin-top: 3px; display: flex; gap: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--dim); }

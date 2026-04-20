@@ -102,6 +102,13 @@ export async function loadConversation(id: string): Promise<Conversation> {
   return parseConversation(content);
 }
 
+export async function deleteConversation(id: string): Promise<void> {
+  // id in the on-disk filename is the same string we write in the frontmatter.
+  // Use force: true so a repeat call (or a stale ui reference) is a silent no-op.
+  const path = join(getConversationsDir(), `${id}.md`);
+  await fs.rm(path, { force: true });
+}
+
 export async function listConversations(): Promise<ConversationSummary[]> {
   const dir = getConversationsDir();
   try {

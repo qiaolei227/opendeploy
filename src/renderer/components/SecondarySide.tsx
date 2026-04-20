@@ -36,6 +36,8 @@ export interface SecondarySideProps {
   onConversationSelect?: (id: string) => void;
   /** Called when the user hits the "new chat" button in the workspace rail. */
   onNewConversation?: () => void;
+  /** Called when the user deletes a conversation. Passed the conversation id. */
+  onConversationDelete?: (id: string) => void;
 }
 
 /**
@@ -63,7 +65,8 @@ export function SecondarySide({
   activeConversationId,
   onProjectSelect,
   onConversationSelect,
-  onNewConversation
+  onNewConversation,
+  onConversationDelete
 }: SecondarySideProps) {
   const { t } = useTranslation();
 
@@ -160,6 +163,20 @@ export function SecondarySide({
                   <span>{c.date}</span>
                   {c.tag ? <span className={`chip ${c.tagColor ?? ''}`}>{c.tag}</span> : null}
                 </div>
+                {onConversationDelete && (
+                  <button
+                    type="button"
+                    className="conv-delete"
+                    aria-label={t('side.deleteConversation')}
+                    title={t('side.deleteConversation')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onConversationDelete(c.id);
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             ))}
       </div>

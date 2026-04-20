@@ -29,7 +29,8 @@
     "noConversations": "No conversations yet",
     "addProject": "+ New project",
     "newConversation": "New chat",
-    "untitledConversation": "Untitled"
+    "untitledConversation": "Untitled",
+    "deleteConversation": "Delete conversation"
   },
   "status": {
     "updateAvailable": "update available",

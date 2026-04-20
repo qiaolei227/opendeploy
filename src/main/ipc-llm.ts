@@ -5,7 +5,12 @@ import { runAgentLoop } from './agent/loop';
 import { ToolRegistry } from './agent/tools';
 import { BUILTIN_TOOLS } from './agent/builtin-tools';
 import { buildSkillsContext } from './agent/skills-integration';
-import { saveConversation, loadConversation, listConversations } from './conversations/store';
+import {
+  deleteConversation,
+  listConversations,
+  loadConversation,
+  saveConversation
+} from './conversations/store';
 import type { Message } from '@shared/llm-types';
 
 const BASE_SYSTEM_PROMPT =
@@ -86,5 +91,10 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
 
   ipcMain.handle('conversations:load', async (_event, id: string) => {
     return await loadConversation(id);
+  });
+
+  ipcMain.handle('conversations:delete', async (_event, id: string) => {
+    await deleteConversation(id);
+    activeConversations.delete(id);
   });
 }

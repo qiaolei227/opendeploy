@@ -29,7 +29,8 @@
     "noConversations": "暂无对话",
     "addProject": "+ 新建项目",
     "newConversation": "新对话",
-    "untitledConversation": "未命名对话"
+    "untitledConversation": "未命名对话",
+    "deleteConversation": "删除对话"
   },
   "status": {
     "updateAvailable": "有新版",
