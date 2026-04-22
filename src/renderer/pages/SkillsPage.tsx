@@ -1,33 +1,32 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSkillsStore } from '@renderer/stores/skills-store';
-
-/**
- * Bucket used for skills without an `erpProvider` — shown as "通用 / Common".
- * Kept as a string constant rather than `undefined` so the filter chip can
- * still be a React key.
- */
-const COMMON_BUCKET = '__common__';
+import type { SkillMeta } from '@shared/skill-types';
 
 type FilterKey = 'all' | string;
 
-/** Map known erpProvider ids to display names. Unknown ids fall back to the raw string. */
-function erpDisplayName(erpProvider: string | undefined, t: (k: string) => string): string {
-  if (!erpProvider) return t('skills.erp.common');
-  // Look up via i18n so new ERPs can be added without code. Fallback to raw id
-  // when the key doesn't exist (i18next returns the key itself on miss).
-  const key = `skills.erp.${erpProvider}`;
+/** First segment of the skill id — the product/visibility bucket. */
+function namespaceOf(skill: SkillMeta): string {
+  return skill.id.split('/', 1)[0];
+}
+
+/** Map a namespace to its display name via i18n, falling back to the raw id. */
+function namespaceDisplayName(ns: string, t: (k: string) => string): string {
+  // i18n keys: `skills.erp.common` / `skills.erp.k3cloud` / `skills.erp.<ns>`.
+  // Unknown namespaces show the raw segment — better than a missing-key token.
+  const key = `skills.erp.${ns}`;
   const resolved = t(key);
-  return resolved === key ? erpProvider : resolved;
+  return resolved === key ? ns : resolved;
 }
 
 /**
  * SkillsPage — consultant-facing surface.
  *
- * Organization: **by product (erpProvider)**, not by capability category.
- * Consultants reach for skills based on which ERP they're implementing, so
- * that's the first cut. Category sticks around as a secondary chip on each
- * card for agent-visible hints / future sub-nav.
+ * Organization: **by namespace** (first segment of the skill id), which maps
+ * 1:1 to the ERP product the skill covers. `system/*` skills are internal
+ * (diagnostics / bootstrap) and hidden from this page entirely — they stay
+ * loadable by agents via `load_skill` but don't clutter the user view.
+ * Category sticks around as a secondary chip on each card for future sub-nav.
  */
 export function SkillsPage() {
   const { t } = useTranslation();
@@ -53,35 +52,42 @@ export function SkillsPage() {
     void checkUpdates();
   }, [load, checkUpdates]);
 
-  // Unique erpProvider buckets discovered from installed skills. Order:
-  // common first, then alphabetical. Consistent bucket ordering keeps the
-  // filter row visually stable as skills are added/removed.
+  // Hide `system/*` skills from the consultant view. They're still loadable
+  // by agents (see skills-integration.ts) but not surfaced to humans.
+  const userSkills = useMemo(
+    () => skills.filter((s) => namespaceOf(s) !== 'system'),
+    [skills]
+  );
+
+  // Unique namespace buckets discovered from installed user-visible skills.
+  // Order: common first, then alphabetical. Stable chip row across skill
+  // install/remove.
   const buckets = useMemo(() => {
     const set = new Set<string>();
     let hasCommon = false;
-    for (const s of skills) {
-      if (!s.erpProvider) hasCommon = true;
-      else set.add(s.erpProvider);
+    for (const s of userSkills) {
+      const ns = namespaceOf(s);
+      if (ns === 'common') hasCommon = true;
+      else set.add(ns);
     }
-    const erps = [...set].sort();
-    return hasCommon ? [COMMON_BUCKET, ...erps] : erps;
-  }, [skills]);
+    const rest = [...set].sort();
+    return hasCommon ? ['common', ...rest] : rest;
+  }, [userSkills]);
 
   const counts = useMemo(() => {
-    const map = new Map<FilterKey, number>([['all', skills.length]]);
+    const map = new Map<FilterKey, number>([['all', userSkills.length]]);
     for (const b of buckets) map.set(b, 0);
-    for (const s of skills) {
-      const key = s.erpProvider ?? COMMON_BUCKET;
-      map.set(key, (map.get(key) ?? 0) + 1);
+    for (const s of userSkills) {
+      const ns = namespaceOf(s);
+      map.set(ns, (map.get(ns) ?? 0) + 1);
     }
     return map;
-  }, [skills, buckets]);
+  }, [userSkills, buckets]);
 
   const filtered = useMemo(() => {
-    if (filter === 'all') return skills;
-    if (filter === COMMON_BUCKET) return skills.filter((s) => !s.erpProvider);
-    return skills.filter((s) => s.erpProvider === filter);
-  }, [skills, filter]);
+    if (filter === 'all') return userSkills;
+    return userSkills.filter((s) => namespaceOf(s) === filter);
+  }, [userSkills, filter]);
 
   const localVersion = bundleVersion;
 
@@ -178,11 +184,7 @@ export function SkillsPage() {
                 key={b}
                 active={filter === b}
                 onClick={() => setFilter(b)}
-                label={
-                  b === COMMON_BUCKET
-                    ? t('skills.erp.common')
-                    : erpDisplayName(b, t)
-                }
+                label={namespaceDisplayName(b, t)}
                 count={counts.get(b) ?? 0}
               />
             ))}
@@ -231,7 +233,7 @@ export function SkillsPage() {
                     v{s.version}
                   </span>
                   <span className="chip accent" style={{ fontSize: 10 }}>
-                    {erpDisplayName(s.erpProvider, t)}
+                    {namespaceDisplayName(namespaceOf(s), t)}
                   </span>
                   {s.category && (
                     <span className="chip" style={{ fontSize: 10 }}>

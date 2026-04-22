@@ -6,7 +6,9 @@ import { ToolRegistry } from './agent/tools';
 import { BUILTIN_TOOLS } from './agent/builtin-tools';
 import { buildSkillsContext } from './agent/skills-integration';
 import { activeProjectTag, buildK3CloudTools } from './agent/k3cloud-tools';
+import { getConnectionState } from './erp/active';
 import { buildPluginTools } from './agent/plugin-tools';
+import { buildBosWriteTools } from './agent/bos-write-tools';
 import {
   deleteConversation,
   listConversations,
@@ -14,9 +16,17 @@ import {
   saveConversation
 } from './conversations/store';
 import type { Message } from '@shared/llm-types';
+import baseSystemPromptRaw from './agent/prompts/base-system.md?raw';
 
-const BASE_SYSTEM_PROMPT =
-  'You are OpenDeploy (开达), an ERP implementation delivery agent. Respond in the same language the user used. When the user describes a business requirement, clarify before answering, and use available skills to guide your work.';
+/**
+ * Base system prompt lives in `src/main/agent/prompts/base-system.md` so
+ * non-engineers (product / consulting leads) can audit and PR the rules
+ * without touching TypeScript. Vite's `?raw` inlines the markdown as a
+ * string at build time — no runtime fs access, same behavior in dev and
+ * production builds. Runtime assembly is unchanged: this base + an
+ * active-project tag + the skills catalog fragment.
+ */
+const BASE_SYSTEM_PROMPT = baseSystemPromptRaw.trim();
 
 // In-memory conversation state keyed by conversationId
 const activeConversations = new Map<string, Message[]>();
@@ -50,10 +60,18 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
         // without an app restart.
         const registry = new ToolRegistry();
         for (const t of BUILTIN_TOOLS) registry.register(t);
-        const { systemPromptFragment, loadSkillTool } = await buildSkillsContext();
+        // Pass the active project's ERP so only common/* and matching
+        // <erp>/* skills appear in the catalog. system/* is hidden
+        // regardless and stays loadable by name for internal references.
+        const { systemPromptFragment, loadSkillTool, loadSkillFileTool } =
+          await buildSkillsContext({
+            activeErpProvider: getConnectionState().erpProvider
+          });
         registry.register(loadSkillTool);
+        registry.register(loadSkillFileTool);
         for (const t of buildK3CloudTools()) registry.register(t);
         for (const t of buildPluginTools()) registry.register(t);
+        for (const t of buildBosWriteTools()) registry.register(t);
 
         const projectTag = activeProjectTag();
         const systemPrompt = [BASE_SYSTEM_PROMPT, projectTag, systemPromptFragment]

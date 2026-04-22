@@ -9,6 +9,45 @@ export async function hashFile(p: string): Promise<string> {
   return createHash('sha256').update(buf).digest('hex');
 }
 
+/**
+ * List every `.md` file inside a skill directory, relative to that dir,
+ * sorted lexically. Scans SKILL.md plus `prompts/*.md` and `references/*.md`
+ * (one level deep — we deliberately don't recurse arbitrary depth so that
+ * skills don't grow into mini-filesystems).
+ */
+async function listSkillFiles(dir: string): Promise<string[]> {
+  const files: string[] = [];
+  const top = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const entry of top) {
+    if (entry.isFile() && entry.name === 'SKILL.md') {
+      files.push('SKILL.md');
+    } else if (entry.isDirectory() && (entry.name === 'prompts' || entry.name === 'references')) {
+      const sub = await fs.readdir(path.join(dir, entry.name)).catch(() => []);
+      for (const name of sub) {
+        if (name.endsWith('.md')) files.push(`${entry.name}/${name}`);
+      }
+    }
+  }
+  return files.sort();
+}
+
+/**
+ * Deterministic SHA-256 over the full contents of a skill directory. Hashes
+ * each file individually, concatenates `<relative-path>:<file-sha>\n` in
+ * sorted order, then hashes that. A change to any file — SKILL.md or a
+ * prompt/reference — flips the digest; file order, file mtime, and parent
+ * path don't affect it.
+ */
+export async function hashSkillDirectory(dir: string): Promise<string> {
+  const relFiles = await listSkillFiles(dir);
+  const entries: string[] = [];
+  for (const rel of relFiles) {
+    const fileHash = await hashFile(path.join(dir, rel));
+    entries.push(`${rel}:${fileHash}\n`);
+  }
+  return createHash('sha256').update(entries.join('')).digest('hex');
+}
+
 /** One mismatch between a manifest entry and what's on disk. */
 export interface IntegrityMismatch {
   id: string;
@@ -47,7 +86,7 @@ export async function verifyIntegrity(
       mismatches.push({ id: entry.id, expected: entry.sha256, actual: null });
       continue;
     }
-    const actual = await hashFile(path.join(meta.path, 'SKILL.md'));
+    const actual = await hashSkillDirectory(meta.path);
     if (actual !== entry.sha256) {
       mismatches.push({ id: entry.id, expected: entry.sha256, actual });
     }

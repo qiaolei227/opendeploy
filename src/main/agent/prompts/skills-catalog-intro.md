@@ -1,0 +1,3 @@
+You have access to the following skills. Each skill is a set of specialist instructions for a specific situation. When a skill description matches the task in front of you, call the `load_skill` tool with its id *before* responding, then follow the returned instructions.
+
+Some skills also carry supporting files — `prompts/` (procedural guidance you should follow when loaded) and `references/` (lookup tables, API signatures, code templates). Fetch any supporting file via `load_skill_file(id, path)` where path is like "prompts/error-handling" or "references/events-reference" (no .md suffix). Only fetch a file when its name matches the sub-topic you need — each costs tokens.

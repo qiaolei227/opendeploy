@@ -1,6 +1,7 @@
 import { getActiveConnector, getConnectionState } from '../erp/active';
 import type { ToolHandler } from './tools';
 import type { K3CloudConnector } from '../erp/k3cloud/connector';
+import activeProjectTagTemplate from './prompts/active-project-tag.md?raw';
 
 /**
  * Build the K/3 Cloud tool set for the current active project. Returns an
@@ -27,14 +28,25 @@ export function buildK3CloudTools(connector?: K3CloudConnector): ToolHandler[] {
  * Short tag describing the active project + edition/version so the base
  * system prompt can tell the agent which K/3 Cloud deployment the tools
  * hit. Empty when no project is active.
+ *
+ * Text lives in `prompts/active-project-tag.md` with `{{placeholder}}` markers
+ * so product / consulting leads can tweak the wording without TypeScript
+ * knowledge. Markers are replaced at assembly time; the template itself is
+ * inlined at build time by Vite's `?raw` loader.
  */
 export function activeProjectTag(): string {
   const state = getConnectionState();
   if (state.status !== 'connected' || !state.projectId) return '';
   const c = getActiveConnector();
   if (!c) return '';
-  const ed = c.config.edition === 'enterprise' ? 'Enterprise' : 'Standard';
-  return `Active K/3 Cloud project: database "${c.config.database}" (V${c.config.version} ${ed}). Use the kingdee_* tools to read metadata; the underlying queries are read-only and target T_META_* tables only.`;
+  const values: Record<string, string> = {
+    database: c.config.database,
+    version: c.config.version,
+    edition: c.config.edition === 'enterprise' ? 'Enterprise' : 'Standard'
+  };
+  return activeProjectTagTemplate
+    .trim()
+    .replace(/\{\{(\w+)\}\}/g, (_, key: string) => values[key] ?? `{{${key}}}`);
 }
 
 function listObjectsTool(c: K3CloudConnector): ToolHandler {

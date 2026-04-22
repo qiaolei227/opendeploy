@@ -47,11 +47,21 @@ export async function setActiveProject(project: Project | null): Promise<void> {
   }
 
   if (!project) {
-    updateState({ projectId: null, status: 'idle', error: undefined });
+    updateState({
+      projectId: null,
+      status: 'idle',
+      error: undefined,
+      erpProvider: undefined
+    });
     return;
   }
 
-  updateState({ projectId: project.id, status: 'connecting', error: undefined });
+  updateState({
+    projectId: project.id,
+    status: 'connecting',
+    error: undefined,
+    erpProvider: project.erpProvider
+  });
   const next = new K3CloudConnector(project.connection);
   try {
     await next.connect();

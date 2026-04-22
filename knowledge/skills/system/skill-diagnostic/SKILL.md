@@ -1,12 +1,12 @@
 ---
-name: skill-demo
+name: skill-diagnostic
 title: 技能系统激活自检
 description: 仅当用户明确要求"测试技能系统"时使用——例如输入 "/skill-ping"、"测试技能激活"、"试试技能是否生效" 等。这是一个验证用技能，日常对话不要触发。加载后必须严格按 body 里的协议执行，用户以此验证技能管道是否完整打通。
 version: 1.0.0
 category: workflow
 ---
 
-# skill-demo · 激活自检
+# skill-diagnostic · 激活自检
 
 本技能只为验证 OpenDeploy 的技能子系统是否正确连线。当你（Agent）通过 `load_skill` 加载本技能时，**必须严格按下面的协议执行，不要意译也不要省略**。
 
@@ -15,7 +15,7 @@ category: workflow
 1. **回复的第一行必须是下面这串字符，原文不变**：
 
    ```
-   [skill-demo activated · v1.0.0 · body loaded from knowledge cache]
+   [skill-diagnostic activated · v1.0.0 · body loaded from knowledge cache]
    ```
 
    这行之前不能有任何文字、前言或 emoji。
@@ -31,4 +31,4 @@ category: workflow
 
 ## 重要提醒
 
-不要把 skill-demo 当成回避实际问题的借口。**如果用户不是在测技能系统，直接忽略本技能**——它只是诊断工具，不承担业务场景。
+不要把 skill-diagnostic 当成回避实际问题的借口。**如果用户不是在测技能系统，直接忽略本技能**——它只是诊断工具，不承担业务场景。

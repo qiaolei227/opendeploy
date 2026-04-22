@@ -67,3 +67,69 @@ describe('buildSkillsContext', () => {
     await expect(loadSkillTool.execute({ id: 123 } as never)).rejects.toThrow(/id/i);
   });
 });
+
+describe('buildSkillsContext · namespace filtering', () => {
+  // Visibility model:
+  //   system/*  → hidden from catalog, loadable by name
+  //   common/*  → always visible
+  //   <erp>/*   → visible only when activeErpProvider === '<erp>'
+  it('hides system/* from the catalog but keeps it loadable by name', async () => {
+    await makeSkill('system/diag', 'diagnostic only', 'diag body');
+    await makeSkill('common/a', 'user-visible A', 'A body');
+
+    const ctx = await buildSkillsContext({ root });
+
+    expect(ctx.systemPromptFragment).toContain('common/a');
+    expect(ctx.systemPromptFragment).not.toContain('system/diag');
+
+    // Still addressable by name — this is the whole point of system/*.
+    const out = await ctx.loadSkillTool.execute({ id: 'system/diag' });
+    expect(out).toContain('diag body');
+  });
+
+  it('includes common/* regardless of active ERP', async () => {
+    await makeSkill('common/shared', 'ERP-agnostic helper', 'x');
+
+    const noErp = await buildSkillsContext({ root });
+    const k3 = await buildSkillsContext({ root, activeErpProvider: 'k3cloud' });
+
+    expect(noErp.systemPromptFragment).toContain('common/shared');
+    expect(k3.systemPromptFragment).toContain('common/shared');
+  });
+
+  it('shows <erp>/* only when activeErpProvider matches', async () => {
+    await makeSkill('common/shared', 'shared', 'x');
+    await makeSkill('k3cloud/sal', 'k3 sales', 'x');
+    await makeSkill('sap/fi', 'sap fi', 'x');
+
+    const noErp = await buildSkillsContext({ root });
+    expect(noErp.systemPromptFragment).toContain('common/shared');
+    expect(noErp.systemPromptFragment).not.toContain('k3cloud/sal');
+    expect(noErp.systemPromptFragment).not.toContain('sap/fi');
+
+    const k3 = await buildSkillsContext({ root, activeErpProvider: 'k3cloud' });
+    expect(k3.systemPromptFragment).toContain('k3cloud/sal');
+    expect(k3.systemPromptFragment).toContain('common/shared');
+    expect(k3.systemPromptFragment).not.toContain('sap/fi');
+
+    const sap = await buildSkillsContext({ root, activeErpProvider: 'sap' });
+    expect(sap.systemPromptFragment).toContain('sap/fi');
+    expect(sap.systemPromptFragment).not.toContain('k3cloud/sal');
+  });
+
+  it('does not expose out-of-scope ERP skills via load_skill either', async () => {
+    await makeSkill('k3cloud/sal', 'k3 sales', 'x');
+    await makeSkill('sap/fi', 'sap fi', 'x');
+
+    const k3 = await buildSkillsContext({ root, activeErpProvider: 'k3cloud' });
+    await expect(k3.loadSkillTool.execute({ id: 'sap/fi' })).rejects.toThrow(/unknown skill/i);
+  });
+
+  it('returns an empty catalog when no skills match the filter', async () => {
+    await makeSkill('sap/fi', 'sap only', 'x');
+    await makeSkill('system/diag', 'hidden', 'x');
+
+    const ctx = await buildSkillsContext({ root, activeErpProvider: 'k3cloud' });
+    expect(ctx.systemPromptFragment).toBe('');
+  });
+});

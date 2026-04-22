@@ -3,9 +3,29 @@
   "version": "0.1.0",
   "skills": [
     {
-      "id": "common/skill-demo",
+      "id": "k3cloud/bos-features-index",
       "version": "1.0.0",
-      "sha256": "bdbe8eb8667623742bb4d30bb3b61c5d01ca0fa8bbd5626d6e56be213ac25e5f"
+      "sha256": "15ca13350fb4d65e8996fac619774e19bc4d7e6798eef3d5883110b05d1a70c0"
+    },
+    {
+      "id": "k3cloud/product-features-index",
+      "version": "1.0.0",
+      "sha256": "7bfab1f1802e9df7e691d758ffd2b66b764c6658391d918de5fc6c87ef32d5ad"
+    },
+    {
+      "id": "k3cloud/python-plugin-index",
+      "version": "1.0.0",
+      "sha256": "a09dadf64db33d9354ffe07b47447ed81ae4092ecaedd95a144a2a12e4b3d6e8"
+    },
+    {
+      "id": "k3cloud/solution-decision-framework",
+      "version": "1.0.0",
+      "sha256": "ead6d23d1d4e5371ca045029e22f13fb6e9fa1c59a9d5d1ef06b7701268e6ff0"
+    },
+    {
+      "id": "system/skill-diagnostic",
+      "version": "1.0.0",
+      "sha256": "2aa43814800a49a4f1fb742d56ac66d345837a26468467d4a5018cfe8f382ada"
     }
   ]
 }

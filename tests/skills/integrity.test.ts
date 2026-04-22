@@ -3,7 +3,11 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { hashFile, verifyIntegrity } from '../../src/main/skills/integrity';
+import {
+  hashFile,
+  hashSkillDirectory,
+  verifyIntegrity
+} from '../../src/main/skills/integrity';
 import type { KnowledgeManifest, SkillMeta } from '@shared/skill-types';
 
 let root: string;
@@ -21,7 +25,8 @@ async function seedSkill(id: string, content: string): Promise<SkillMeta> {
     name: id.split('/').pop()!,
     description: 'x',
     version: '1.0.0',
-    path: dir
+    path: dir,
+    resources: []
   };
 }
 
@@ -43,6 +48,54 @@ describe('hashFile', () => {
   });
 });
 
+describe('hashSkillDirectory', () => {
+  it('depends only on file contents + relative paths, not mtime or parent dir', async () => {
+    const content = '---\nname: a\ndescription: d\nversion: 1.0.0\n---\nbody\n';
+    const meta = await seedSkill('common/a', content);
+    const first = await hashSkillDirectory(meta.path);
+
+    // Same content in a different root — hash must match.
+    const altRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'opendeploy-integrity-alt-'));
+    try {
+      const altDir = path.join(altRoot, 'skills', 'common', 'a');
+      await fs.mkdir(altDir, { recursive: true });
+      await fs.writeFile(path.join(altDir, 'SKILL.md'), content, 'utf8');
+      expect(await hashSkillDirectory(altDir)).toBe(first);
+    } finally {
+      await fs.rm(altRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('changes when any supporting file changes (prompts or references)', async () => {
+    const content = '---\nname: a\ndescription: d\nversion: 1.0.0\n---\nbody\n';
+    const meta = await seedSkill('common/a', content);
+    const before = await hashSkillDirectory(meta.path);
+
+    await fs.mkdir(path.join(meta.path, 'references'), { recursive: true });
+    await fs.writeFile(path.join(meta.path, 'references', 'x.md'), 'hi', 'utf8');
+    const afterAdd = await hashSkillDirectory(meta.path);
+    expect(afterAdd).not.toBe(before);
+
+    await fs.writeFile(path.join(meta.path, 'references', 'x.md'), 'changed', 'utf8');
+    const afterEdit = await hashSkillDirectory(meta.path);
+    expect(afterEdit).not.toBe(afterAdd);
+  });
+
+  it('ignores files outside prompts/ and references/ subdirectories', async () => {
+    const content = '---\nname: a\ndescription: d\nversion: 1.0.0\n---\nbody\n';
+    const meta = await seedSkill('common/a', content);
+    const before = await hashSkillDirectory(meta.path);
+
+    // Stray file alongside SKILL.md — shouldn't affect the digest.
+    await fs.writeFile(path.join(meta.path, 'README.txt'), 'junk', 'utf8');
+    // Stray dir neither under prompts/ nor references/.
+    await fs.mkdir(path.join(meta.path, 'notes'), { recursive: true });
+    await fs.writeFile(path.join(meta.path, 'notes', 'x.md'), 'ignored', 'utf8');
+
+    expect(await hashSkillDirectory(meta.path)).toBe(before);
+  });
+});
+
 describe('verifyIntegrity', () => {
   it('passes when every skill hash matches the manifest', async () => {
     const content = '---\nname: a\ndescription: d\nversion: 1.0.0\n---\nbody\n';
@@ -50,7 +103,9 @@ describe('verifyIntegrity', () => {
     const manifest: KnowledgeManifest = {
       schema: '1',
       version: '1.0.0',
-      skills: [{ id: 'common/a', version: '1.0.0', sha256: sha256(content) }]
+      skills: [
+        { id: 'common/a', version: '1.0.0', sha256: await hashSkillDirectory(meta.path) }
+      ]
     };
 
     const r = await verifyIntegrity(root, manifest, [meta]);
@@ -78,7 +133,7 @@ describe('verifyIntegrity', () => {
       id: 'common/a',
       expected: sha256('expected different content')
     });
-    expect(r.mismatches[0].actual).toBe(sha256(content));
+    expect(r.mismatches[0].actual).toBe(await hashSkillDirectory(meta.path));
   });
 
   it('reports skills listed in the manifest but missing on disk', async () => {

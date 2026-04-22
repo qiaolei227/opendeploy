@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -12,14 +11,11 @@ import {
   installFromDefaults,
   checkUpdatesFromDefaults
 } from '../../src/main/skills/manager';
+import { hashSkillDirectory } from '../../src/main/skills/integrity';
 import type { KnowledgeSource } from '@shared/skill-types';
 
 let root: string;
 let scratch: string;
-
-function sha256(s: string): string {
-  return createHash('sha256').update(s).digest('hex');
-}
 
 /** Build a bundle dir (manifest.json + skills/common/a/SKILL.md) on disk. */
 async function makeBundleDir(
@@ -28,9 +24,10 @@ async function makeBundleDir(
   manifestOverrides: Partial<{ sha256: string; version: string }> = {}
 ): Promise<string> {
   const bundle = path.join(baseDir, 'bundle');
-  const skillFile = path.join(bundle, 'skills', 'common', 'a', 'SKILL.md');
+  const skillDir = path.join(bundle, 'skills', 'common', 'a');
+  const skillFile = path.join(skillDir, 'SKILL.md');
   const skillSrc = `---\nname: a\ndescription: d\nversion: 1.0.0\n---\n${skillBody}\n`;
-  await fs.mkdir(path.dirname(skillFile), { recursive: true });
+  await fs.mkdir(skillDir, { recursive: true });
   await fs.writeFile(skillFile, skillSrc, 'utf8');
   const manifest = {
     schema: '1',
@@ -39,7 +36,7 @@ async function makeBundleDir(
       {
         id: 'common/a',
         version: '1.0.0',
-        sha256: manifestOverrides.sha256 ?? sha256(skillSrc)
+        sha256: manifestOverrides.sha256 ?? (await hashSkillDirectory(skillDir))
       }
     ]
   };
