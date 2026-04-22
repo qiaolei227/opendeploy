@@ -34,7 +34,8 @@
   },
   "side": {
     "conversations": "最近对话",
-    "noProjects": "暂无项目，点击 + 新建",
+    "noProjectsWorkspace": "还没有项目。去「项目」页新建。",
+    "noProjectsList": "还没有项目。点击右上角「新建项目」。",
     "noConversations": "暂无对话",
     "addProject": "+ 新建项目",
     "newConversation": "新对话",
@@ -115,11 +116,11 @@
   },
   "placeholders": {},
   "projects": {
-    "intro": "每个项目绑定一套金蝶云星空 K/3 Cloud 连接；Agent 的元数据查询会走当前激活项目的连接。",
+    "intro": "每个项目绑定一套 ERP 连接；Agent 的元数据查询会走当前激活项目的连接。",
     "new": "+ 新建项目",
     "newHeading": "新建项目",
     "editHeading": "编辑项目",
-    "empty": "还没有项目。点击右上角「新建项目」填入 K/3 Cloud 的数据库连接。",
+    "empty": "还没有项目。点击右上角「新建项目」填入 ERP 连接参数。",
     "loading": "加载中…",
     "name": "项目名称",
     "namePlaceholder": "客户简称 + 备注，如「川沙诚信商贸」",
@@ -146,10 +147,20 @@
     "edit": "编辑",
     "delete": "删除",
     "deleteConfirm": "确定删除该项目？对应连接会断开。",
-    "testConnection": "测试连接",
-    "testing": "测试中…",
-    "testOk": "连接成功",
-    "testFailed": "连接失败",
+    "sectionIdentity": "项目标识",
+    "sectionServer": "服务器连接",
+    "sectionTargetDatabase": "目标数据库",
+    "advancedToggle": "高级（加密 / 证书）",
+    "connectAndDiscover": "连接并发现",
+    "connecting": "连接中…",
+    "reconnect": "重新连接",
+    "connected": "已连接",
+    "connectedWith": "已连接 · {{version}}",
+    "connectFailed": "连接失败",
+    "lockedUntilConnected": "先点上方「连接并发现」解锁",
+    "pickDatabase": "— 从下拉里选一个 —",
+    "accountSet": "账套",
+    "noDatabases": "服务器上没有可见的数据库",
     "setActive": "设为当前",
     "deactivate": "取消激活",
     "status": {
@@ -193,6 +204,8 @@
   },
   "messages": {
     "user": "顾问",
-    "assistant": "开达"
+    "assistant": "开达",
+    "showToolResult": "展开工具结果",
+    "hideToolResult": "收起工具结果"
   }
 }

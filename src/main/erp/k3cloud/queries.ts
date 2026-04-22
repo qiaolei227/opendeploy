@@ -165,27 +165,46 @@ const GET_FIELDS_SQL = `
 `;
 
 /**
- * K/3 Cloud stores the full form metadata — fields included — as XML in
- * `T_META_OBJECTTYPE.FKERNELXML`. The XML tree is deep and carries a lot of
- * unrelated data (plugin registrations, validations, print templates).
- * Rather than shipping a full XML parser in Plan 4, we extract field
- * descriptors via a narrow regex over the standard element shapes K/3 Cloud
- * emits for fields:
+ * K/3 Cloud stores full form metadata — fields, plugins, layout, validations —
+ * as a single FKERNELXML blob in `T_META_OBJECTTYPE`. Unlike the attribute-
+ * style one might expect, K/3 Cloud declares each field's identity via CHILD
+ * elements, while the field's *type* is the tag name itself. Critically, all
+ * real fields are listed FLAT at the top level of `<Elements>` — entry
+ * affiliation is declared via a direct-child `<EntityKey>` on the field node,
+ * NOT by nesting inside an `<EntryEntity>` tag. (EntryEntity nodes exist but
+ * only carry entry-level metadata — table name, seq, key field — not the
+ * field declarations themselves.)
  *
- *   <FooField Key="FCustomerId" ElementType="BasedataField" ...>
- *   <Field Key="FNumber" ElementType="TextField" ...>
+ *   <BaseDataField ElementType="13" ElementStyle="0">
+ *     ...deep nested metadata (some of which ALSO contain <Key> tags, e.g.
+ *        inside <RefProperty><Key>FOtherField</Key></RefProperty>) ...
+ *     <EntityKey>FSaleOrderEntry</EntityKey>  ← entry affiliation (absent → head)
+ *     <Name>物料编码</Name>                   ← localized display name
+ *     <Id>uuid…</Id>
+ *     <Key>FMaterialId</Key>                 ← field key
+ *   </BaseDataField>
  *
- * This catches most field definitions without paying the memory/CPU cost of
- * fully parsing a 1MB XML per object. When a form uses an uncommon shape the
- * field shows up with `type = 'Unknown'` — better to leak than to throw.
+ * We walk the XML with a streaming tag tokenizer and an element-depth stack
+ * so that, when a field node closes, we can slice its body and pull only the
+ * top-level <Key> / <Name> / <EntityKey> — the ones at depth 0 within the
+ * node, avoiding the many nested same-named tags that belong to sub-structs.
+ * Fields lacking a direct-child <Name> are treated as pseudo-field metadata
+ * markers (e.g. internal tags like `<QKFField>` that happen to end in
+ * "Field") and skipped — they would otherwise clutter the output with unnamed
+ * entries and, due to first-wins dedup, steal the slot from the real field.
  *
- * Entry/detail context is inferred from the nearest preceding `<Entity
- * Key="...">` or `<SubEntity Key="...">` open tag — coarse but works for the
- * overwhelming majority of standard K/3 Cloud bills.
+ * Shipping a full DOM parser would be overkill (SAL_SaleOrder alone ships
+ * ~1 MB of kernel XML) and a flat attribute regex misses K/3 Cloud's real
+ * shape entirely.
  */
-const FIELD_OPEN_RE =
-  /<(?:[A-Za-z]*Field|Field)\b[^>]*\bKey="([^"]+)"[^>]*\bElementType="([^"]*)"/g;
-const ENTITY_OPEN_RE = /<(?:Entity|SubEntity|BillEntity|EntryEntity)\b[^>]*\bKey="([^"]+)"/g;
+const FIELD_TAG_RE = /Field$/;
+/**
+ * Source pattern for the tag tokenizer. Compiled to a FRESH `RegExp` each
+ * time `iterateTagTokens` is called — the parser nests tokenizer iterations
+ * (the outer walk invokes `findLastTopLevelChildText` on each field body),
+ * so sharing a `/g` regex across calls would corrupt `lastIndex`.
+ */
+const TAG_TOKEN_PATTERN = '<(\\/?)([A-Za-z][A-Za-z0-9]*)\\b[^>]*?(\\/?)>';
 
 export async function getFields(
   pool: sql.ConnectionPool,
@@ -202,50 +221,97 @@ export async function getFields(
   return parseFieldsFromKernelXml(xml);
 }
 
+interface TagToken {
+  tag: string;
+  isClose: boolean;
+  isSelfClose: boolean;
+  start: number;
+  end: number;
+}
+
+function* iterateTagTokens(xml: string): Generator<TagToken> {
+  const re = new RegExp(TAG_TOKEN_PATTERN, 'g');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) {
+    yield {
+      tag: m[2],
+      isClose: m[1] === '/',
+      isSelfClose: m[3] === '/',
+      start: m.index,
+      end: m.index + m[0].length
+    };
+  }
+}
+
+/**
+ * Return the text inside the LAST `<tagName>...</tagName>` that sits at depth
+ * 0 of `body` (i.e., a direct child, not nested inside another element).
+ * Returns undefined when no such child exists.
+ */
+function findLastTopLevelChildText(body: string, tagName: string): string | undefined {
+  let depth = 0;
+  let lastStart = -1;
+  let lastEnd = -1;
+  for (const tk of iterateTagTokens(body)) {
+    if (tk.isSelfClose) continue;
+    if (!tk.isClose) {
+      if (depth === 0 && tk.tag === tagName) lastStart = tk.end;
+      depth++;
+    } else {
+      depth--;
+      if (depth === 0 && tk.tag === tagName && lastStart >= 0) lastEnd = tk.start;
+    }
+  }
+  if (lastStart >= 0 && lastEnd > lastStart) {
+    return body.substring(lastStart, lastEnd).trim() || undefined;
+  }
+  return undefined;
+}
+
+type Frame =
+  | { kind: 'plain'; tag: string }
+  | { kind: 'field'; tag: string; bodyStart: number };
+
 /** Exported for unit tests; production callers use getFields. */
 export function parseFieldsFromKernelXml(xml: string): FieldMeta[] {
-  // Collect entity openings with their positions so we can resolve the
-  // enclosing entry for each field based on position ordering.
-  const entityPositions: Array<{ pos: number; key: string }> = [];
-  let em: RegExpExecArray | null;
-  while ((em = ENTITY_OPEN_RE.exec(xml)) !== null) {
-    entityPositions.push({ pos: em.index, key: em[1] });
-  }
-  ENTITY_OPEN_RE.lastIndex = 0;
-
   const fields: FieldMeta[] = [];
   const seen = new Set<string>();
+  const stack: Frame[] = [];
 
-  let fm: RegExpExecArray | null;
-  while ((fm = FIELD_OPEN_RE.exec(xml)) !== null) {
-    const key = fm[1];
-    const type = fm[2] || 'Unknown';
-    // Skip duplicates — K/3 Cloud sometimes redeclares a field in layout sections.
-    if (seen.has(key)) continue;
+  for (const tk of iterateTagTokens(xml)) {
+    if (tk.isSelfClose) continue;
 
-    // Enclosing entry = closest entity opening that precedes this field.
-    let entryKey: string | undefined;
-    for (let i = entityPositions.length - 1; i >= 0; i--) {
-      if (entityPositions[i].pos < fm.index) {
-        entryKey = entityPositions[i].key;
-        break;
+    if (!tk.isClose) {
+      if (FIELD_TAG_RE.test(tk.tag)) {
+        stack.push({ kind: 'field', tag: tk.tag, bodyStart: tk.end });
+      } else {
+        stack.push({ kind: 'plain', tag: tk.tag });
       }
+      continue;
     }
 
-    const meta: FieldMeta = {
-      key,
-      // Display name is also in the XML (usually a sibling `<Name><Item Key="LangName"...>` node);
-      // resolving it reliably requires real XML parsing. Task 12.1 can follow up — for now fall
-      // back to the field key so the agent has SOMETHING readable.
-      name: key,
-      type,
-      isEntryField: entryKey !== undefined,
-      entryKey
-    };
-    fields.push(meta);
+    // Close token: pop tolerantly (malformed XML shouldn't abort the parse).
+    const frame = stack.pop();
+    if (!frame || frame.kind !== 'field') continue;
+
+    const body = xml.substring(frame.bodyStart, tk.start);
+    // Require both Key and Name — a Field-shaped tag with no Name is an
+    // internal marker (QKFField, etc.), not a UI field.
+    const key = findLastTopLevelChildText(body, 'Key');
+    if (!key || seen.has(key)) continue;
+    const name = findLastTopLevelChildText(body, 'Name');
+    if (!name) continue;
+    const entityKey = findLastTopLevelChildText(body, 'EntityKey');
+
     seen.add(key);
+    fields.push({
+      key,
+      name,
+      type: frame.tag,
+      isEntryField: entityKey !== undefined,
+      entryKey: entityKey
+    });
   }
-  FIELD_OPEN_RE.lastIndex = 0;
 
   return fields;
 }

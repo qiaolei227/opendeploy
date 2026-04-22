@@ -2,9 +2,9 @@
 
 import type {
   ErpConnectionState,
-  K3CloudConnectionConfig,
-  Project,
-  TestConnectionResult
+  K3CloudDiscoveryConfig,
+  ListDatabasesResult,
+  Project
 } from './erp-types';
 import type { PluginFile, PluginWriteResult } from './plugin-types';
 import type { KnowledgeSource, LoadedSkill, SkillMeta } from './skill-types';
@@ -56,7 +56,20 @@ export interface IpcApi {
   llmSendMessage: (req: LlmChatRequest) => Promise<{ requestId: string }>;
   llmOnStream: (cb: (ev: LlmStreamEvent) => void) => () => void;
   conversationsList: () => Promise<Array<{ id: string; title: string; savedAt: string; messageCount: number }>>;
-  conversationsLoad: (id: string) => Promise<{ id: string; title: string; messages: Array<{ id: string; role: string; content: string; createdAt: string }> }>;
+  conversationsLoad: (id: string) => Promise<{
+    id: string;
+    title: string;
+    messages: Array<{
+      id: string;
+      role: string;
+      content: string;
+      createdAt: string;
+      /** Present on `tool` role messages: the id of the tool call this is responding to. */
+      toolCallId?: string;
+      /** Present on assistant messages that invoked tools; order matches invocation order. */
+      toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+    }>;
+  }>;
   conversationsDelete: (id: string) => Promise<void>;
   skillsList: () => Promise<SkillMeta[]>;
   skillsLoad: (id: string) => Promise<LoadedSkill>;
@@ -81,7 +94,7 @@ export interface IpcApi {
   ) => Promise<Project>;
   projectsDelete: (id: string) => Promise<void>;
   projectsSetActive: (id: string | null) => Promise<void>;
-  projectsTestConnection: (config: K3CloudConnectionConfig) => Promise<TestConnectionResult>;
+  projectsListDatabases: (config: K3CloudDiscoveryConfig) => Promise<ListDatabasesResult>;
   projectsConnectionState: () => Promise<ErpConnectionState>;
   /** Subscribe to live connection-state changes. Returns an unsubscribe fn. */
   erpOnConnectionState: (cb: (s: ErpConnectionState) => void) => () => void;

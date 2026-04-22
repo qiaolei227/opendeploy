@@ -80,6 +80,16 @@ export class K3CloudConnector implements ErpConnector {
     return this.pool;
   }
 
+  /**
+   * Expose the live pool for callers that need to run queries outside the
+   * typed-query API (currently: the BOS write tools in `bos-writer.ts`
+   * which need to issue INSERTs / UPDATEs the ErpConnector interface
+   * doesn't cover). Same connection-state guarantees as `requirePool`.
+   */
+  async getPool(): Promise<sql.ConnectionPool> {
+    return this.requirePool();
+  }
+
   async listObjects(opts?: ListObjectsOptions): Promise<ObjectMeta[]> {
     return qListObjects(await this.requirePool(), opts);
   }

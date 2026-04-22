@@ -49,18 +49,42 @@ function parseConversation(content: string): Conversation {
   }
   const rest = lines.slice(idx).join('\n');
   const messages: Message[] = [];
-  const turns = rest.split(/(?=^### \[)/gm).filter(t => t.trim().length > 0);
+  const turns = rest.split(/(?=^### \[)/gm).filter((t) => t.trim().length > 0);
   for (const turn of turns) {
     const headMatch = turn.match(/^### \[([^\]]+)\] (\w+)/);
     if (!headMatch) continue;
     const [, createdAt, role] = headMatch;
     const bodyStart = turn.indexOf('\n', turn.indexOf(headMatch[0])) + 1;
-    const body = turn.slice(bodyStart).replace(/```tool-calls[\s\S]*?```\s*$/, '').trim();
+    let body = turn.slice(bodyStart);
+
+    // Pull tool_call_id subtitle (`_(tool_call_id: xxx)_`) off tool messages.
+    const toolCallIdMatch = body.match(/^_\(tool_call_id:\s*([^)]+)\)_\s*$/m);
+    const toolCallId = toolCallIdMatch?.[1].trim();
+
+    // Pull the ```tool-calls JSON``` fence off assistant messages.
+    const toolCallsMatch = body.match(/```tool-calls\s*\n([\s\S]*?)\n```/);
+    let toolCalls: Message['toolCalls'] | undefined;
+    if (toolCallsMatch) {
+      try {
+        const parsed = JSON.parse(toolCallsMatch[1]);
+        if (Array.isArray(parsed)) toolCalls = parsed;
+      } catch {
+        // Malformed fence — ignore rather than corrupt the whole load.
+      }
+    }
+
+    body = body
+      .replace(/^_\(tool_call_id:[^)]+\)_\s*$/m, '')
+      .replace(/```tool-calls[\s\S]*?```\s*$/, '')
+      .trim();
+
     messages.push({
       id: `loaded_${messages.length}`,
       role: role as Message['role'],
       content: body,
-      createdAt
+      createdAt,
+      ...(toolCallId ? { toolCallId } : {}),
+      ...(toolCalls ? { toolCalls } : {})
     });
   }
   return {

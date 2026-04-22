@@ -3,7 +3,7 @@ import type { AppSettings, IpcApi, LlmChatRequest, LlmStreamEvent } from '@share
 import type { KnowledgeSource } from '@shared/skill-types';
 import type {
   ErpConnectionState,
-  K3CloudConnectionConfig,
+  K3CloudDiscoveryConfig,
   Project
 } from '@shared/erp-types';
 
@@ -38,8 +38,8 @@ const api: IpcApi = {
     ipcRenderer.invoke('projects:update', id, patch),
   projectsDelete: (id: string) => ipcRenderer.invoke('projects:delete', id),
   projectsSetActive: (id: string | null) => ipcRenderer.invoke('projects:set-active', id),
-  projectsTestConnection: (config: K3CloudConnectionConfig) =>
-    ipcRenderer.invoke('projects:test-connection', config),
+  projectsListDatabases: (config: K3CloudDiscoveryConfig) =>
+    ipcRenderer.invoke('projects:list-databases', config),
   projectsConnectionState: () => ipcRenderer.invoke('projects:connection-state'),
   erpOnConnectionState: (cb: (s: ErpConnectionState) => void) => {
     const listener = (_event: unknown, s: ErpConnectionState) => cb(s);

@@ -34,7 +34,8 @@
   },
   "side": {
     "conversations": "Recent conversations",
-    "noProjects": "No projects yet. Click + to create",
+    "noProjectsWorkspace": "No projects yet. Head to the Projects tab to create one.",
+    "noProjectsList": "No projects yet. Click \"New project\" at the top right.",
     "noConversations": "No conversations yet",
     "addProject": "+ New project",
     "newConversation": "New chat",
@@ -115,11 +116,11 @@
   },
   "placeholders": {},
   "projects": {
-    "intro": "Each project binds a K/3 Cloud database connection. Agent metadata queries use the currently active project.",
+    "intro": "Each project binds one ERP connection. Agent metadata queries use the currently active project.",
     "new": "+ New project",
     "newHeading": "New project",
     "editHeading": "Edit project",
-    "empty": "No projects yet. Click “New project” and fill in the K/3 Cloud database connection.",
+    "empty": "No projects yet. Click “New project” and enter the ERP connection details.",
     "loading": "Loading…",
     "name": "Name",
     "namePlaceholder": "Customer shortname + note, e.g. “Chuansha Chengxin”",
@@ -146,10 +147,20 @@
     "edit": "Edit",
     "delete": "Delete",
     "deleteConfirm": "Delete this project? The connection will be torn down.",
-    "testConnection": "Test connection",
-    "testing": "Testing…",
-    "testOk": "Connected",
-    "testFailed": "Connection failed",
+    "sectionIdentity": "Identity",
+    "sectionServer": "Server connection",
+    "sectionTargetDatabase": "Target database",
+    "advancedToggle": "Advanced (encryption / certificate)",
+    "connectAndDiscover": "Connect & discover",
+    "connecting": "Connecting…",
+    "reconnect": "Reconnect",
+    "connected": "Connected",
+    "connectedWith": "Connected · {{version}}",
+    "connectFailed": "Connection failed",
+    "lockedUntilConnected": "Click “Connect & discover” above to unlock",
+    "pickDatabase": "— Pick a database —",
+    "accountSet": "account set",
+    "noDatabases": "No user databases visible on this server",
     "setActive": "Set active",
     "deactivate": "Deactivate",
     "status": {
@@ -193,6 +204,8 @@
   },
   "messages": {
     "user": "You",
-    "assistant": "OpenDeploy"
+    "assistant": "OpenDeploy",
+    "showToolResult": "Show tool result",
+    "hideToolResult": "Hide tool result"
   }
 }

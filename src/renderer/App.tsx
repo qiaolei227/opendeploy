@@ -70,7 +70,6 @@ export function App() {
   const projectSummaries: ProjectSummary[] = projects.map((p) => ({
     id: p.id,
     name: p.name,
-    env: `V${p.connection.version}`,
     state:
       projectsConnectionState.projectId === p.id
         ? projectsConnectionState.status === 'connected'

@@ -93,7 +93,7 @@ export function SecondarySide({
 
   const emptyProjects = (
     <div className="muted small" style={{ padding: '12px 14px' }}>
-      {t('side.noProjects')}
+      {t(page === 'projects' ? 'side.noProjectsList' : 'side.noProjectsWorkspace')}
     </div>
   );
 

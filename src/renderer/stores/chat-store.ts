@@ -107,6 +107,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   loadConversation: async (id) => {
     const conv = await window.opendeploy.conversationsLoad(id);
+
+    // Build tool_call_id → tool name map across every assistant message,
+    // then re-hydrate the artifacts panel by walking each `tool` message in
+    // order and feeding its content back into addFromToolResult. Without
+    // this, switching conversations leaves the artifacts panel showing the
+    // PREVIOUS chat's files (or empty, if we came from a fresh session).
+    const toolNameById = new Map<string, string>();
+    for (const m of conv.messages) {
+      if (m.role === 'assistant' && m.toolCalls) {
+        for (const tc of m.toolCalls) toolNameById.set(tc.id, tc.name);
+      }
+    }
+
+    const artifacts = useArtifactsStore.getState();
+    artifacts.clear();
+    for (const m of conv.messages) {
+      if (m.role === 'tool' && m.toolCallId) {
+        const name = toolNameById.get(m.toolCallId);
+        if (name) artifacts.addFromToolResult(name, m.content);
+      }
+    }
+
     const messages: ChatMessage[] = conv.messages
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .map((m) => ({

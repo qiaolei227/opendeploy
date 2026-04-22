@@ -21,7 +21,7 @@ export function ProjectsPage() {
     update,
     remove,
     setActive,
-    testConnection,
+    listDatabases,
     clearError
   } = useProjectsStore();
 
@@ -207,7 +207,7 @@ export function ProjectsPage() {
               initial={editing}
               onCancel={() => setView('list')}
               onSubmit={onSubmit}
-              onTest={testConnection}
+              onListDatabases={listDatabases}
               submitting={submitting}
             />
           </section>

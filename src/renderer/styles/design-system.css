@@ -452,16 +452,24 @@ body.theme-dark .turn-av.user { background: oklch(0.35 0.02 250); color: oklch(0
   overflow: hidden;
   box-shadow: var(--shadow-xs);
 }
-.tool-head {
+button.tool-head {
   display: flex; align-items: center; gap: 10px;
+  width: 100%;
   padding: 9px 12px;
-  border-bottom: 1px solid var(--border);
+  border: 0;
   background: var(--bg-elev);
+  color: inherit;
   font-family: var(--font-mono); font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease;
 }
+button.tool-head:hover:not(:disabled) { background: var(--surface-2); }
+button.tool-head:disabled { cursor: default; }
+.tool.is-open > .tool-head { border-bottom: 1px solid var(--border); }
 .tool-ic { color: var(--accent-deep); display: grid; place-items: center; }
 .tool-name { color: var(--ink); font-weight: 600; }
-.tool-args { color: var(--muted); font-size: 11px; }
+.tool-args { color: var(--muted); font-size: 11px; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-status {
   margin-left: auto; font-size: 10.5px; color: var(--dim);
   display: inline-flex; align-items: center; gap: 6px;
@@ -469,6 +477,7 @@ body.theme-dark .turn-av.user { background: oklch(0.35 0.02 250); color: oklch(0
 }
 .tool-status.ok { color: var(--good); }
 .tool-status.running::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--info); animation: pulse 1s infinite; }
+.tool-chevron { color: var(--dim); font-size: 11px; width: 10px; text-align: center; }
 .tool-body {
   padding: 10px 12px; font-family: var(--font-mono); font-size: 11.5px; color: var(--muted);
 }

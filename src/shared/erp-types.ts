@@ -35,6 +35,43 @@ export interface K3CloudConnectionConfig {
   trustServerCertificate?: boolean;
 }
 
+/**
+ * Connection parameters needed to enumerate candidate account-set databases
+ * on a K/3 Cloud server — i.e. everything needed to log in to `master`.
+ * `database`, `edition`, and `version` are deliberately excluded: the
+ * discovery flow runs *before* the user has picked a database, and
+ * edition/version don't affect the TDS handshake.
+ */
+export interface K3CloudDiscoveryConfig {
+  server: string;
+  port?: number;
+  user: string;
+  password: string;
+  encrypt?: boolean;
+  trustServerCertificate?: boolean;
+}
+
+export interface DatabaseCandidate {
+  /** `name` from `sys.databases`. */
+  name: string;
+  /** True when the name matches K/3 Cloud's `AIS*` account-set convention. */
+  isAccountSet: boolean;
+}
+
+export interface ListDatabasesResult {
+  ok: boolean;
+  /** Present on success — user-visible databases, account-sets sorted first. */
+  databases?: DatabaseCandidate[];
+  /**
+   * `@@VERSION` output from the server, e.g. "Microsoft SQL Server 2022 …".
+   * The discovery flow probes this alongside `sys.databases` so the UI can
+   * show a "connected" confirmation without a second round-trip.
+   */
+  serverVersion?: string;
+  /** Present on failure — human-readable reason. */
+  error?: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -55,6 +92,13 @@ export interface ErpConnectionState {
   status: 'idle' | 'connecting' | 'connected' | 'error';
   error?: string;
   lastTestedAt?: string;
+  /**
+   * ERP product of the active project. Present whenever `projectId` is set
+   * (even during `connecting` / `error`), so callers like the skill-catalog
+   * builder can pick the right namespace bucket without waiting for the
+   * pool to come up.
+   */
+  erpProvider?: ErpProvider;
 }
 
 export interface TestConnectionResult {
@@ -105,4 +149,59 @@ export interface SubsystemMeta {
   number: string;
   /** Localized display name via `_L`. */
   name: string;
+}
+
+// ─── BOS extension / plugin types (Plan 5.5) ──────────────────────────
+
+/**
+ * A user-created extension of a base form (e.g. a SAL_SaleOrder extension).
+ * Identified by a GUID in `T_META_OBJECTTYPE.FID`, linked to its parent
+ * via `FBASEOBJECTID`. All customizations (fields, plugins, layout) attach
+ * to the extension — the base form's metadata stays untouched.
+ */
+export interface ExtensionMeta {
+  /** `FID` in T_META_OBJECTTYPE — GUID form. */
+  extId: string;
+  /** `FBASEOBJECTID` — the form this extension inherits from. */
+  parentFormId: string;
+  /** Localized extension name from T_META_OBJECTTYPE_L at `FLOCALEID=2052`. */
+  name: string;
+  /** `FSUPPLIERNAME` — developer code, e.g. "PAIJ". Extensions with mismatched code can't be edited in BOS Designer. */
+  developerCode: string | null;
+  /** `FMODIFYDATE`. ISO string. */
+  modifyDate: string | null;
+}
+
+/**
+ * A single plugin registration inside a form's `<FormPlugins>` XML block.
+ * Covers both .NET DLL plugins and inline Python plugins — the shape
+ * differs as documented on the fields.
+ */
+export interface PluginMeta {
+  /**
+   * Python plugins: the user-given script name (e.g. "credit_limit_guard").
+   * DLL plugins: full .NET type + assembly (e.g. "Kingdee.K3.SCM.Sal.Business.PlugIn.SaleOrderEdit, Kingdee.K3.SCM.Sal.Business.PlugIn").
+   */
+  className: string;
+  /** `<PlugInType>` — 1 = Python (inline script); absent/0 = DLL. */
+  type: 'python' | 'dll';
+  /** Only for Python plugins — the inline IronPython source. */
+  pyScript?: string;
+  /** `<OrderId>` — DLL plugins have one; Python plugins omit (per BOS UI "插件之间并没有执行顺序"). */
+  orderId?: number;
+}
+
+/**
+ * Result of probing the database for a usable BOS development environment.
+ * Driven by whether the current user has ever saved metadata (which stamps
+ * `FSUPPLIERNAME`). Missing stamp = never logged into the K/3 Cloud
+ * collaborative-development platform, and our write tools should refuse.
+ */
+export interface BosEnvironmentStatus {
+  /** `ready` when we can safely write extensions; `not-initialized` otherwise. */
+  status: 'ready' | 'not-initialized';
+  /** Present on `ready` — the developer code our writes should stamp onto FSUPPLIERNAME. */
+  developerCode?: string;
+  /** Human-readable reason when `not-initialized`. */
+  reason?: string;
 }

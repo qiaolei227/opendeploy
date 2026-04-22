@@ -13,8 +13,12 @@ import {
   setActiveProject,
   subscribe
 } from './erp/active';
-import { K3CloudConnector } from './erp/k3cloud/connector';
-import type { ErpConnectionState, K3CloudConnectionConfig, Project } from '@shared/erp-types';
+import { listAccountDatabases } from './erp/k3cloud/discover';
+import type {
+  ErpConnectionState,
+  K3CloudDiscoveryConfig,
+  Project
+} from '@shared/erp-types';
 
 /**
  * Projects & live-connection IPC.
@@ -64,14 +68,10 @@ export function registerProjectsIpc(getMainWindow: () => BrowserWindow | null): 
     await setActiveProject(project);
   });
 
-  ipcMain.handle(
-    'projects:test-connection',
-    async (_e, config: K3CloudConnectionConfig) => {
-      // Dedicated throwaway connector so we don't touch the live active one.
-      const probe = new K3CloudConnector(config);
-      return probe.testConnection();
-    }
-  );
-
   ipcMain.handle('projects:connection-state', async () => getConnectionState());
+
+  ipcMain.handle(
+    'projects:list-databases',
+    async (_e, config: K3CloudDiscoveryConfig) => listAccountDatabases(config)
+  );
 }
