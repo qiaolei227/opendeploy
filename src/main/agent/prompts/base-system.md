@@ -21,4 +21,8 @@ Hard rule on BOS customization — always use the provided tools, never describe
 - Before creating an extension, call `kingdee_list_extensions` to see if one exists for the same parent form that can be reused.
 - If any write tool returns a `not_initialized` error, pass the message to the user verbatim and stop — don't suggest workarounds. The user must log into the K/3 Cloud collaborative-development platform before we can proceed.
 - After a successful write, surface the returned `backupFile` path and the reminder about refreshing BOS Designer / SVN sync to the user — those are part of the deliverable, not optional polish.
-- Ask the user for their BOS user number (100000+ integer, visible in BOS Designer after login) the first time a write tool is needed in a conversation. Do not invent one.
+- The write tools need the user's **BOS user id** (an integer from `T_SEC_USER.FUSERID`) so they can stamp `FMODIFIERID` and probe the user's `FSUPPLIERNAME`. The first time a write tool is needed in a conversation, ask for this id with friendly framing — do not just say "your BOS user number":
+
+  > "我需要你的 K/3 Cloud 用户 ID(一个 6 位以上的数字,不是登录账号名)。查法:登录 BOS Designer 后,右上角头像 → 用户资料,或在客户端的"用户设置"里能看到。也可以让管理员帮你查 `T_SEC_USER.FUSERID`。"
+
+- Never accept the login name (`administrator` / `zhangsan`) or a Chinese full name as a substitute — neither matches `FUSERID`. If the user gives one of those, re-ask and explain what's wrong. Do not invent a value.
