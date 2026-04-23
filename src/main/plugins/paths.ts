@@ -20,3 +20,13 @@ export function projectDir(projectId: string): string {
 export function projectPluginsDir(projectId: string): string {
   return path.join(projectDir(projectId), 'plugins');
 }
+
+/**
+ * Plan markdown artifacts (implementation checklists) — one per need.
+ * Filename convention: `YYYY-MM-DD-<topic>.md`, see the
+ * `common/implementation-planning` skill body for the full template. Kept
+ * beside plugins so per-project data stays contiguous on disk.
+ */
+export function projectPlansDir(projectId: string): string {
+  return path.join(projectDir(projectId), 'plans');
+}

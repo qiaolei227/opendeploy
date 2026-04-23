@@ -19,13 +19,26 @@ category: workflow
 - 需求里有多个独立动词("加 X,同时 Y,再做个 Z") → 多子项,分解
 - 步骤里有依赖顺序(A 完成 B 才能做) → plan 能把依赖画清楚
 
-## Plan md 的位置
+## Plan md 的位置 + 工具
+
+Plan 文件落在当前项目的 plans 目录:
 
 ```
 ~/.opendeploy/projects/<projectId>/plans/YYYY-MM-DD-<短主题>.md
 ```
 
 **文件名用具体主题**(`credit-management-upgrade.md` 而非 `plan-1.md`)——这些 md 本身就是**交付档案**,客户以后要翻的。
+
+**持久化工具**(活动项目存在时自动可用):
+
+| 何时用 | 工具 |
+|---|---|
+| 写新 plan | `write_plan(filename, content)` |
+| 顾问跨天回来,找之前的 plan | `list_plans()`(按 mtime 降序) |
+| 继续执行前读当前 plan | `read_plan(filename)` |
+| 完成一步,checkbox 打勾 | `read_plan` → 改 `[ ]` 为 `[x]` → `write_plan`(同文件名,覆盖) |
+
+**即使对话关掉,plan md 也在磁盘上**——这就是"跨天续做"的机制:下次会话加载后,agent 先 `list_plans` 看进行中的 plan,`read_plan` 读当前 checkbox 状态,从未打勾的第一步接着做。
 
 ## 模板
 
@@ -107,13 +120,16 @@ category: workflow
 
 ## 执行节奏
 
-1. **plan 写完先给用户签字**。说"这是我准备做的步骤清单,请 review——每一步的层级、owner、验收标准你都同意吗?有没有漏项或多余?"用户说"OK"再开始。
-2. **逐步执行,每步 checkpoint**。每完成一步(尤其是 owner = 我 的步骤):
-   - 报告:刚做了什么、验证结果是什么
+1. **plan 写完先 `write_plan` 落盘,然后给用户签字**。说"这是我准备做的步骤清单(已存到 `<path>`),请 review——每一步的层级、owner、验收标准你都同意吗?有没有漏项或多余?"用户说"OK"再开始。
+2. **逐步执行,每步 checkpoint + checkbox 同步**。每完成一步(尤其是 owner = 我 的步骤):
+   - 执行动作 + 反查验证
+   - **`read_plan` → 把这一步的 checkbox 从 `[ ]` 改成 `[x]` + 在该步骤下加一行"已于 YYYY-MM-DD HH:MM 完成,验证结果: ..." → `write_plan` 覆盖**
+   - 报告:刚做了什么、验证结果是什么、plan md 已更新
    - 问用户:"下一步是 [步骤 N+1 · xxx],owner 是 [你 / 我],确认继续?"
    - 用户说 OK 再继续。**不要连环跑完**。
-3. **用户说"全部执行" / "一路走到底"才能不停**——这是用户主动放弃 checkpoint,可以一口气跑,但**每一步仍然要验证**,失败就停。
+3. **用户说"全部执行" / "一路走到底"才能不停**——这是用户主动放弃 checkpoint,可以一口气跑,但**每一步仍然要验证 + checkbox 同步**,失败就停。
 4. **中途出现 plan 外的事**(工具报错、用户插话改需求),停下来,**不要偷偷调整 plan**。回到 design / 澄清 / 排错流程。
+5. **跨天续做**:用户重开软件点旧对话 + 说"继续" → 先 `list_plans` 看当前项目进行中的 plan → `read_plan` 读取 → 找第一个 `[ ]` 未完成的步骤,回忆 design 接着做(如有新信息先澄清)。**不要**凭记忆直接跳到结论——plan md 才是真相。
 
 ## 抽象示例骨架
 
