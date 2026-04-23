@@ -36,7 +36,7 @@ function ToolCallCard({ call }: { call: ToolCall }) {
         <span className="tool-name">{call.name}</span>
         <span className="tool-args">{call.args}</span>
         <span className={`tool-status ${hasResult ? 'ok' : 'running'}`}>
-          {hasResult ? 'ok ✓' : 'running'}
+          {hasResult ? t('messages.toolStatusOk') : t('messages.toolStatusRunning')}
         </span>
         {hasResult && <span className="tool-chevron">{open ? '▾' : '▸'}</span>}
       </button>

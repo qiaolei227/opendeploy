@@ -203,6 +203,8 @@
     "user": "You",
     "assistant": "OpenDeploy",
     "showToolResult": "Show tool result",
-    "hideToolResult": "Hide tool result"
+    "hideToolResult": "Hide tool result",
+    "toolStatusRunning": "running…",
+    "toolStatusOk": "done ✓"
   }
 }
