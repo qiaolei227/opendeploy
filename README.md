@@ -1,6 +1,8 @@
-<img src="./resources/icon.svg" alt="OpenDeploy" width="96" />
+<p align="center">
+  <img src="./resources/icon.svg" alt="OpenDeploy" width="96" />
+</p>
 
-# 开达 OpenDeploy
+<h1 align="center">开达 OpenDeploy</h1>
 
 > An open-source AI agent for ERP implementation consultants — making "a one-person delivery team" possible.
 
