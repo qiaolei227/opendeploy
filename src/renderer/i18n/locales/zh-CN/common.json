@@ -208,6 +208,7 @@
     "showToolResult": "展开工具结果",
     "hideToolResult": "收起工具结果",
     "toolStatusRunning": "调用中…",
-    "toolStatusOk": "完成 ✓"
+    "toolStatusOk": "完成 ✓",
+    "thinking": "思考中…"
   }
 }

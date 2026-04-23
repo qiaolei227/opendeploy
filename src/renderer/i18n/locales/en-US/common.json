@@ -208,6 +208,7 @@
     "showToolResult": "Show tool result",
     "hideToolResult": "Hide tool result",
     "toolStatusRunning": "running…",
-    "toolStatusOk": "done ✓"
+    "toolStatusOk": "done ✓",
+    "thinking": "thinking…"
   }
 }

@@ -67,7 +67,13 @@ export function Message({ message }: MessageProps) {
       </div>
       <div className="turn-body">
         {message.content && <MarkdownBlock content={message.content} />}
-        {message.isStreaming && <span className="streaming-cursor">▍</span>}
+        {message.isStreaming && !message.content && (!message.toolCalls || message.toolCalls.length === 0) && (
+          // The 500ms-2s gap between "user hits send" and "first delta
+          // arrives" used to show nothing except a small ▍ — users read it
+          // as "frozen". An explicit "思考中…" label removes the ambiguity.
+          <div className="turn-thinking">{t('messages.thinking')}</div>
+        )}
+        {message.isStreaming && message.content && <span className="streaming-cursor">▍</span>}
         {message.toolCalls?.map((tc, i) => <ToolCallCard key={i} call={tc} />)}
       </div>
     </div>
