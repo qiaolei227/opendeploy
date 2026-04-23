@@ -18,6 +18,11 @@
       "sha256": "aeee2c224e88d623597fb86ffb18ab347874dc3fd86ad0182f3a73238c3c15ca"
     },
     {
+      "id": "k3cloud/dll-plugin-index",
+      "version": "1.0.0",
+      "sha256": "29a6a83fa770c4420a8191dd600d283d865089d21f4a2f6a4eb52ac21ee66aad"
+    },
+    {
       "id": "k3cloud/product-features-index",
       "version": "1.0.0",
       "sha256": "9232ab28fd7c2f2986755f44bcfc8fb02ce1e34c29b77439ab94ba17d654f244"
@@ -31,6 +36,11 @@
       "id": "k3cloud/solution-decision-framework",
       "version": "2.0.0",
       "sha256": "827c71592634e36faba12d6ac201b30505fdd2f7e61d39fa81a58b117790e3d1"
+    },
+    {
+      "id": "k3cloud/troubleshooting-index",
+      "version": "1.0.0",
+      "sha256": "73af6f022475c0206f78e5a0b0d4d1a9cc4e950aaf22eb27999a3a2e83894461"
     },
     {
       "id": "k3cloud/webapi-index",
