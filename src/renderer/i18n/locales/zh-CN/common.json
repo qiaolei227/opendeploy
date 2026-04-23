@@ -129,14 +129,10 @@
     "database": "数据库",
     "user": "用户名",
     "password": "密码",
-    "edition": "版次",
-    "editionStandard": "标准版",
-    "editionEnterprise": "企业版",
-    "editionShort": {
-      "standard": "标准",
-      "enterprise": "企业"
+    "product": "产品",
+    "products": {
+      "k3cloud": "金蝶云星空 企业版/标准版"
     },
-    "version": "版本",
     "encrypt": "加密连接",
     "encryptHint": "SQL Server 2022+ 默认强制加密；除非连旧版否则保持开启",
     "trustCert": "信任证书",
@@ -147,6 +143,7 @@
     "edit": "编辑",
     "delete": "删除",
     "deleteConfirm": "确定删除该项目？对应连接会断开。",
+    "sectionProduct": "ERP 产品",
     "sectionIdentity": "项目标识",
     "sectionServer": "服务器连接",
     "sectionTargetDatabase": "目标数据库",

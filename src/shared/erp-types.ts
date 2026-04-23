@@ -5,17 +5,12 @@
  */
 
 /**
- * ERP product family identifier. The product's own edition (standard vs
- * enterprise) and release version are *not* part of this id — they live
- * in the project's connection config so the same connector implementation
- * can serve all editions. See memory: `project_plan_4_decisions`.
+ * ERP product family identifier. The product is the only product-level
+ * discriminator — edition/version are not modeled because the K3CloudConnector
+ * works identically across V9/V10 and standard/enterprise. Future products
+ * (e.g. `'sap'`) each bring their own connection-config shape.
  */
 export type ErpProvider = 'k3cloud';
-
-export type K3CloudEdition = 'standard' | 'enterprise';
-
-/** K/3 Cloud major release, kept as a string so the set can extend without a refactor. */
-export type K3CloudVersion = '9' | '10';
 
 export interface K3CloudConnectionConfig {
   /** Hostname or IP. Loopback for local dev, FQDN / IP for customer environments. */
@@ -27,8 +22,6 @@ export interface K3CloudConnectionConfig {
   user: string;
   /** Stored plaintext in settings.json per project decision; Enterprise build will move to keychain. */
   password: string;
-  edition: K3CloudEdition;
-  version: K3CloudVersion;
   /** Default `true` — SQL Server 2022+ requires encryption. */
   encrypt?: boolean;
   /** Default `true` for local dev; flip off when the DB has a CA-issued cert. */
@@ -38,9 +31,8 @@ export interface K3CloudConnectionConfig {
 /**
  * Connection parameters needed to enumerate candidate account-set databases
  * on a K/3 Cloud server — i.e. everything needed to log in to `master`.
- * `database`, `edition`, and `version` are deliberately excluded: the
- * discovery flow runs *before* the user has picked a database, and
- * edition/version don't affect the TDS handshake.
+ * `database` is deliberately excluded: the discovery flow runs *before*
+ * the user has picked a database.
  */
 export interface K3CloudDiscoveryConfig {
   server: string;
@@ -193,15 +185,14 @@ export interface PluginMeta {
 
 /**
  * Result of probing the database for a usable BOS development environment.
- * Driven by whether the current user has ever saved metadata (which stamps
- * `FSUPPLIERNAME`). Missing stamp = never logged into the K/3 Cloud
- * collaborative-development platform, and our write tools should refuse.
+ * Reduced to a connectivity + read-permission check: can we SELECT from
+ * `T_META_OBJECTTYPE`? Writes stamp `FMODIFIERID=0` + `FSUPPLIERNAME=NULL`
+ * and don't need a per-user developer code (2026-04-23 UAT 实证 — see
+ * memory `fuserid_not_required`).
  */
 export interface BosEnvironmentStatus {
   /** `ready` when we can safely write extensions; `not-initialized` otherwise. */
   status: 'ready' | 'not-initialized';
-  /** Present on `ready` — the developer code our writes should stamp onto FSUPPLIERNAME. */
-  developerCode?: string;
   /** Human-readable reason when `not-initialized`. */
   reason?: string;
 }

@@ -2,18 +2,29 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   DatabaseCandidate,
+  ErpProvider,
   K3CloudConnectionConfig,
   K3CloudDiscoveryConfig,
-  K3CloudEdition,
-  K3CloudVersion,
   ListDatabasesResult,
   Project
 } from '@shared/erp-types';
 
+/**
+ * Products the user can pick from when creating a project. MVP ships a single
+ * product; future entries plug in additional connector implementations.
+ */
+const PRODUCT_OPTIONS: ReadonlyArray<{ id: ErpProvider; labelKey: string }> = [
+  { id: 'k3cloud', labelKey: 'projects.products.k3cloud' }
+];
+
 interface ProjectFormProps {
   /** When present, the form opens in edit mode pre-populated with values. */
   initial?: Project;
-  onSubmit: (input: { name: string; connection: K3CloudConnectionConfig }) => void | Promise<void>;
+  onSubmit: (input: {
+    name: string;
+    erpProvider: ErpProvider;
+    connection: K3CloudConnectionConfig;
+  }) => void | Promise<void>;
   onCancel: () => void;
   /**
    * Combined connect-and-discover. Logs into `master` on the target server,
@@ -31,8 +42,6 @@ const DEFAULT_CONNECTION: K3CloudConnectionConfig = {
   database: '',
   user: 'sa',
   password: '',
-  edition: 'standard',
-  version: '9',
   encrypt: true,
   trustServerCertificate: true
 };
@@ -63,6 +72,9 @@ export function ProjectForm({
   const isEdit = !!initial;
 
   const [name, setName] = useState(initial?.name ?? '');
+  const [erpProvider, setErpProvider] = useState<ErpProvider>(
+    initial?.erpProvider ?? PRODUCT_OPTIONS[0].id
+  );
   const [c, setC] = useState<K3CloudConnectionConfig>(
     initial?.connection ?? DEFAULT_CONNECTION
   );
@@ -80,7 +92,7 @@ export function ProjectForm({
   /**
    * Update a credential field and invalidate the verified flag so section 3
    * re-locks; user must reconnect before saving. Non-credential fields
-   * (database / edition / version / name) use `setC` directly.
+   * (database / name) use `setC` directly.
    */
   const updateCredential = <K extends CredentialField>(
     key: K,
@@ -138,12 +150,29 @@ export function ProjectForm({
 
   const submit = (): void => {
     if (!canSubmit || submitting) return;
-    void onSubmit({ name: name.trim(), connection: c });
+    void onSubmit({ name: name.trim(), erpProvider, connection: c });
   };
 
   return (
     <div style={{ display: 'grid', gap: 8 }}>
-      {/* ─── Section 1: identity ─────────────────────────────────────── */}
+      {/* ─── Section 1: product ──────────────────────────────────────── */}
+      <SectionTitle>{t('projects.sectionProduct')}</SectionTitle>
+      <Row label={t('projects.product')} required>
+        <select
+          value={erpProvider}
+          onChange={(e) => setErpProvider(e.target.value as ErpProvider)}
+          disabled={isEdit}
+          style={{ flex: 1, padding: '6px 10px', fontSize: 13 }}
+        >
+          {PRODUCT_OPTIONS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {t(p.labelKey)}
+            </option>
+          ))}
+        </select>
+      </Row>
+
+      {/* ─── Section 2: identity ─────────────────────────────────────── */}
       <SectionTitle>{t('projects.sectionIdentity')}</SectionTitle>
       <Row label={t('projects.name')} required>
         <input
@@ -311,26 +340,6 @@ export function ProjectForm({
               style={{ flex: 1, padding: '6px 10px', fontSize: 13 }}
             />
           )}
-        </Row>
-        <Row label={t('projects.version')}>
-          <select
-            value={c.version}
-            onChange={(e) => setC({ ...c, version: e.target.value as K3CloudVersion })}
-            style={{ padding: '6px 10px', fontSize: 13 }}
-          >
-            <option value="9">V9</option>
-            <option value="10">V10</option>
-          </select>
-        </Row>
-        <Row label={t('projects.edition')}>
-          <select
-            value={c.edition}
-            onChange={(e) => setC({ ...c, edition: e.target.value as K3CloudEdition })}
-            style={{ padding: '6px 10px', fontSize: 13 }}
-          >
-            <option value="standard">{t('projects.editionStandard')}</option>
-            <option value="enterprise">{t('projects.editionEnterprise')}</option>
-          </select>
         </Row>
       </div>
 

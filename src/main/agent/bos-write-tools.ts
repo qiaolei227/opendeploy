@@ -6,10 +6,9 @@
  * snapshot and a transaction, so agent misbehavior can be hand-rolled back
  * via the returned backup file.
  *
- * The env check runs inside every write tool so the agent doesn't need to
- * remember to probe first. When the env is unusable the tool returns a
- * structured `not_initialized` message the agent is system-prompted to
- * pass through to the user verbatim.
+ * `FMODIFIERID=0` + `FSUPPLIERNAME=NULL` on every write — no BOS user ID
+ * needed from the consultant (2026-04-23 UAT 实证 — see memory
+ * `fuserid_not_required`).
  */
 
 import { getActiveConnector, getConnectionState } from '../erp/active';
@@ -54,41 +53,24 @@ export function buildBosWriteTools(
   ];
 }
 
-function requireUserId(args: Record<string, unknown>): number {
-  const raw = args.userId;
-  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) {
-    throw new Error(
-      'userId is required — ask the user for their K/3 Cloud BOS user number ' +
-        '(visible in BOS Designer bottom-right after login, e.g. 100002)'
-    );
-  }
-  return raw;
-}
-
 // ─── List / read tools ────────────────────────────────────────────────
 
 function probeBosEnvironmentTool(c: K3CloudConnector): ToolHandler {
   return {
+    parallelSafe: true,
     definition: {
       name: 'kingdee_probe_bos_environment',
       description:
-        '检查当前 K/3 Cloud 账套是否已就绪做 BOS 二开。返回 ready 就能往下走创建扩展 / 注册插件;返回 not-initialized 表示用户还没登录过 K/3 Cloud 协同开发平台,本工具会给出该提示给用户。所有写类 BOS 工具都会在内部先调这个,单独调用是为了排障或在对话开始时预检。',
+        '探活:检查我们能否读 BOS 元数据表。ready = 能往下创建扩展 / 注册插件;not-initialized = 连接或权限问题。写类工具内部会先跑这个,单独调用是为了排障。',
       parameters: {
         type: 'object',
-        properties: {
-          userId: {
-            type: 'number',
-            description:
-              'K/3 Cloud BOS 用户号(不是登录用户名),通常 100000+ 的整数。BOS Designer 登录后右下角可见。'
-          }
-        },
-        required: ['userId']
+        properties: {},
+        required: []
       }
     },
-    async execute(args) {
-      const userId = requireUserId(args);
+    async execute() {
       const pool = await c.getPool();
-      const r = await probeBosEnvironment(pool, userId);
+      const r = await probeBosEnvironment(pool);
       return JSON.stringify(r, null, 2);
     }
   };
@@ -96,6 +78,7 @@ function probeBosEnvironmentTool(c: K3CloudConnector): ToolHandler {
 
 function listExtensionsTool(c: K3CloudConnector): ToolHandler {
   return {
+    parallelSafe: true,
     definition: {
       name: 'kingdee_list_extensions',
       description:
@@ -122,6 +105,7 @@ function listExtensionsTool(c: K3CloudConnector): ToolHandler {
 
 function listFormPluginsTool(c: K3CloudConnector): ToolHandler {
   return {
+    parallelSafe: true,
     definition: {
       name: 'kingdee_list_form_plugins',
       description:
@@ -148,19 +132,14 @@ function listFormPluginsTool(c: K3CloudConnector): ToolHandler {
 
 // ─── Write tools ──────────────────────────────────────────────────────
 
-async function ensureReady(
-  c: K3CloudConnector,
-  userId: number
-): Promise<string> {
+async function ensureReady(c: K3CloudConnector): Promise<void> {
   const pool = await c.getPool();
-  const env = await probeBosEnvironment(pool, userId);
-  if (env.status !== 'ready' || !env.developerCode) {
+  const env = await probeBosEnvironment(pool);
+  if (env.status !== 'ready') {
     throw new Error(
-      env.reason ??
-        '当前 K/3 Cloud 账套尚未就绪做 BOS 二开,请先在协同开发平台登录一次。'
+      env.reason ?? '当前 K/3 Cloud 账套 BOS 元数据表不可访问,请检查连接权限。'
     );
   }
-  return env.developerCode;
 }
 
 function createExtensionTool(c: K3CloudConnector, projectId: string): ToolHandler {
@@ -174,10 +153,6 @@ function createExtensionTool(c: K3CloudConnector, projectId: string): ToolHandle
       parameters: {
         type: 'object',
         properties: {
-          userId: {
-            type: 'number',
-            description: 'BOS 用户号,见 kingdee_probe_bos_environment 描述。'
-          },
           parentFormId: {
             type: 'string',
             description: '原单据 FormID,例如 "SAL_SaleOrder"。'
@@ -198,12 +173,11 @@ function createExtensionTool(c: K3CloudConnector, projectId: string): ToolHandle
               '完整 IronPython 2.7 源码,含 import、继承 AbstractBillPlugIn、事件 override 等。不要加 shebang。'
           }
         },
-        required: ['userId', 'parentFormId', 'extName', 'pluginName', 'pyBody']
+        required: ['parentFormId', 'extName', 'pluginName', 'pyBody']
       }
     },
     async execute(args) {
-      const userId = requireUserId(args);
-      const developerCode = await ensureReady(c, userId);
+      await ensureReady(c);
       const plugin: PluginMeta = {
         className: String(args.pluginName),
         type: 'python',
@@ -212,10 +186,8 @@ function createExtensionTool(c: K3CloudConnector, projectId: string): ToolHandle
       const pool = await c.getPool();
       const r = await createExtensionWithPythonPlugin(pool, {
         projectId,
-        userId,
         parentFormId: String(args.parentFormId),
         extName: String(args.extName),
-        developerCode,
         plugin
       });
       return JSON.stringify(
@@ -242,7 +214,6 @@ function registerPluginTool(c: K3CloudConnector, projectId: string): ToolHandler
       parameters: {
         type: 'object',
         properties: {
-          userId: { type: 'number', description: 'BOS 用户号。' },
           extId: { type: 'string', description: '扩展 GUID。' },
           pluginName: {
             type: 'string',
@@ -250,14 +221,13 @@ function registerPluginTool(c: K3CloudConnector, projectId: string): ToolHandler
           },
           pyBody: { type: 'string', description: 'IronPython 2.7 源码。' }
         },
-        required: ['userId', 'extId', 'pluginName', 'pyBody']
+        required: ['extId', 'pluginName', 'pyBody']
       }
     },
     async execute(args) {
-      const userId = requireUserId(args);
-      await ensureReady(c, userId);
+      await ensureReady(c);
       const pool = await c.getPool();
-      const r = await registerPythonPluginOnExtension(pool, projectId, userId, String(args.extId), {
+      const r = await registerPythonPluginOnExtension(pool, projectId, String(args.extId), {
         className: String(args.pluginName),
         type: 'python',
         pyScript: String(args.pyBody)
@@ -285,21 +255,19 @@ function unregisterPluginTool(c: K3CloudConnector, projectId: string): ToolHandl
       parameters: {
         type: 'object',
         properties: {
-          userId: { type: 'number', description: 'BOS 用户号。' },
           extId: { type: 'string', description: '扩展 GUID。' },
           className: {
             type: 'string',
             description: '要移除的插件 ClassName(Python 是脚本名,DLL 是全限定 .NET 类型)。'
           }
         },
-        required: ['userId', 'extId', 'className']
+        required: ['extId', 'className']
       }
     },
     async execute(args) {
-      const userId = requireUserId(args);
-      await ensureReady(c, userId);
+      await ensureReady(c);
       const pool = await c.getPool();
-      const r = await unregisterPlugin(pool, projectId, userId, String(args.extId), String(args.className));
+      const r = await unregisterPlugin(pool, projectId, String(args.extId), String(args.className));
       return JSON.stringify({ ok: true, backupFile: r.backupFile }, null, 2);
     }
   };
@@ -315,15 +283,13 @@ function deleteExtensionTool(c: K3CloudConnector, projectId: string): ToolHandle
       parameters: {
         type: 'object',
         properties: {
-          userId: { type: 'number', description: 'BOS 用户号(用于环境自检,写 DB 不盖章)。' },
           extId: { type: 'string', description: '要删的扩展 GUID。' }
         },
-        required: ['userId', 'extId']
+        required: ['extId']
       }
     },
     async execute(args) {
-      const userId = requireUserId(args);
-      await ensureReady(c, userId);
+      await ensureReady(c);
       const pool = await c.getPool();
       const r = await deleteExtension(pool, projectId, String(args.extId));
       return JSON.stringify({ ok: true, backupFile: r.backupFile }, null, 2);

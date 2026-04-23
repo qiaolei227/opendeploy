@@ -31,7 +31,6 @@ const PARENT_FORM_ID = 'SAL_SaleOrder';
 const EXT_NAME = `opendeploy_auto_ext_${Math.floor(Date.now() / 1000)}`;
 const PLUGIN_NAME = 'opendeploy_auto_test_1';
 const PY_BODY = `# auto-created by OpenDeploy at ${new Date().toISOString()}`;
-const USER_ID = 100002; // seen in T_BAS_OPERATELOG.FUSERID
 const SUBSYSTEM_ID = '23'; // SCM · inherited from SAL_SaleOrder
 
 /** .NET DateTime.Ticks = 100-ns intervals since 0001-01-01 00:00:00 UTC. */
@@ -78,29 +77,16 @@ async function main(): Promise<void> {
 
   const pool = await new sql.ConnectionPool(CONFIG).connect();
   try {
-    // 0. Resolve the developer mark dynamically from this user's most recent
-    // metadata write — BOS doesn't store the "current developer" in any
-    // registry table; it's stamped onto every FSUPPLIERNAME the user saves.
-    // Mirroring that read here keeps the extensions we create editable by
-    // the same user in BOS Designer.
-    const devProbe = await pool
-      .request()
-      .input('uid', sql.Int, USER_ID)
-      .query<{ s: string | null }>(`
-        SELECT TOP 1 FSUPPLIERNAME AS s
-          FROM T_META_OBJECTTYPE
-         WHERE FMODIFIERID = @uid AND FSUPPLIERNAME IS NOT NULL
-         ORDER BY FMODIFYDATE DESC
-      `);
-    const developerId = devProbe.recordset[0]?.s ?? 'OPENDEPLOY';
-
+    // We stamp FMODIFIERID = 0 + FSUPPLIERNAME = NULL on every write — BOS
+    // Designer treats null-owner extensions as editable by anyone, which is
+    // the right default for a one-consultant workflow (2026-04-23 UAT 实证 —
+    // see memory fuserid_not_required).
     console.log('=== Extension creation plan ===');
     console.log(`  new extension FID   = ${extId}`);
     console.log(`  parent form         = ${PARENT_FORM_ID}`);
     console.log(`  extension name      = ${EXT_NAME}`);
     console.log(`  plugin name         = ${PLUGIN_NAME}`);
     console.log(`  version (ticks)     = ${version}`);
-    console.log(`  developer mark      = ${developerId} ${devProbe.recordset[0]?.s ? '(from user history)' : '(fallback)'}`);
     console.log(`  computer info       = ${computerInfo}`);
     console.log();
 
@@ -161,9 +147,7 @@ async function main(): Promise<void> {
         .input('xml', sql.NVarChar(sql.MAX), kernelXml)
         .input('base', sql.VarChar(36), PARENT_FORM_ID)
         .input('devtype', sql.SmallInt, 2)
-        .input('dev', sql.VarChar(100), developerId)
         .input('inherit', sql.NVarChar(510), inheritPath)
-        .input('user', sql.Int, USER_ID)
         .input('computer', sql.VarChar(255), computerInfo)
         .query(`
           INSERT INTO T_META_OBJECTTYPE
@@ -172,8 +156,8 @@ async function main(): Promise<void> {
              FMODIFIERID, FMODIFYDATE, FCOMPUTERINFO, FMAINVERSION)
           VALUES
             (@fid, @mtype, @sub, @msub, @version, 0,
-             @xml, @base, @devtype, @dev, @inherit,
-             @user, GETDATE(), @computer, @version)
+             @xml, @base, @devtype, NULL, @inherit,
+             0, GETDATE(), @computer, @version)
         `);
       console.log('  ✓ T_META_OBJECTTYPE');
 
@@ -236,16 +220,17 @@ async function main(): Promise<void> {
       console.log(`  ✓ T_META_OBJECTTYPEREF (${cloneRef.rowsAffected[0]} rows cloned)`);
 
       // 3h. Clone tracker bill tables from parent. FTABLEID is a global-
-      // unique int across every tracker row; cloning the parent's values
-      // collides with itself. BOS's behavior is MAX(FTABLEID)+N so we do
-      // the same — ROW_NUMBER across the parent rows gives a stable offset.
+      // unique int across every tracker row. Allocate in the 900000+ range
+      // to avoid colliding with BOS Designer's own allocator (which targets
+      // 100000-500000). See memory: bos_tracker_ftableid_conflict.
       const cloneTracker = await new sql.Request(tx)
         .input('ext', sql.VarChar(36), extId)
         .input('parent', sql.VarChar(64), PARENT_FORM_ID)
         .query(`
-          DECLARE @maxId INT = (SELECT ISNULL(MAX(FTABLEID), 0) FROM T_META_TRACKERBILLTABLE);
+          DECLARE @base INT = (SELECT ISNULL(MAX(FTABLEID), 0) FROM T_META_TRACKERBILLTABLE);
+          IF @base < 900000 SET @base = 899999;
           INSERT INTO T_META_TRACKERBILLTABLE (FTABLEID, FTABLENAME, FPKFIELDNAME, FOBJECTTYPEID)
-          SELECT @maxId + ROW_NUMBER() OVER (ORDER BY FTABLEID),
+          SELECT @base + ROW_NUMBER() OVER (ORDER BY FTABLEID),
                  FTABLENAME, FPKFIELDNAME, @ext
             FROM T_META_TRACKERBILLTABLE
            WHERE FOBJECTTYPEID = @parent

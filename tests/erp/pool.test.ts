@@ -6,9 +6,7 @@ const base: K3CloudConnectionConfig = {
   server: 'localhost',
   database: 'AIS001',
   user: 'sa',
-  password: '123',
-  edition: 'standard',
-  version: '9'
+  password: '123'
 };
 
 describe('buildPoolConfig', () => {

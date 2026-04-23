@@ -36,9 +36,7 @@ const project: Project = {
     server: 'localhost',
     database: 'AIS001',
     user: 'sa',
-    password: 'x',
-    edition: 'standard',
-    version: '9'
+    password: 'x'
   },
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString()

@@ -38,11 +38,19 @@ export function ProjectsPage() {
       ? projects.find((p) => p.id === view.id)
       : undefined;
 
-  const onSubmit = async (input: { name: string; connection: Project['connection'] }) => {
+  const onSubmit = async (input: {
+    name: string;
+    erpProvider: Project['erpProvider'];
+    connection: Project['connection'];
+  }) => {
     setSubmitting(true);
     try {
       if (view === 'new') {
-        await create({ name: input.name, erpProvider: 'k3cloud', connection: input.connection });
+        await create({
+          name: input.name,
+          erpProvider: input.erpProvider,
+          connection: input.connection
+        });
       } else if (editing) {
         await update(editing.id, { name: input.name, connection: input.connection });
       }
@@ -152,8 +160,7 @@ export function ProjectsPage() {
                           {p.connection.server}:{p.connection.port ?? 1433}/{p.connection.database}
                         </span>
                         <span className="chip" style={{ fontSize: 10 }}>
-                          K/3 Cloud V{p.connection.version} ·{' '}
-                          {t(`projects.editionShort.${p.connection.edition}`)}
+                          {t(`projects.products.${p.erpProvider}`)}
                         </span>
                       </div>
                       <div style={{ display: 'flex', gap: 6 }}>

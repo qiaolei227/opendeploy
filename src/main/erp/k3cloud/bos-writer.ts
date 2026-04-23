@@ -34,41 +34,30 @@ function requireValid(sqlText: string): void {
 
 // ─── Environment probe ─────────────────────────────────────────────────
 
-const PROBE_ENV_SQL = `
-  SELECT TOP 1 FSUPPLIERNAME AS code
-    FROM T_META_OBJECTTYPE
-   WHERE FMODIFIERID = @uid
-     AND FSUPPLIERNAME IS NOT NULL
-     AND LEN(LTRIM(RTRIM(FSUPPLIERNAME))) > 0
-   ORDER BY FMODIFYDATE DESC
-`;
+const PROBE_ENV_SQL = `SELECT TOP 1 FID FROM T_META_OBJECTTYPE`;
 
 /**
- * Check whether the given BOS user has ever saved metadata — if so, we can
- * reuse their `FSUPPLIERNAME` as the developer stamp for extensions we
- * create on their behalf. When no stamp is found the user hasn't logged
- * into the K/3 Cloud collaborative-development platform yet, and our
- * write tools must refuse until they do.
+ * Sanity-check that we can read the BOS metadata tables — if the current
+ * connection can SELECT from `T_META_OBJECTTYPE`, the environment is ready
+ * for our write tools. No user-scoped check is needed: we stamp
+ * `FMODIFIERID=0` + `FSUPPLIERNAME=NULL` on every write (BOS Designer
+ * treats null-owner metadata as shared / editable by anyone — 2026-04-23
+ * UAT 实证). See memory `fuserid_not_required`.
  */
 export async function probeBosEnvironment(
-  pool: sql.ConnectionPool,
-  userId: number
+  pool: sql.ConnectionPool
 ): Promise<BosEnvironmentStatus> {
   requireValid(PROBE_ENV_SQL);
-  const r = await pool
-    .request()
-    .input('uid', sql.Int, userId)
-    .query<{ code: string | null }>(PROBE_ENV_SQL);
-  const code = r.recordset[0]?.code;
-  if (!code || !code.trim()) {
+  try {
+    await pool.request().query<{ FID: string }>(PROBE_ENV_SQL);
+    return { status: 'ready' };
+  } catch (err) {
     return {
       status: 'not-initialized',
       reason:
-        '当前用户没有可识别的开发商标识。请先登录一次 K/3 Cloud 协同开发平台,' +
-        '登录时选择 Workspace 即可自动绑定开发商。'
+        `无法访问 BOS 元数据表 T_META_OBJECTTYPE: ${err instanceof Error ? err.message : String(err)}`
     };
   }
-  return { status: 'ready', developerCode: code.trim() };
 }
 
 // ─── listExtensions ───────────────────────────────────────────────────
@@ -185,19 +174,20 @@ const UPDATE_KERNEL_XML_SQL = `
          FVERSION = @version,
          FMAINVERSION = @version,
          FMODIFYDATE = GETDATE(),
-         FMODIFIERID = @uid
+         FMODIFIERID = 0
    WHERE FID = @id
 `;
 
 /**
  * Apply a new FKERNELXML delta to an existing extension row, refreshing
  * version + modify metadata so BOS Designer treats it as a fresh edit.
+ * `FMODIFIERID` is hardcoded to 0 — BOS Designer treats "no modifier" as
+ * valid (see memory `fuserid_not_required`).
  */
 async function updateKernelXml(
   pool: sql.ConnectionPool,
   extId: string,
-  xml: string,
-  userId: number
+  xml: string
 ): Promise<void> {
   requireValid(UPDATE_KERNEL_XML_SQL);
   await pool
@@ -205,7 +195,6 @@ async function updateKernelXml(
     .input('id', sql.VarChar(36), extId)
     .input('xml', sql.NVarChar(sql.MAX), xml)
     .input('version', sql.VarChar(100), dotnetTicks())
-    .input('uid', sql.Int, userId)
     .query(UPDATE_KERNEL_XML_SQL);
 }
 
@@ -221,7 +210,6 @@ async function updateKernelXml(
 export async function registerPythonPluginOnExtension(
   pool: sql.ConnectionPool,
   projectId: string,
-  userId: number,
   extId: string,
   plugin: PluginMeta
 ): Promise<{ backupFile: string }> {
@@ -237,7 +225,7 @@ export async function registerPythonPluginOnExtension(
   if (!currentXml) throw new Error(`extension ${extId} has no FKERNELXML to extend`);
 
   const newXml = addPluginToKernelXml(currentXml, plugin);
-  await updateKernelXml(pool, extId, newXml, userId);
+  await updateKernelXml(pool, extId, newXml);
   return { backupFile };
 }
 
@@ -251,7 +239,6 @@ export async function registerPythonPluginOnExtension(
 export async function unregisterPlugin(
   pool: sql.ConnectionPool,
   projectId: string,
-  userId: number,
   extId: string,
   className: string
 ): Promise<{ backupFile: string }> {
@@ -265,7 +252,7 @@ export async function unregisterPlugin(
 
   const newXml = removePluginFromKernelXml(currentXml, className);
   if (newXml === currentXml) return { backupFile }; // nothing changed
-  await updateKernelXml(pool, extId, newXml, userId);
+  await updateKernelXml(pool, extId, newXml);
   return { backupFile };
 }
 
@@ -273,10 +260,8 @@ export async function unregisterPlugin(
 
 export interface CreateExtensionParams {
   projectId: string;
-  userId: number;
   parentFormId: string;
   extName: string;
-  developerCode: string;
   plugin: PluginMeta;
 }
 
@@ -287,9 +272,9 @@ export interface CreateExtensionParams {
  * extension via the UI (see memory `bos_extension_recipe.md`). Rolls the
  * whole thing back if any step fails.
  *
- * Caller responsibility: resolve `developerCode` up front via
- * `probeBosEnvironment` and refuse if not 'ready'. Passing a bogus code
- * here creates an extension the user can't edit in BOS Designer.
+ * `FMODIFIERID` and `FSUPPLIERNAME` are hardcoded to `0` / `NULL` — BOS
+ * Designer treats null-owner extensions as editable by anyone (2026-04-23
+ * UAT 实证). See memory `fuserid_not_required`.
  */
 export async function createExtensionWithPythonPlugin(
   pool: sql.ConnectionPool,
@@ -344,9 +329,7 @@ export async function createExtensionWithPythonPlugin(
       .input('xml', sql.NVarChar(sql.MAX), kernelXml)
       .input('base', sql.VarChar(36), params.parentFormId)
       .input('devtype', sql.SmallInt, 2)
-      .input('dev', sql.VarChar(100), params.developerCode)
       .input('inherit', sql.NVarChar(510), inheritPath)
-      .input('uid', sql.Int, params.userId)
       .input('computer', sql.VarChar(255), computerInfo).query(`
         INSERT INTO T_META_OBJECTTYPE
           (FID, FMODELTYPEID, FSUBSYSID, FMODELTYPESUBID, FVERSION, FISTEMPLATE,
@@ -354,8 +337,8 @@ export async function createExtensionWithPythonPlugin(
            FMODIFIERID, FMODIFYDATE, FCOMPUTERINFO, FMAINVERSION)
         VALUES
           (@fid, @mtype, @sub, @msub, @version, 0,
-           @xml, @base, @devtype, @dev, @inherit,
-           @uid, GETDATE(), @computer, @version)`);
+           @xml, @base, @devtype, NULL, @inherit,
+           0, GETDATE(), @computer, @version)`);
 
     // 2. T_META_OBJECTTYPE_L — localized name (zh-CN).
     await new sql.Request(tx)
@@ -399,15 +382,25 @@ export async function createExtensionWithPythonPlugin(
           FROM T_META_OBJECTTYPEREF
          WHERE FOBJECTTYPEID = @parent`);
 
-    // 8. T_META_TRACKERBILLTABLE — clone from parent, generating new FTABLEID.
-    // FTABLEID is a global-unique int, not per-object, so direct clone
-    // would violate the PK — MAX+N per cloned row mirrors BOS behavior.
+    // 8. T_META_TRACKERBILLTABLE — clone from parent, generating new FTABLEID
+    // in the 900000+ range to stay out of BOS Designer's internal allocator.
+    //
+    // Global MAX+N looks correct but isn't: BOS Designer, when saving a new
+    // field on our extension, picks FTABLEIDs by its own scheme whose values
+    // land in the 100000–500000 range. If our clones sit anywhere in that
+    // range, BOS Designer's later INSERTs collide on the PK and the add-field
+    // save fails. 2026-04-23 UAT实证 — see memory: bos_tracker_ftableid_conflict.
+    //
+    // The 900000 floor gives us a clean high-range subspace; global MAX is
+    // still included in the start so concurrent OpenDeploy writes don't pick
+    // the same IDs twice.
     await new sql.Request(tx)
       .input('ext', sql.VarChar(36), extId)
       .input('parent', sql.VarChar(64), params.parentFormId).query(`
-        DECLARE @maxId INT = (SELECT ISNULL(MAX(FTABLEID), 0) FROM T_META_TRACKERBILLTABLE);
+        DECLARE @base INT = (SELECT ISNULL(MAX(FTABLEID), 0) FROM T_META_TRACKERBILLTABLE);
+        IF @base < 900000 SET @base = 899999;  -- makes the first +ROW_NUMBER row land on 900000
         INSERT INTO T_META_TRACKERBILLTABLE (FTABLEID, FTABLENAME, FPKFIELDNAME, FOBJECTTYPEID)
-        SELECT @maxId + ROW_NUMBER() OVER (ORDER BY FTABLEID),
+        SELECT @base + ROW_NUMBER() OVER (ORDER BY FTABLEID),
                FTABLENAME, FPKFIELDNAME, @ext
           FROM T_META_TRACKERBILLTABLE
          WHERE FOBJECTTYPEID = @parent`);

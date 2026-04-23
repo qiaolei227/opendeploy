@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type sql from 'mssql';
 import {
   listExtensions,
@@ -47,39 +48,34 @@ function makeFakePool(opts: {
 }
 
 describe('probeBosEnvironment', () => {
-  it('returns status=ready + developerCode when the user has stamped metadata', async () => {
-    const pool = makeFakePool({ queryResult: { recordset: [{ code: 'PAIJ' }] } });
-    const r = await probeBosEnvironment(pool, 100002);
+  it('returns status=ready when the metadata table is readable', async () => {
+    const pool = makeFakePool({ queryResult: { recordset: [{ FID: 'whatever' }] } });
+    const r = await probeBosEnvironment(pool);
     expect(r.status).toBe('ready');
-    expect(r.developerCode).toBe('PAIJ');
+    // developerCode is deliberately gone from the shape post-2026-04-23.
+    expect((r as Record<string, unknown>).developerCode).toBeUndefined();
   });
 
-  it('trims whitespace from the developer code', async () => {
-    const pool = makeFakePool({ queryResult: { recordset: [{ code: '  PAIJ  ' }] } });
-    expect((await probeBosEnvironment(pool, 1)).developerCode).toBe('PAIJ');
-  });
-
-  it('returns status=not-initialized when no stamp found', async () => {
+  it('returns status=ready even when the table is empty (fresh DB)', async () => {
     const pool = makeFakePool({ queryResult: { recordset: [] } });
-    const r = await probeBosEnvironment(pool, 100002);
-    expect(r.status).toBe('not-initialized');
-    expect(r.reason).toMatch(/协同开发平台/);
-    expect(r.developerCode).toBeUndefined();
+    const r = await probeBosEnvironment(pool);
+    expect(r.status).toBe('ready');
   });
 
-  it('treats an empty-string stamp as not-initialized', async () => {
-    const pool = makeFakePool({ queryResult: { recordset: [{ code: '  ' }] } });
-    const r = await probeBosEnvironment(pool, 100002);
+  it('returns status=not-initialized when the query throws (no connection / no read perms)', async () => {
+    const pool = makeFakePool({ throwOnQuery: new Error('permission denied on T_META_OBJECTTYPE') });
+    const r = await probeBosEnvironment(pool);
     expect(r.status).toBe('not-initialized');
+    expect(r.reason).toMatch(/T_META_OBJECTTYPE/);
+    expect(r.reason).toMatch(/permission denied/);
   });
 
-  it('binds the @uid parameter correctly', async () => {
+  it('does not bind any user-scoped parameter (no FUSERID required)', async () => {
     const captured: FakeCall[] = [];
     const pool = makeFakePool({ queryResult: { recordset: [] }, capture: captured });
-    await probeBosEnvironment(pool, 42);
+    await probeBosEnvironment(pool);
     expect(captured).toHaveLength(1);
-    expect(captured[0].inputs.uid).toBe(42);
-    expect(captured[0].sql).toMatch(/FSUPPLIERNAME/);
+    expect(Object.keys(captured[0].inputs)).toHaveLength(0);
   });
 });
 
@@ -254,7 +250,7 @@ describe('registerPythonPluginOnExtension', () => {
         ]
       }
     });
-    const res = await registerPythonPluginOnExtension(pool, 'pid', 100002, EXT, {
+    const res = await registerPythonPluginOnExtension(pool, 'pid', EXT, {
       className: 'new_plugin',
       type: 'python',
       pyScript: '# body'
@@ -266,7 +262,9 @@ describe('registerPythonPluginOnExtension', () => {
     expect(xmlArg).toContain('<PlugInType>1</PlugInType>');
     expect(xmlArg).toContain('<PyScript># body</PyScript>');
     expect(updates[0].inputs.id).toBe(EXT);
-    expect(updates[0].inputs.uid).toBe(100002);
+    // Writer no longer binds FMODIFIERID via parameter — it's a literal 0 in SQL.
+    expect(updates[0].inputs.uid).toBeUndefined();
+    expect(updates[0].sql).toMatch(/FMODIFIERID\s*=\s*0/);
   });
 
   it('throws when adding a plugin whose ClassName already exists', async () => {
@@ -284,7 +282,7 @@ describe('registerPythonPluginOnExtension', () => {
       }
     });
     await expect(
-      registerPythonPluginOnExtension(pool, 'pid', 1, EXT, {
+      registerPythonPluginOnExtension(pool, 'pid', EXT, {
         className: 'dupe',
         type: 'python',
         pyScript: '# new'
@@ -295,7 +293,7 @@ describe('registerPythonPluginOnExtension', () => {
   it('throws when the target extension is missing', async () => {
     const pool = makeWritePool({ updateCapture: [], tables: {} });
     await expect(
-      registerPythonPluginOnExtension(pool, 'pid', 1, EXT, {
+      registerPythonPluginOnExtension(pool, 'pid', EXT, {
         className: 'x',
         type: 'python',
         pyScript: ''
@@ -306,7 +304,7 @@ describe('registerPythonPluginOnExtension', () => {
   it('refuses a DLL plugin — registration path is Python-only', async () => {
     const pool = makeWritePool({ updateCapture: [], tables: {} });
     await expect(
-      registerPythonPluginOnExtension(pool, 'pid', 1, EXT, {
+      registerPythonPluginOnExtension(pool, 'pid', EXT, {
         className: 'Foo.Bar, Foo',
         type: 'dll',
         orderId: 1
@@ -342,7 +340,7 @@ describe('unregisterPlugin', () => {
       updateCapture: updates,
       tables: { T_META_OBJECTTYPE: [{ FID: EXT, FKERNELXML: initialXml }] }
     });
-    await unregisterPlugin(pool, 'pid', 100002, EXT, 'drop');
+    await unregisterPlugin(pool, 'pid', EXT, 'drop');
     expect(updates).toHaveLength(1);
     const xmlArg = String(updates[0].inputs.xml);
     expect(xmlArg).toContain('<ClassName>keep</ClassName>');
@@ -359,8 +357,25 @@ describe('unregisterPlugin', () => {
         ]
       }
     });
-    const res = await unregisterPlugin(pool, 'pid', 1, EXT, 'missing');
+    const res = await unregisterPlugin(pool, 'pid', EXT, 'missing');
     expect(updates).toHaveLength(0);
     expect(res.backupFile).toContain('_unregister-plugin_');
+  });
+});
+
+describe('createExtensionWithPythonPlugin · T_META_TRACKERBILLTABLE FTABLEID allocation', () => {
+  it('tracker base stays in the 900000+ range to avoid BOS Designer PK conflicts', () => {
+    // Regression guard. BOS Designer's internal allocator picks FTABLEIDs
+    // in the 100000-500000 range when saving new fields on our extension;
+    // our clones must sit in a disjoint high range or the user's add-field
+    // save blows up with PK violation. 2026-04-23 UAT 实证 — see memory
+    // `bos_tracker_ftableid_conflict`. If this test fails because the SQL
+    // changed, **read that memory note before removing the 900000 floor**.
+    const src = readFileSync(
+      fileURLToPath(new URL('../../src/main/erp/k3cloud/bos-writer.ts', import.meta.url)),
+      'utf-8'
+    );
+    expect(src).toMatch(/IF\s+@base\s*<\s*900000/);
+    expect(src).toMatch(/SET\s+@base\s*=\s*899999/);
   });
 });

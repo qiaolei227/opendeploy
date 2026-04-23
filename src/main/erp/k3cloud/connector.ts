@@ -22,9 +22,10 @@ export interface K3CloudConnectorDeps {
 }
 
 /**
- * K/3 Cloud connector. One class serves all editions (standard / enterprise);
- * edition-specific divergence, if any, lives inside individual methods. See
- * memory `project_plan_4_decisions`.
+ * K/3 Cloud connector. One class serves all K/3 Cloud deployments
+ * (V9/V10, standard/enterprise). Product-level selection is the
+ * `ErpProvider = 'k3cloud'` tag on the project; release and edition
+ * don't change how we read metadata.
  *
  * Task 6 implements connect / disconnect / testConnection only. Metadata
  * methods throw `not implemented` until Task 12 populates them with the

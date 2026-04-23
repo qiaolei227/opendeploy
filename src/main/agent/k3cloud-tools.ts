@@ -1,7 +1,6 @@
 import { getActiveConnector, getConnectionState } from '../erp/active';
 import type { ToolHandler } from './tools';
 import type { K3CloudConnector } from '../erp/k3cloud/connector';
-import activeProjectTagTemplate from './prompts/active-project-tag.md?raw';
 
 /**
  * Build the K/3 Cloud tool set for the current active project. Returns an
@@ -25,32 +24,43 @@ export function buildK3CloudTools(connector?: K3CloudConnector): ToolHandler[] {
 }
 
 /**
- * Short tag describing the active project + edition/version so the base
- * system prompt can tell the agent which K/3 Cloud deployment the tools
- * hit. Empty when no project is active.
+ * Short tag describing the active project so the base system prompt can
+ * tell the agent which K/3 Cloud database the tools hit. Empty when no
+ * project is active.
  *
- * Text lives in `prompts/active-project-tag.md` with `{{placeholder}}` markers
- * so product / consulting leads can tweak the wording without TypeScript
- * knowledge. Markers are replaced at assembly time; the template itself is
- * inlined at build time by Vite's `?raw` loader.
+ * Template text (with `{{placeholder}}` markers) is passed in rather than
+ * imported here so this module stays free of Vite's `?raw` syntax —
+ * the production call-site in `ipc-llm.ts` imports the md via `?raw`,
+ * while debug scripts read it via `fs`. Markers are replaced at call time.
  */
-export function activeProjectTag(): string {
+/**
+ * ERP provider → user-facing product full name. The agent needs the full
+ * edition-level name so it doesn't confuse K/3 Cloud 企业版/标准版 (BOS +
+ * IronPython, what we target) with 旗舰版 (runs on 苍穹 V2, different stack).
+ */
+const PRODUCT_DISPLAY_NAMES: Record<string, string> = {
+  k3cloud: '金蝶云星空 企业版/标准版'
+};
+
+export function activeProjectTag(template: string): string {
   const state = getConnectionState();
   if (state.status !== 'connected' || !state.projectId) return '';
   const c = getActiveConnector();
   if (!c) return '';
+  const productName =
+    (state.erpProvider && PRODUCT_DISPLAY_NAMES[state.erpProvider]) ?? state.erpProvider ?? '';
   const values: Record<string, string> = {
     database: c.config.database,
-    version: c.config.version,
-    edition: c.config.edition === 'enterprise' ? 'Enterprise' : 'Standard'
+    productName
   };
-  return activeProjectTagTemplate
+  return template
     .trim()
     .replace(/\{\{(\w+)\}\}/g, (_, key: string) => values[key] ?? `{{${key}}}`);
 }
 
 function listObjectsTool(c: K3CloudConnector): ToolHandler {
   return {
+    parallelSafe: true,
     definition: {
       name: 'kingdee_list_objects',
       description:
@@ -97,6 +107,7 @@ function listObjectsTool(c: K3CloudConnector): ToolHandler {
 
 function getObjectTool(c: K3CloudConnector): ToolHandler {
   return {
+    parallelSafe: true,
     definition: {
       name: 'kingdee_get_object',
       description:
@@ -128,6 +139,7 @@ function getObjectTool(c: K3CloudConnector): ToolHandler {
 
 function getFieldsTool(c: K3CloudConnector): ToolHandler {
   return {
+    parallelSafe: true,
     definition: {
       name: 'kingdee_get_fields',
       description:
@@ -190,6 +202,7 @@ function getFieldsTool(c: K3CloudConnector): ToolHandler {
 
 function listSubsystemsTool(c: K3CloudConnector): ToolHandler {
   return {
+    parallelSafe: true,
     definition: {
       name: 'kingdee_list_subsystems',
       description:
@@ -205,6 +218,7 @@ function listSubsystemsTool(c: K3CloudConnector): ToolHandler {
 
 function searchMetadataTool(c: K3CloudConnector): ToolHandler {
   return {
+    parallelSafe: true,
     definition: {
       name: 'kingdee_search_metadata',
       description:

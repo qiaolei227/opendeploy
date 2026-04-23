@@ -5,7 +5,7 @@ import type { FieldMeta, ObjectMeta, SubsystemMeta } from '@shared/erp-types';
 
 /**
  * Minimal stand-in for K3CloudConnector — only the methods the tool layer
- * calls, plus a config block so activeProjectTag can read edition/version.
+ * calls, plus a config block so activeProjectTag can read the database name.
  */
 function makeFake(
   overrides: Partial<Pick<K3CloudConnector, 'listObjects' | 'getObject' | 'getFields' | 'listSubsystems' | 'searchMetadata'>> = {}
@@ -15,9 +15,7 @@ function makeFake(
       server: 'localhost',
       database: 'AIS001',
       user: 'sa',
-      password: 'x',
-      edition: 'standard',
-      version: '9'
+      password: 'x'
     },
     connect: vi.fn(),
     disconnect: vi.fn(),
