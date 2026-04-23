@@ -122,17 +122,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const conv = await window.opendeploy.conversationsLoad(id);
 
     // Build tool_call_id → tool name map across every assistant message,
-    // then re-hydrate the artifacts panel by walking each `tool` message in
-    // order and feeding its content back into addFromToolResult. Without
-    // this, switching conversations leaves the artifacts panel showing the
-    // PREVIOUS chat's files (or empty, if we came from a fresh session).
+    // and tool_call_id → result content map across every `tool` role message.
+    // The first powers artifacts re-hydration; the second lets us inline
+    // each tool call's result back onto the assistant message so the UI
+    // shows tool bubbles when switching to historical conversations.
     const toolNameById = new Map<string, string>();
+    const toolResultById = new Map<string, string>();
     for (const m of conv.messages) {
       if (m.role === 'assistant' && m.toolCalls) {
         for (const tc of m.toolCalls) toolNameById.set(tc.id, tc.name);
+      } else if (m.role === 'tool' && m.toolCallId) {
+        toolResultById.set(m.toolCallId, m.content);
       }
     }
 
+    // Re-hydrate the artifacts panel — without this, switching conversations
+    // leaves the panel showing the previous chat's files (or empty).
     const artifacts = useArtifactsStore.getState();
     artifacts.clear();
     for (const m of conv.messages) {
@@ -144,12 +149,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const messages: ChatMessage[] = conv.messages
       .filter((m) => m.role === 'user' || m.role === 'assistant')
-      .map((m) => ({
-        id: m.id,
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-        createdAt: m.createdAt
-      }));
+      .map((m) => {
+        const base: ChatMessage = {
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          createdAt: m.createdAt
+        };
+        if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+          base.toolCalls = m.toolCalls.map((tc) => ({
+            id: tc.id,
+            name: tc.name,
+            args: JSON.stringify(tc.arguments),
+            result: toolResultById.get(tc.id)
+          }));
+        }
+        return base;
+      });
     set({ messages, conversationId: conv.id, error: null, isStreaming: false });
   }
 }));
