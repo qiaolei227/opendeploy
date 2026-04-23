@@ -43,6 +43,13 @@ export interface LlmStreamEvent {
   requestId: string;
   type: 'delta' | 'tool_call' | 'tool_result' | 'done' | 'error';
   content?: string;
+  /**
+   * Identifies which tool call an event belongs to. REQUIRED on `tool_call`
+   * (so the renderer can register a slot) and on `tool_result` (so the
+   * renderer can fill the matching slot). Without this, parallel tool batches
+   * can't bind results to calls — they all clobber the last call's slot.
+   */
+  toolCallId?: string;
   toolCallName?: string;
   toolCallArgs?: string;
   error?: string;

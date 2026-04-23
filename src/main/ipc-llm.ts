@@ -100,8 +100,17 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
           systemPrompt,
           onEvent: (e) => {
             if (e.type === 'delta') emit({ type: 'delta', content: e.content });
-            else if (e.type === 'tool_call') emit({ type: 'tool_call', toolCallName: e.toolCall.name, toolCallArgs: JSON.stringify(e.toolCall.arguments) });
-            else if (e.type === 'tool_result') emit({ type: 'tool_result', content: e.content });
+            else if (e.type === 'tool_call') emit({
+              type: 'tool_call',
+              toolCallId: e.toolCall.id,
+              toolCallName: e.toolCall.name,
+              toolCallArgs: JSON.stringify(e.toolCall.arguments)
+            });
+            else if (e.type === 'tool_result') emit({
+              type: 'tool_result',
+              toolCallId: e.toolCallId,
+              content: e.content
+            });
           }
         });
 

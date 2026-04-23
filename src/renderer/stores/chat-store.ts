@@ -7,7 +7,7 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'tool';
   content: string;
-  toolCalls?: Array<{ name: string; args: string; result?: string }>;
+  toolCalls?: Array<{ id: string; name: string; args: string; result?: string }>;
   isStreaming?: boolean;
   createdAt: string;
 }
@@ -60,21 +60,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const msgs = [...get().messages];
         const last = msgs[msgs.length - 1];
         if (last && last.role === 'assistant') {
-          const tcs = [...(last.toolCalls ?? []), { name: ev.toolCallName ?? '?', args: ev.toolCallArgs ?? '' }];
+          const tcs = [
+            ...(last.toolCalls ?? []),
+            {
+              id: ev.toolCallId ?? '?',
+              name: ev.toolCallName ?? '?',
+              args: ev.toolCallArgs ?? ''
+            }
+          ];
           msgs[msgs.length - 1] = { ...last, toolCalls: tcs };
           set({ messages: msgs });
         }
       } else if (ev.type === 'tool_result') {
+        // Match by toolCallId — parallel batches return out of order, so
+        // "last in array" would clobber the wrong slot.
         const msgs = [...get().messages];
         const last = msgs[msgs.length - 1];
         if (last && last.role === 'assistant' && last.toolCalls && last.toolCalls.length > 0) {
           const tcs = [...last.toolCalls];
-          const matched = tcs[tcs.length - 1];
-          tcs[tcs.length - 1] = { ...matched, result: ev.content ?? '' };
-          msgs[msgs.length - 1] = { ...last, toolCalls: tcs };
-          set({ messages: msgs });
-          // Let the artifacts panel pick up write_plugin results.
-          useArtifactsStore.getState().addFromToolResult(matched.name, ev.content ?? '');
+          const idx = ev.toolCallId
+            ? tcs.findIndex((tc) => tc.id === ev.toolCallId)
+            : -1;
+          if (idx >= 0) {
+            const matched = tcs[idx];
+            tcs[idx] = { ...matched, result: ev.content ?? '' };
+            msgs[msgs.length - 1] = { ...last, toolCalls: tcs };
+            set({ messages: msgs });
+            useArtifactsStore.getState().addFromToolResult(matched.name, ev.content ?? '');
+          }
         }
       } else if (ev.type === 'done') {
         const msgs = [...get().messages];
