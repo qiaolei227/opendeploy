@@ -1,3 +1,5 @@
+<img src="./resources/icon.svg" alt="开达 OpenDeploy" width="96" />
+
 # 开达 OpenDeploy
 
 > 面向 ERP 实施顾问的开源 AI 智能体 —— 让"一个人的交付团队"成为可能。

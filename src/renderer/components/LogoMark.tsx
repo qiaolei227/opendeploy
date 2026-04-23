@@ -3,7 +3,7 @@ import type { ReactElement } from 'react';
 export interface LogoMarkProps {
   /** Rendered pixel size (applies to both width and height). */
   size: number;
-  /** `default` for light surfaces (dark bracket), `inverse` for dark surfaces (light bracket). */
+  /** `default` for light surfaces (dark stem), `inverse` for dark surfaces (light stem). */
   variant?: 'default' | 'inverse';
   /** Optional accessible label. */
   label?: string;
@@ -12,22 +12,18 @@ export interface LogoMarkProps {
 /**
  * LogoMark — the 开达 / OpenDeploy brand mark.
  *
- * Design: B-2 bracket → orange dot (from `design/logo-options-v2.html`).
- * - Left side: rounded opening brace (开 = open / code).
- * - Right side: Claude Code terracotta `#D97757` solid circle with an
- *   ivory inset dot (达 = aim / deliver).
- *
+ * Design: gourd (葫芦) silhouette in Claude terracotta `#D97757` with a Claude-style
+ * 4-point sparkle cut out of the lower bulb — "宝葫芦里装着 AI 工具"。
  * Source of truth SVG lives at `resources/icon.svg`.
  */
 export function LogoMark({ size, variant = 'default', label }: LogoMarkProps): ReactElement {
-  const strokeColor = variant === 'inverse' ? '#fafaf7' : '#141414';
-  const accent = '#D97757';
-  const inset = '#fafaf7';
+  const stem = variant === 'inverse' ? '#fafaf7' : '#141414';
+  const body = '#D97757';
   return (
     <svg
       width={size}
       height={size}
-      viewBox="4 6 40 36"
+      viewBox="0 0 48 48"
       preserveAspectRatio="xMidYMid meet"
       fill="none"
       role={label ? 'img' : undefined}
@@ -35,14 +31,11 @@ export function LogoMark({ size, variant = 'default', label }: LogoMarkProps): R
       aria-hidden={label ? undefined : true}
     >
       <path
-        d="M18 10 Q12 10 12 16 L12 22 Q12 24 8 24 Q12 24 12 26 L12 32 Q12 38 18 38"
-        stroke={strokeColor}
-        strokeWidth={2.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        fill={body}
+        fillRule="evenodd"
+        d="M24 10 C28.8 10 30 14 27.5 16.5 C31.5 18 34 23 34 30 C34 38.5 30 42.5 24 42.5 C18 42.5 14 38.5 14 30 C14 23 16.5 18 20.5 16.5 C18 14 19.2 10 24 10 Z M24 22 C24 27 25.5 29.5 31 30.5 C25.5 31.5 24 34 24 39 C24 34 22.5 31.5 17 30.5 C22.5 29.5 24 27 24 22 Z"
       />
-      <circle cx={32} cy={24} r={6} fill={accent} />
-      <circle cx={32} cy={24} r={2} fill={inset} />
+      <rect x={22.5} y={6} width={3} height={5} rx={1.2} fill={stem} />
     </svg>
   );
 }
