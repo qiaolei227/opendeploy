@@ -125,8 +125,8 @@ describe('kingdee_get_fields tool', () => {
     expect(fake.getFields).not.toHaveBeenCalled();
   });
 
-  it('groups head + entry fields in the response', async () => {
-    const fake = makeFake({
+  const makeFakeWithFields = () =>
+    makeFake({
       getObject: vi.fn(async () => ({
         id: 'SAL_SaleOrder',
         name: '销售订单',
@@ -136,31 +136,77 @@ describe('kingdee_get_fields tool', () => {
         modifyDate: null
       })),
       getFields: vi.fn(async () => [
-        { key: 'FCustomerId', name: 'FCustomerId', type: 'BasedataField', isEntryField: false },
+        { key: 'FCustomerId', name: '客户', type: 'BasedataField', isEntryField: false },
+        { key: 'FCreditLimit', name: '信用额度', type: 'DecimalField', isEntryField: false },
         {
           key: 'FMaterialId',
-          name: 'FMaterialId',
+          name: '物料',
           type: 'BasedataField',
           isEntryField: true,
           entryKey: 'FSaleOrderEntry'
         },
         {
           key: 'FQty',
-          name: 'FQty',
+          name: '数量',
           type: 'DecimalField',
           isEntryField: true,
           entryKey: 'FSaleOrderEntry'
         }
       ])
     });
+
+  it('default path returns lean summary (keys only, no per-field detail)', async () => {
+    const fake = makeFakeWithFields();
     const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_get_fields')!;
 
     const parsed = JSON.parse(await tool.execute({ formId: 'SAL_SaleOrder' }));
 
-    expect(parsed.total).toBe(3);
+    expect(parsed.total).toBe(4);
+    expect(parsed.headKeys).toEqual(['FCustomerId', 'FCreditLimit']);
+    expect(parsed.entryTables.FSaleOrderEntry).toEqual(['FMaterialId', 'FQty']);
+    // No per-field objects — this is the lean shape that saves tokens.
+    expect(parsed.headFields).toBeUndefined();
+    expect(parsed.entryFields).toBeUndefined();
+    expect(parsed.hint).toContain('keyword');
+  });
+
+  it('keyword filter returns only matched fields with full detail', async () => {
+    const fake = makeFakeWithFields();
+    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_get_fields')!;
+
+    const parsed = JSON.parse(await tool.execute({ formId: 'SAL_SaleOrder', keyword: '信用' }));
+
+    expect(parsed.matched).toBe(1);
     expect(parsed.headFields).toHaveLength(1);
-    expect(parsed.headFields[0].key).toBe('FCustomerId');
+    expect(parsed.headFields[0].key).toBe('FCreditLimit');
+    expect(parsed.headFields[0].type).toBe('DecimalField');
+    // Lean keys absent — keyword path returns detail.
+    expect(parsed.headKeys).toBeUndefined();
+  });
+
+  it('keyword matches key substring case-insensitively', async () => {
+    const fake = makeFakeWithFields();
+    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_get_fields')!;
+
+    const parsed = JSON.parse(await tool.execute({ formId: 'SAL_SaleOrder', keyword: 'qty' }));
+
+    expect(parsed.matched).toBe(1);
+    expect(parsed.entryFields.FSaleOrderEntry[0].key).toBe('FQty');
+  });
+
+  it('includeDetail:true returns full per-field detail for all fields', async () => {
+    const fake = makeFakeWithFields();
+    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_get_fields')!;
+
+    const parsed = JSON.parse(
+      await tool.execute({ formId: 'SAL_SaleOrder', includeDetail: true })
+    );
+
+    expect(parsed.total).toBe(4);
+    expect(parsed.headFields).toHaveLength(2);
     expect(parsed.entryFields.FSaleOrderEntry).toHaveLength(2);
+    // Full detail carries type info.
+    expect(parsed.headFields[0].type).toBe('BasedataField');
   });
 });
 

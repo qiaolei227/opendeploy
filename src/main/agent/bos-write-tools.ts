@@ -147,31 +147,14 @@ function createExtensionTool(c: K3CloudConnector, projectId: string): ToolHandle
     definition: {
       name: 'kingdee_create_extension_with_python_plugin',
       description:
-        '一步到位:给原单据新建扩展并把 Python 插件注册到这个扩展上。最常用的写入入口——顾问说"帮我加个 BeforeSave 校验"就是这条路径,不需要另外调 create + register 两步。' +
-        '调用前推荐先 kingdee_list_extensions 看有没有现成扩展可复用;如果有,改用 kingdee_register_python_plugin。' +
-        '成功后提示用户在 BOS Designer 里按 F5 刷新、并在必要时重登客户端让缓存失效;如果团队用 SVN,还需点一次"同步"。',
+        '给原单据新建扩展 + 挂 Python 表单插件(一步到位)。前置 / 后置规则见 `k3cloud/bos-features-index` skill。',
       parameters: {
         type: 'object',
         properties: {
-          parentFormId: {
-            type: 'string',
-            description: '原单据 FormID,例如 "SAL_SaleOrder"。'
-          },
-          extName: {
-            type: 'string',
-            description:
-              '扩展的中文名,建议描述业务意图,例如"销售订单·信用额度预警"。'
-          },
-          pluginName: {
-            type: 'string',
-            description:
-              'Python 插件名称,只用下划线和字母数字,例如 credit_limit_guard。'
-          },
-          pyBody: {
-            type: 'string',
-            description:
-              '完整 IronPython 2.7 源码,含 import、继承 AbstractBillPlugIn、事件 override 等。不要加 shebang。'
-          }
+          parentFormId: { type: 'string', description: '原单据 FormID,如 "SAL_SaleOrder"。' },
+          extName: { type: 'string', description: '扩展中文名,描述业务意图。' },
+          pluginName: { type: 'string', description: '插件名,只用 [a-z0-9_]。' },
+          pyBody: { type: 'string', description: '完整 IronPython 2.7 源码,含 import + 继承 AbstractBillPlugIn。' }
         },
         required: ['parentFormId', 'extName', 'pluginName', 'pyBody']
       }

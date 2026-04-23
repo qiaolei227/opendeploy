@@ -143,13 +143,23 @@ function getFieldsTool(c: K3CloudConnector): ToolHandler {
     definition: {
       name: 'kingdee_get_fields',
       description:
-        '获取某 K/3 Cloud 业务对象的字段定义列表。返回字段的 key、ElementType 和所属明细表 entryKey（头字段 entryKey 为空）。用于写插件或理解对象结构前的必备一步。',
+        '获取 K/3 Cloud 业务对象的字段清单。默认只返 key 列表(轻量);用 keyword 过滤到具体字段、或 includeDetail:true 获取全部字段的 ElementType / entryKey 详情。',
       parameters: {
         type: 'object',
         properties: {
           formId: {
             type: 'string',
-            description: '精确 FormID，例如 "SAL_SaleOrder"。'
+            description: '精确 FormID,例如 "SAL_SaleOrder"。'
+          },
+          keyword: {
+            type: 'string',
+            description:
+              '可选。按字段 key 或中文名做大小写不敏感的子串过滤,只返匹配项的详情(key + type + entryKey)。找具体字段时用。'
+          },
+          includeDetail: {
+            type: 'boolean',
+            description:
+              '可选,默认 false。true 时返全部字段的详情(type / entryKey 等)——只在确实要一次拿全量时用,会很大。'
           }
         },
         required: ['formId']
@@ -160,6 +170,9 @@ function getFieldsTool(c: K3CloudConnector): ToolHandler {
       if (typeof formId !== 'string' || formId.trim() === '') {
         throw new Error('kingdee_get_fields requires a non-empty `formId` string.');
       }
+      const keyword = typeof args.keyword === 'string' ? args.keyword.trim().toLowerCase() : '';
+      const includeDetail = args.includeDetail === true;
+
       // Check existence first so a missing id doesn't return an empty list
       // that the agent might misinterpret as "this object has no fields".
       const obj = await c.getObject(formId);
@@ -176,13 +189,71 @@ function getFieldsTool(c: K3CloudConnector): ToolHandler {
         );
       }
       const fields = await c.getFields(formId);
-      const head = fields.filter((f) => !f.isEntryField);
-      const entries = new Map<string, typeof fields>();
+
+      // Keyword path — return only matched fields with detail.
+      if (keyword) {
+        const match = (f: (typeof fields)[number]) =>
+          f.key.toLowerCase().includes(keyword) || f.name.toLowerCase().includes(keyword);
+        const matched = fields.filter(match);
+        const mHead = matched.filter((f) => !f.isEntryField);
+        const mEntries = new Map<string, typeof fields>();
+        for (const f of matched) {
+          if (f.isEntryField && f.entryKey) {
+            const bucket = mEntries.get(f.entryKey) ?? [];
+            bucket.push(f);
+            mEntries.set(f.entryKey, bucket);
+          }
+        }
+        return JSON.stringify(
+          {
+            formId,
+            name: obj.name,
+            total: fields.length,
+            keyword,
+            matched: matched.length,
+            headFields: mHead,
+            entryFields: Object.fromEntries(mEntries)
+          },
+          null,
+          2
+        );
+      }
+
+      // Detail path — full dump (rare, large).
+      if (includeDetail) {
+        const head = fields.filter((f) => !f.isEntryField);
+        const entries = new Map<string, typeof fields>();
+        for (const f of fields) {
+          if (f.isEntryField && f.entryKey) {
+            const bucket = entries.get(f.entryKey) ?? [];
+            bucket.push(f);
+            entries.set(f.entryKey, bucket);
+          }
+        }
+        return JSON.stringify(
+          {
+            formId,
+            name: obj.name,
+            total: fields.length,
+            headFields: head,
+            entryFields: Object.fromEntries(entries)
+          },
+          null,
+          2
+        );
+      }
+
+      // Default — lean summary: just keys grouped by head / entry tables.
+      // Saves 5-15K chars on objects like SAL_SaleOrder that have 100+ fields.
+      const headKeys: string[] = [];
+      const entryKeys = new Map<string, string[]>();
       for (const f of fields) {
-        if (f.isEntryField && f.entryKey) {
-          const bucket = entries.get(f.entryKey) ?? [];
-          bucket.push(f);
-          entries.set(f.entryKey, bucket);
+        if (!f.isEntryField) {
+          headKeys.push(f.key);
+        } else if (f.entryKey) {
+          const bucket = entryKeys.get(f.entryKey) ?? [];
+          bucket.push(f.key);
+          entryKeys.set(f.entryKey, bucket);
         }
       }
       return JSON.stringify(
@@ -190,8 +261,10 @@ function getFieldsTool(c: K3CloudConnector): ToolHandler {
           formId,
           name: obj.name,
           total: fields.length,
-          headFields: head,
-          entryFields: Object.fromEntries(entries)
+          headKeys,
+          entryTables: Object.fromEntries(entryKeys),
+          hint:
+            '只返了 key。拿字段类型 / entryKey 详情:加 keyword 过滤 (如 "信用") 或 includeDetail:true。'
         },
         null,
         2
