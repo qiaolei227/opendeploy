@@ -45,11 +45,15 @@ category: bos-features
 | 主题 | path |
 |---|---|
 | 扩展对象机制(FKERNELXML delta、8 张表写入) | `references/extension-model` |
+| **已实证的坑(FUSERID 作废 / FTABLEID / 缓存 / 写白名单)** | `references/known-pitfalls` |
 | 扩展字段的 schema 和落位 | `references/custom-fields` |
 | 业务规则 / 公式 | `references/business-rules` |
 | 转换规则 / 下推配置 | `references/convert-rules` |
 | 审批流 + Python 条件表达式 | `references/approval-workflow` |
 | 插件类型全谱 | `references/plugin-types` |
+| 套打模板(骨架) | `references/print-templates` |
+| 权限方案(骨架) | `references/permissions` |
+| 移动端表单(骨架) | `references/mobile-form` |
 
 ---
 
@@ -62,7 +66,7 @@ category: bos-features
 
 2. **不要把 Python 插件当万能锤**。扩展字段用插件硬模拟 = 数据存哪里都是问题;业务规则用插件硬写 = 维护性差。该用哪个 BOS 能力就用哪个
 
-3. **工具边界以系统提示词里的 `kingdee_*` 工具清单为准**。本 skill 写"OpenDeploy 支持什么"是 snapshot,真实边界看 agent 在对话时实际有哪些工具
+3. **工具边界以系统提示词里的 `kingdee_*` 工具清单为准**。v0.1 当前覆盖 7 个 `kingdee_*` 工具(BOS 写入相关 + 元数据只读)。本 skill 标注的 ✅/❌ 是当前快照,会随版本演进
 
 ---
 

@@ -53,7 +53,7 @@ delta 形态(Python 插件注册示例):
 | `T_META_OBJECTTYPENAMEEX_L` | 1 | 名称扩展 zh-CN |
 | `T_META_OBJECTFUNCINTERFACE` | 1 | 功能接口(`FFUNCID=2` = 单据编辑) |
 | `T_META_OBJECTTYPEREF` | 77 | 从父对象克隆外键引用 |
-| `T_META_TRACKERBILLTABLE` | 4 | 从父对象克隆跟踪表(`FTABLEID` 必须 `MAX(FTABLEID) + N` 生成,int 全局唯一)|
+| `T_META_TRACKERBILLTABLE` | 4 | 从父对象克隆跟踪表(`FTABLEID` **必须 ≥ 900000**,见 known-pitfalls)|
 
 **全部必须事务包裹**。OpenDeploy 的 `kingdee_create_extension_with_python_plugin` 工具已封装好这 8 张表 + 事务 + rollback + backup,**调用方只需提供父单据 ID / 扩展名 / 插件名 / pyBody 四个参数**。
 
@@ -93,13 +93,15 @@ SAL_SaleOrder^<ext-level-1-guid>^<ext-level-2-guid>
 
 ---
 
-## 开发商标识(`FSUPPLIERNAME`)
+## 开发商标识(`FSUPPLIERNAME`)—— **不再盖章(2026-04-23 实证作废)**
 
-每个 BOS 元数据写入都要盖章 `FSUPPLIERNAME` — 开发商 ID。**同开发商才允许在 BOS Designer 里编辑**。
+早期版本的"必须盖开发商章 + 反查 FUSERID + 提示用户先登协同平台" 的整套机制 **已经全部作废**。
 
-- **不登记在 `T_BOS_ISV`**——那张表只记非官方开发商(如 `RXJD`),是 BOS IDE 登录协同平台时的本地 side effect
-- **反查方式**:查当前用户最近一次 `FMODIFIERID = @uid` 的 `FSUPPLIERNAME`
-- **找不到**:环境未初始化,`kingdee_probe_bos_environment` 会返回 `ready=false`,agent 拒绝写入并提示用户**先在 K/3 Cloud 协同开发平台登录一次**(登录会自动完成开发商绑定 + SVN Workspace 设置)
+- **现状**:写入时 `FSUPPLIERNAME = NULL` + `FMODIFIERID = 0`,BOS Designer 把这种"无主"扩展视为任何开发者都能编辑,**没有副作用**
+- **不需要**问用户 BOS 用户 ID、不需要反查 developer code、不需要让用户先登录协同平台
+- **不需要** `kingdee_probe_bos_environment` 返回 `ready=false` 阻塞写入
+
+详见 `references/known-pitfalls.md` 的 "FUSERID / FSUPPLIERNAME 机制作废" 段。
 
 ---
 
@@ -139,8 +141,7 @@ OpenDeploy 每次 BOS 写入前快照受影响行到:
 `kingdee_delete_extension(extensionFId)` — 反向写 8 张表的 DELETE,同样事务包裹 + backup。
 
 **前置校验**:
-- 扩展必须是 OpenDeploy 创建的(`FSUPPLIERNAME` 对得上)
-- 没有下级扩展继承它
+- 没有下级扩展继承它(查 `FINHERITPATH` 包含本扩展 FID 的其他行)
 
 ---
 
@@ -152,4 +153,4 @@ OpenDeploy 每次 BOS 写入前快照受影响行到:
 | "扩展会覆盖原厂升级" | 恰恰相反,扩展保护定制,升级原厂扩展自动适配 |
 | "改扩展 = 改原单据" | 原单据 `T_META_OBJECTTYPE` 行**永远不动**,只动扩展行 |
 | "XML 里字段是属性" | 子元素,见上 |
-| "不登协同平台也能写" | 写可以但扩展不归属任何开发商 → BOS Designer 打不开编辑 → 等于报废 |
+| "必须先登协同平台才能写" | 已实证作废,`FSUPPLIERNAME=NULL` 对 BOS Designer 透明 |
