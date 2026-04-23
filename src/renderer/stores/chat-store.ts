@@ -20,6 +20,7 @@ interface ChatState {
   conversationId: string | null;
 
   sendMessage: (text: string, providerId: string, apiKey: string | undefined) => Promise<void>;
+  abort: () => Promise<void>;
   clear: () => void;
   loadConversation: (id: string) => Promise<void>;
 }
@@ -111,6 +112,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       unsubscribe();
       set({ error: err instanceof Error ? err.message : String(err), isStreaming: false });
     }
+  },
+
+  abort: async () => {
+    const id = get().currentRequestId;
+    if (!id) return;
+    await window.opendeploy.llmAbort(id);
+    // We don't clear isStreaming here — the main process will emit 'done'
+    // (or 'error') after the abort lands, and the existing handler picks
+    // it up. That keeps the streaming-cursor / button states consistent
+    // with the actual stream lifecycle.
   },
 
   clear: () => {

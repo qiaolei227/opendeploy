@@ -61,6 +61,7 @@ export interface IpcApi {
   getPlatform: () => Promise<NodeJS.Platform>;
   setWindowTitle: (title: string) => Promise<void>;
   llmSendMessage: (req: LlmChatRequest) => Promise<{ requestId: string }>;
+  llmAbort: (requestId: string) => Promise<void>;
   llmOnStream: (cb: (ev: LlmStreamEvent) => void) => () => void;
   conversationsList: () => Promise<Array<{ id: string; title: string; savedAt: string; messageCount: number }>>;
   conversationsLoad: (id: string) => Promise<{

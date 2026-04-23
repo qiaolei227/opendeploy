@@ -35,9 +35,16 @@ const BASE_SYSTEM_PROMPT = baseSystemPromptRaw.trim();
 // In-memory conversation state keyed by conversationId
 const activeConversations = new Map<string, Message[]>();
 
+// Active AbortControllers keyed by requestId — set on llm:send, removed on
+// done/error. llm:abort looks up by requestId and aborts the agent loop +
+// in-flight LLM stream.
+const activeAborts = new Map<string, AbortController>();
+
 export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle('llm:send', async (_event, req: LlmChatRequest) => {
     const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const abortController = new AbortController();
+    activeAborts.set(requestId, abortController);
 
     // Build message history
     const history: Message[] = req.conversationId && activeConversations.has(req.conversationId)
@@ -98,6 +105,7 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
           providerId: req.providerId,
           apiKey: req.apiKey,
           systemPrompt,
+          signal: abortController.signal,
           onEvent: (e) => {
             if (e.type === 'delta') emit({ type: 'delta', content: e.content });
             else if (e.type === 'tool_call') emit({
@@ -124,11 +132,25 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
 
         emit({ type: 'done' });
       } catch (err) {
-        emit({ type: 'error', error: err instanceof Error ? err.message : String(err) });
+        // If the user pressed stop, surface a friendly status not a raw
+        // "AbortError" — UI can render this as "已停止" rather than an error
+        // banner.
+        if (abortController.signal.aborted) {
+          emit({ type: 'done' });
+        } else {
+          emit({ type: 'error', error: err instanceof Error ? err.message : String(err) });
+        }
+      } finally {
+        activeAborts.delete(requestId);
       }
     })();
 
     return { requestId };
+  });
+
+  ipcMain.handle('llm:abort', async (_event, requestId: string) => {
+    const ctrl = activeAborts.get(requestId);
+    if (ctrl) ctrl.abort();
   });
 
   ipcMain.handle('conversations:list', async () => {

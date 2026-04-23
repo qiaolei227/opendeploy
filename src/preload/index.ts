@@ -13,6 +13,7 @@ const api: IpcApi = {
   getPlatform: () => ipcRenderer.invoke('app:platform'),
   setWindowTitle: (title: string) => ipcRenderer.invoke('app:set-window-title', title),
   llmSendMessage: (req: LlmChatRequest) => ipcRenderer.invoke('llm:send', req),
+  llmAbort: (requestId: string) => ipcRenderer.invoke('llm:abort', requestId),
   llmOnStream: (cb: (ev: LlmStreamEvent) => void) => {
     const listener = (_event: unknown, ev: LlmStreamEvent) => cb(ev);
     ipcRenderer.on('llm:stream', listener);

@@ -31,7 +31,9 @@
   },
   "composer": {
     "placeholder": "告诉我。",
-    "send": "发送"
+    "send": "发送",
+    "stop": "停止",
+    "stopHint": "中断当前回答"
   },
   "side": {
     "conversations": "最近对话",

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '@renderer/stores/chat-store';
 import { useSettingsStore } from '@renderer/stores/settings-store';
@@ -13,11 +13,24 @@ export function Composer({ llmProviderId, presetText }: ComposerProps) {
   const { t } = useTranslation();
   const [text, setText] = useState(presetText ?? '');
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const abortStream = useChatStore((s) => s.abort);
   const isStreaming = useChatStore((s) => s.isStreaming);
   const settings = useSettingsStore((s) => s.settings);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const wasStreamingRef = useRef(false);
 
   const effectiveProviderId = llmProviderId ?? settings.llmProvider ?? 'deepseek';
   const apiKey = settings.apiKeys?.[effectiveProviderId];
+
+  // Auto-focus the textarea when streaming finishes (true → false transition).
+  // Without this, the cursor stays parked wherever the user last clicked,
+  // forcing them to click back into the composer for every turn.
+  useEffect(() => {
+    if (wasStreamingRef.current && !isStreaming) {
+      textareaRef.current?.focus();
+    }
+    wasStreamingRef.current = isStreaming;
+  }, [isStreaming]);
 
   const submit = async () => {
     if (!text.trim() || isStreaming) return;
@@ -31,6 +44,7 @@ export function Composer({ llmProviderId, presetText }: ComposerProps) {
       <div className="composer-inner">
         <div className="cbox">
           <textarea
+            ref={textareaRef}
             rows={2}
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -45,14 +59,25 @@ export function Composer({ llmProviderId, presetText }: ComposerProps) {
           />
           <div className="ctools">
             <span className="spacer" />
-            <button
-              type="button"
-              className="btn accent"
-              onClick={() => void submit()}
-              disabled={isStreaming || !text.trim()}
-            >
-              {t('composer.send')} {Icons.send}
-            </button>
+            {isStreaming ? (
+              <button
+                type="button"
+                className="btn danger"
+                onClick={() => void abortStream()}
+                title={t('composer.stopHint')}
+              >
+                {t('composer.stop')} {Icons.stop}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn accent"
+                onClick={() => void submit()}
+                disabled={!text.trim()}
+              >
+                {t('composer.send')} {Icons.send}
+              </button>
+            )}
           </div>
         </div>
       </div>

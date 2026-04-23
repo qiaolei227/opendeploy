@@ -31,7 +31,9 @@
   },
   "composer": {
     "placeholder": "Tell me.",
-    "send": "Send"
+    "send": "Send",
+    "stop": "Stop",
+    "stopHint": "Interrupt the current reply"
   },
   "side": {
     "conversations": "Recent conversations",

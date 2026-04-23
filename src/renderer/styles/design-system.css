@@ -600,6 +600,12 @@ body.theme-dark .code { background: oklch(0.15 0.008 250); }
 .btn.accent:hover { background: var(--accent-deep); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.ghost:hover { background: var(--surface-2); color: var(--ink); }
+.btn.danger {
+  background: var(--danger, oklch(0.55 0.18 25));
+  color: #fff;
+  border-color: var(--danger, oklch(0.55 0.18 25));
+}
+.btn.danger:hover { background: oklch(0.48 0.18 25); }
 .btn.sm { padding: 3px 7px; font-size: 11px; }
 .btn.lg { padding: 7px 14px; font-size: 13px; }
 
