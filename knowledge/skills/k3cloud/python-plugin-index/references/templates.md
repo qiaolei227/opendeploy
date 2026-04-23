@@ -185,7 +185,116 @@ class CreditCheck(AbstractBillPlugIn):
 
 ---
 
-## 模板 6:初始化默认值(AfterBindData)
+## 模板 6(非销售): 库存数量校验 BeforeSave
+
+场景:出库 / 调拨 / 盘点单据保存前校验数量字段非负、不超过当前可用库存。**单纯改字段名就能复用模板 1**——展示一下别在销售订单上死磕。
+
+```python
+import clr
+clr.AddReference('Kingdee.BOS')
+clr.AddReference('Kingdee.BOS.Core')
+from Kingdee.BOS.Core.Bill.PlugIn import AbstractBillPlugIn
+from Kingdee.BOS import KDException
+
+class StockQtyValidator(AbstractBillPlugIn):
+    def BeforeSave(self, e):
+        model = self.Model
+        # 明细行实体名 / 数量字段名替换为实际单据的:
+        #   出库:FStockOutEntry / FQty
+        #   调拨:FBillEntry / FQty
+        #   盘点:FCheckEntry / FCheckQty
+        ENTRY = "FStockOutEntry"
+        QTY_KEY = "FQty"
+
+        count = model.GetEntryRowCount(ENTRY)
+        for row in range(count):
+            qty = model.GetValue(QTY_KEY, row)
+            if qty is None or qty <= 0:
+                e.Cancel = True
+                raise KDException("OPD-STK-QTY-001",
+                    u"第 %d 行数量必须大于 0" % (row + 1))
+```
+
+**非销售场景的关键差异**仅在三处:**实体名**、**字段 Key**、**错误码模块前缀**。事件签名、`e.Cancel + raise` 姿势完全相同。
+
+---
+
+## 模板 7(非销售): 物料字段联动 DataChanged
+
+场景:基础资料**物料档案**(`BD_MATERIAL`)上启用了某个扩展字段,变化时联动其他字段。和模板 2 同结构,只是事件触发对象是基础资料而非单据。
+
+```python
+import clr
+clr.AddReference('Kingdee.BOS')
+clr.AddReference('Kingdee.BOS.Core')
+from Kingdee.BOS.Core.Bill.PlugIn import AbstractBillPlugIn
+
+class MaterialFieldSync(AbstractBillPlugIn):
+    def DataChanged(self, e):
+        model = self.Model
+        key = e.Field.Key
+
+        # 启用批号管理 → 自动启用保质期开关(业务联动)
+        if key == "FIsBatchManage":
+            new_val = e.NewValue
+            if new_val:
+                model.SetValue("FIsKFPeriod", True)
+
+        # 物料属性变化 → 清空"采购属性"相关默认
+        elif key == "FErpClsID":
+            model.SetValue("FDefaultVendor", None)
+```
+
+---
+
+## 模板 8(非销售): 跨查基础资料用 ServiceHelper(非 SQL)
+
+场景:任何模块的插件需要**跨查另一个基础资料**的字段,且不愿 / 不允许直连 SQL。用 BOS 的 `BusinessDataServiceHelper`。
+
+```python
+import clr
+clr.AddReference('Kingdee.BOS')
+clr.AddReference('Kingdee.BOS.Core')
+clr.AddReference('Kingdee.BOS.ServiceHelper')
+from Kingdee.BOS.Core.Bill.PlugIn import AbstractBillPlugIn
+from Kingdee.BOS.ServiceHelper import BusinessDataServiceHelper
+
+class CrossLookupExample(AbstractBillPlugIn):
+    def BeforeSave(self, e):
+        material = self.Model.GetValue("FMaterialId")
+        if material is None:
+            return
+
+        # 用 ServiceHelper 拿物料完整 DynamicObject(含扩展字段)
+        objs = BusinessDataServiceHelper.LoadFromCache(
+            self.Context,
+            [material.Id],
+            "BD_MATERIAL"  # FormId
+        )
+        if objs and len(objs) > 0:
+            full = objs[0]
+            # 按字段 key 取
+            spec = full["FSpecification"]
+            # ...
+```
+
+**`ServiceHelper` vs SQL 取舍**:
+
+| 用 ServiceHelper | 用 SQL |
+|---|---|
+| 想要完整对象(含扩展字段) | 只要少量列 / 高性能 |
+| 不想关心表结构 | 表结构很熟、查询复杂 |
+| 跨数据中心安全可控 | 数据中心内单表读 |
+
+---
+
+## 模板使用纪律
+
+1. **改字段名 + 实体名是一行内的事**——不要为每个新业务**重抄整段**。模板的价值是骨架,不是穷举所有业务
+2. **模板只覆盖 80% 高频场景**——遇到模板不覆盖的(操作插件 / 服务端拦截 / 复杂状态机),回 `solution-decision-framework` 重新决策,不要硬塞
+3. **错误码前缀模块化**:`OPD-<模块>-<子类>-<编号>`(`OPD-SAL-` / `OPD-PUR-` / `OPD-STK-` / `OPD-FIN-` / `OPD-BD-` / `OPD-MFG-`...),方便客户日志检索
+
+## 模板 9:初始化默认值(AfterBindData)
 
 场景:新建单据时自动填写默认字段(比如当前用户为销售员、当前日期为交货日)。
 
