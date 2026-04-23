@@ -52,3 +52,6 @@ coverage/
 # User data (不应提交)
 *.opendeploy/
 user-data/
+
+# Local debug traces
+tmp/

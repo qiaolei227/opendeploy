@@ -7,6 +7,8 @@ const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[\w.]+)?(?:\+[\w.]+)?$/;
 const VALID_CATEGORIES: readonly SkillCategory[] = [
   'workflow',
   'plugin-dev',
+  'product-features',
+  'bos-features',
   'sales',
   'purchase',
   'inventory',

@@ -1,17 +1,18 @@
-import { app } from 'electron';
 import path from 'node:path';
-import os from 'node:os';
+import { openDeployHome } from '../paths';
 
 /**
- * Root of the local knowledge cache — `<home>/.opendeploy/knowledge/`.
+ * Root of the local knowledge cache — `<openDeployHome>/knowledge/`.
  *
- * We keep it at `$HOME` rather than `app.getPath('userData')` so the path is
- * stable across Electron releases (userData on Windows embeds the bundle id)
- * and easy for users to browse in Explorer / Finder.
+ * We keep it at `$HOME` (via `openDeployHome()`) rather than
+ * `app.getPath('userData')` so the path is stable across Electron releases
+ * (userData on Windows embeds the bundle id) and easy for users to browse
+ * in Explorer / Finder. Routing through `openDeployHome` also means the
+ * `$OPENDEPLOY_HOME` override used by tests and debug scripts applies
+ * uniformly across all on-disk state.
  */
 export function knowledgeDir(): string {
-  const home = app?.getPath ? app.getPath('home') : os.homedir();
-  return path.join(home, '.opendeploy', 'knowledge');
+  return path.join(openDeployHome(), 'knowledge');
 }
 
 /** Skills tree: `<knowledgeDir>/skills/<namespace>/<skill-name>/SKILL.md`. */
