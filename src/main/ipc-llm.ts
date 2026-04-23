@@ -46,10 +46,30 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
     const abortController = new AbortController();
     activeAborts.set(requestId, abortController);
 
-    // Build message history
-    const history: Message[] = req.conversationId && activeConversations.has(req.conversationId)
-      ? [...activeConversations.get(req.conversationId)!]
-      : [];
+    // Build message history. Three sources, in order of preference:
+    //   1. In-memory `activeConversations` — set after every send, fastest path
+    //   2. Disk (conversation md file) — used after an app restart or after
+    //      the user switches to a historical conversation in the sidebar;
+    //      without this step the main process would treat the next turn as
+    //      if it were a brand-new conversation, losing all prior context
+    //   3. Empty — genuinely new conversation
+    let history: Message[] = [];
+    if (req.conversationId) {
+      const inMemory = activeConversations.get(req.conversationId);
+      if (inMemory) {
+        history = [...inMemory];
+      } else {
+        try {
+          const saved = await loadConversation(req.conversationId);
+          history = [...saved.messages];
+          // Warm the in-memory cache so we don't hit disk again next turn.
+          activeConversations.set(req.conversationId, history);
+        } catch {
+          // Conversation id given but no file on disk — treat as fresh start.
+          // (Could happen if the renderer races a delete with a send.)
+        }
+      }
+    }
     const userMsg: Message = {
       id: `u_${Date.now()}`,
       role: 'user',
