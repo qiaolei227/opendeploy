@@ -1,6 +1,16 @@
 import type { Message, ToolCall } from '@shared/llm-types';
 import type { LlmClient } from '../llm/types';
 import type { ToolRegistry } from './tools';
+import { pruneOldToolResults } from './history-prune';
+
+/**
+ * Keep the last N `tool` role messages with their full content; older tool
+ * results get swapped for a short placeholder before each LLM call to cap
+ * per-turn context. 10 is roughly 2-3 turns of intensive tool use on a
+ * typical K/3 Cloud flow (侦察 + decision skill load + design + execute),
+ * leaving the agent recent detail while aging out stale 侦察 dumps.
+ */
+const KEEP_LAST_N_TOOL_RESULTS = 10;
 
 export type AgentLoopEvent =
   | { type: 'delta'; content: string }
@@ -54,11 +64,15 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
     let finishReason: 'stop' | 'tool_calls' | 'length' | 'error' = 'stop';
     let errored = false;
 
+    // Prune old tool results before each LLM call. The full `messages` array
+    // keeps the unmangled history (so persistence / loadConversation stays
+    // lossless); only the slice the model sees has old tool payloads replaced
+    // with a placeholder. See agent/history-prune.ts for the rationale.
     for await (const ev of params.client.stream({
       providerId: params.providerId,
       apiKey: params.apiKey,
       model: params.model,
-      messages,
+      messages: pruneOldToolResults(messages, KEEP_LAST_N_TOOL_RESULTS),
       tools: toolDefs.length > 0 ? toolDefs : undefined
     }, params.signal)) {
       if (ev.type === 'delta') {
