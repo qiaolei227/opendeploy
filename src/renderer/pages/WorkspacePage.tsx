@@ -1,16 +1,20 @@
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '@renderer/stores/chat-store';
+import { useProjectsStore } from '@renderer/stores/projects-store';
 import { Composer } from '@renderer/components/Composer';
 import { MessageList } from '@renderer/components/MessageList';
 import { ArtifactsPanel } from '@renderer/components/ArtifactsPanel';
+import type { PageKey } from '@renderer/components/NavRail';
 
 interface WorkspacePageProps {
   llmProviderId?: string;
+  onNavigate?: (page: PageKey) => void;
 }
 
-export function WorkspacePage({ llmProviderId }: WorkspacePageProps) {
+export function WorkspacePage({ llmProviderId, onNavigate }: WorkspacePageProps) {
   const messages = useChatStore((s) => s.messages);
   const error = useChatStore((s) => s.error);
+  const hasActiveProject = useProjectsStore((s) => Boolean(s.connectionState.projectId));
   const isEmpty = messages.length === 0;
 
   return (
@@ -21,8 +25,14 @@ export function WorkspacePage({ llmProviderId }: WorkspacePageProps) {
       >
         {isEmpty ? (
           <div className="chat-empty-hero">
-            <EmptyState />
-            <Composer llmProviderId={llmProviderId} />
+            {hasActiveProject ? (
+              <>
+                <Heading textKey="workspace.emptyHeading" />
+                <Composer llmProviderId={llmProviderId} />
+              </>
+            ) : (
+              <NoProjectState onNavigate={onNavigate} />
+            )}
           </div>
         ) : (
           <>
@@ -41,15 +51,33 @@ export function WorkspacePage({ llmProviderId }: WorkspacePageProps) {
   );
 }
 
-function EmptyState() {
+function Heading({ textKey }: { textKey: string }) {
   const { t } = useTranslation();
   return (
     <div className="chat-empty-heading">
       <h1 style={{fontSize: 28, letterSpacing: '-0.02em', margin: 0}}>
         <span style={{fontFamily: 'var(--font-serif)', fontWeight: 500}}>
-          {t('workspace.emptyHeading')}
+          {t(textKey)}
         </span>
       </h1>
     </div>
+  );
+}
+
+function NoProjectState({ onNavigate }: { onNavigate?: (page: PageKey) => void }) {
+  const { t } = useTranslation();
+  return (
+    <>
+      <Heading textKey="workspace.noProjectHeading" />
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <button
+          type="button"
+          className="btn accent"
+          onClick={() => onNavigate?.('projects')}
+        >
+          {t('workspace.noProjectButton')}
+        </button>
+      </div>
+    </>
   );
 }

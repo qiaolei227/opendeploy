@@ -220,7 +220,7 @@ export function App() {
 
           <main className="main">
             {page === 'workspace' && (
-              <WorkspacePage llmProviderId={settings.llmProvider} />
+              <WorkspacePage llmProviderId={settings.llmProvider} onNavigate={setPage} />
             )}
             {page === 'settings' && <SettingsPage />}
             {page === 'wizard' && <WizardPage onFinish={handleWizardFinish} />}

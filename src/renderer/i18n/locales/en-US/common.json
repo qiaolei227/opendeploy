@@ -16,7 +16,9 @@
     "empty": "Start your first conversation"
   },
   "workspace": {
-    "emptyHeading": "What can I help with?"
+    "emptyHeading": "What's the requirement?",
+    "noProjectHeading": "Activate a project first",
+    "noProjectButton": "Go to projects"
   },
   "artifacts": {
     "title": "Session artifacts",
@@ -28,7 +30,7 @@
     "loading": "Loading…"
   },
   "composer": {
-    "placeholder": "Tell me…",
+    "placeholder": "Tell me.",
     "send": "Send"
   },
   "side": {

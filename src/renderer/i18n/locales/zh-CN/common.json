@@ -16,7 +16,9 @@
     "empty": "开始你的第一次对话"
   },
   "workspace": {
-    "emptyHeading": "想做什么?"
+    "emptyHeading": "需求是什么?",
+    "noProjectHeading": "先激活一个项目",
+    "noProjectButton": "去项目页"
   },
   "artifacts": {
     "title": "本次会话产物",
@@ -28,7 +30,7 @@
     "loading": "加载中…"
   },
   "composer": {
-    "placeholder": "说说看…",
+    "placeholder": "告诉我。",
     "send": "发送"
   },
   "side": {
