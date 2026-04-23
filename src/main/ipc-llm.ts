@@ -6,6 +6,7 @@ import { ToolRegistry } from './agent/tools';
 import { BUILTIN_TOOLS } from './agent/builtin-tools';
 import { buildSkillsContext } from './agent/skills-integration';
 import { activeProjectTag, buildK3CloudTools } from './agent/k3cloud-tools';
+import { erpRulesFragment } from './agent/erp-rules';
 import { getConnectionState } from './erp/active';
 import { buildPluginTools } from './agent/plugin-tools';
 import { buildBosWriteTools } from './agent/bos-write-tools';
@@ -17,6 +18,9 @@ import {
 } from './conversations/store';
 import type { Message } from '@shared/llm-types';
 import baseSystemPromptRaw from './agent/prompts/base-system.md?raw';
+import k3cloudRulesRaw from './agent/prompts/erp-rules/k3cloud.md?raw';
+import activeProjectTagRaw from './agent/prompts/active-project-tag.md?raw';
+import catalogIntroRaw from './agent/prompts/skills-catalog-intro.md?raw';
 
 /**
  * Base system prompt lives in `src/main/agent/prompts/base-system.md` so
@@ -63,9 +67,11 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
         // Pass the active project's ERP so only common/* and matching
         // <erp>/* skills appear in the catalog. system/* is hidden
         // regardless and stays loadable by name for internal references.
+        const activeErpProvider = getConnectionState().erpProvider;
         const { systemPromptFragment, loadSkillTool, loadSkillFileTool } =
           await buildSkillsContext({
-            activeErpProvider: getConnectionState().erpProvider
+            activeErpProvider,
+            catalogIntro: catalogIntroRaw
           });
         registry.register(loadSkillTool);
         registry.register(loadSkillFileTool);
@@ -73,8 +79,14 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
         for (const t of buildPluginTools()) registry.register(t);
         for (const t of buildBosWriteTools()) registry.register(t);
 
-        const projectTag = activeProjectTag();
-        const systemPrompt = [BASE_SYSTEM_PROMPT, projectTag, systemPromptFragment]
+        const projectTag = activeProjectTag(activeProjectTagRaw);
+        const erpRules = erpRulesFragment(activeErpProvider, { k3cloud: k3cloudRulesRaw });
+        const systemPrompt = [
+          BASE_SYSTEM_PROMPT,
+          erpRules,
+          projectTag,
+          systemPromptFragment
+        ]
           .filter((s) => s && s.trim() !== '')
           .join('\n\n');
 

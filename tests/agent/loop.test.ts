@@ -71,6 +71,81 @@ describe('runAgentLoop', () => {
     expect(toolMsg?.content).toBe('echoed: hi');
   });
 
+  it('parallelSafe tool batch runs concurrently', async () => {
+    const registry = new ToolRegistry();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const make = (name: string): Parameters<ToolRegistry['register']>[0] => ({
+      parallelSafe: true,
+      definition: { name, description: '', parameters: { type: 'object', properties: {} } },
+      async execute() {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 30));
+        inFlight--;
+        return `ok:${name}`;
+      }
+    });
+    registry.register(make('a'));
+    registry.register(make('b'));
+    registry.register(make('c'));
+
+    const client = fakeClient([
+      [
+        { type: 'tool_call', toolCall: { id: 't1', name: 'a', arguments: {} } },
+        { type: 'tool_call', toolCall: { id: 't2', name: 'b', arguments: {} } },
+        { type: 'tool_call', toolCall: { id: 't3', name: 'c', arguments: {} } },
+        { type: 'done', finishReason: 'tool_calls' }
+      ],
+      [{ type: 'delta', content: 'done' }, { type: 'done', finishReason: 'stop' }]
+    ]);
+
+    const finalMessages = await runAgentLoop({
+      client, tools: registry, providerId: 't', apiKey: 'k',
+      initialMessages: [{ id: 'u', role: 'user', content: 'go', createdAt: '' }]
+    });
+
+    expect(maxInFlight).toBe(3);
+    const toolMsgs = finalMessages.filter((m) => m.role === 'tool');
+    expect(toolMsgs.map((m) => m.toolCallId)).toEqual(['t1', 't2', 't3']);
+    expect(toolMsgs.map((m) => m.content)).toEqual(['ok:a', 'ok:b', 'ok:c']);
+  });
+
+  it('mixed-safety batch falls back to serial', async () => {
+    const registry = new ToolRegistry();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const make = (name: string, safe: boolean): Parameters<ToolRegistry['register']>[0] => ({
+      parallelSafe: safe,
+      definition: { name, description: '', parameters: { type: 'object', properties: {} } },
+      async execute() {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 20));
+        inFlight--;
+        return `ok:${name}`;
+      }
+    });
+    registry.register(make('reader', true));
+    registry.register(make('writer', false));
+
+    const client = fakeClient([
+      [
+        { type: 'tool_call', toolCall: { id: 't1', name: 'reader', arguments: {} } },
+        { type: 'tool_call', toolCall: { id: 't2', name: 'writer', arguments: {} } },
+        { type: 'done', finishReason: 'tool_calls' }
+      ],
+      [{ type: 'delta', content: 'done' }, { type: 'done', finishReason: 'stop' }]
+    ]);
+
+    await runAgentLoop({
+      client, tools: registry, providerId: 't', apiKey: 'k',
+      initialMessages: [{ id: 'u', role: 'user', content: 'go', createdAt: '' }]
+    });
+
+    expect(maxInFlight).toBe(1);
+  });
+
   it('halts after max iterations', async () => {
     const client = fakeClient([
       [{ type: 'tool_call', toolCall: { id: 't', name: 'nope', arguments: {} } }, { type: 'done', finishReason: 'tool_calls' }],

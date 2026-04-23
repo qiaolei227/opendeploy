@@ -7,6 +7,7 @@ export type AgentLoopEvent =
   | { type: 'tool_call'; toolCall: ToolCall }
   | { type: 'tool_result'; toolCallId: string; content: string; isError: boolean }
   | { type: 'iteration_start'; iteration: number }
+  | { type: 'error'; error: string }
   | { type: 'done' };
 
 interface RunAgentLoopParams {
@@ -71,6 +72,7 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
       } else if (ev.type === 'error') {
         errored = true;
         assistantContent = ev.error;
+        emit({ type: 'error', error: ev.error });
         break;
       }
     }
@@ -89,20 +91,35 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
       return messages;
     }
 
-    // Execute tools, append tool result messages, loop again
-    for (const tc of toolCalls) {
-      const result = await params.tools.execute(tc.name, tc.arguments);
-      const resultWithId = { ...result, toolCallId: tc.id };
+    // Execute tools, append tool result messages, loop again.
+    // Batch is parallelized only when every call in it is parallelSafe;
+    // any writer in the batch forces serial execution so ordering and
+    // backup-timestamp uniqueness are preserved.
+    const allSafe =
+      toolCalls.length > 1 &&
+      toolCalls.every((tc) => params.tools.get(tc.name)?.parallelSafe === true);
+
+    const results = allSafe
+      ? await Promise.all(toolCalls.map((tc) => params.tools.execute(tc.name, tc.arguments)))
+      : await (async () => {
+          const out = [];
+          for (const tc of toolCalls) out.push(await params.tools.execute(tc.name, tc.arguments));
+          return out;
+        })();
+
+    for (let i = 0; i < toolCalls.length; i++) {
+      const tc = toolCalls[i];
+      const result = results[i];
       emit({
         type: 'tool_result',
         toolCallId: tc.id,
-        content: resultWithId.content,
-        isError: resultWithId.isError ?? false
+        content: result.content,
+        isError: result.isError ?? false
       });
       messages.push({
         id: makeId(),
         role: 'tool',
-        content: resultWithId.content,
+        content: result.content,
         toolCallId: tc.id,
         createdAt: new Date().toISOString()
       });

@@ -2,7 +2,6 @@ import { knowledgeDir } from '../skills/paths';
 import { loadSkillBody, readSkillResource, scanSkills } from '../skills/registry';
 import type { ToolHandler } from './tools';
 import type { SkillMeta, SkillResourceKind } from '@shared/skill-types';
-import catalogIntroRaw from './prompts/skills-catalog-intro.md?raw';
 
 export interface SkillsContext {
   /**
@@ -34,7 +33,17 @@ export interface BuildOptions {
    * - `<erp>/*` — visible only when `activeErpProvider` matches exactly.
    */
   activeErpProvider?: string;
+  /**
+   * Fixed intro paragraph prepended to the catalog. Supplied by caller so
+   * this module stays free of Vite `?raw` syntax — production reads it via
+   * `?raw` in `ipc-llm.ts`, debug scripts read it via `fs`. Tests that don't
+   * care about the intro text can omit it; a terse fallback is used.
+   */
+  catalogIntro?: string;
 }
+
+const FALLBACK_CATALOG_INTRO =
+  '下面列出已装载的 skills。匹配当前任务时先调 `load_skill(id)` 加载。';
 
 /** Namespace-based visibility in the agent-facing catalog. */
 function isCatalogVisible(skillId: string, activeErpProvider: string | undefined): boolean {
@@ -69,23 +78,18 @@ export async function buildSkillsContext(opts: BuildOptions = {}): Promise<Skill
   const byId = new Map(loadable.map((s) => [s.id, s]));
 
   return {
-    systemPromptFragment: renderCatalog(visible),
+    systemPromptFragment: renderCatalog(
+      visible,
+      (opts.catalogIntro ?? FALLBACK_CATALOG_INTRO).trim()
+    ),
     loadSkillTool: makeLoadSkillTool(byId),
     loadSkillFileTool: makeLoadSkillFileTool(byId)
   };
 }
 
-/**
- * Catalog intro text — the fixed "You have access to the following skills…"
- * paragraph — lives in `prompts/skills-catalog-intro.md` so product /
- * consulting leads can edit it without TypeScript. Per-skill bullet lines
- * stay here because they're data-driven.
- */
-const CATALOG_INTRO = catalogIntroRaw.trim();
-
-function renderCatalog(skills: SkillMeta[]): string {
+function renderCatalog(skills: SkillMeta[], intro: string): string {
   if (skills.length === 0) return '';
-  const lines: string[] = [CATALOG_INTRO, ''];
+  const lines: string[] = [intro, ''];
   for (const s of skills) {
     const label = s.title ? `${s.title} · \`${s.id}\`` : `\`${s.id}\``;
     lines.push(`- ${label}: ${s.description}`);
@@ -99,6 +103,7 @@ function renderCatalog(skills: SkillMeta[]): string {
 
 function makeLoadSkillTool(byId: Map<string, SkillMeta>): ToolHandler {
   return {
+    parallelSafe: true,
     definition: {
       name: 'load_skill',
       description:
@@ -132,6 +137,7 @@ function makeLoadSkillTool(byId: Map<string, SkillMeta>): ToolHandler {
 
 function makeLoadSkillFileTool(byId: Map<string, SkillMeta>): ToolHandler {
   return {
+    parallelSafe: true,
     definition: {
       name: 'load_skill_file',
       description:

@@ -3,6 +3,14 @@ import type { ToolDefinition, ToolResult } from '@shared/llm-types';
 export interface ToolHandler {
   definition: ToolDefinition;
   execute(args: Record<string, unknown>): Promise<string>;
+  /**
+   * Read-only / side-effect-free tools set this so the agent loop can batch
+   * multiple calls in a single turn with Promise.all. Writers (DB mutations,
+   * file writes) must leave it unset — a parallel batch is only parallelized
+   * when every call in it is parallelSafe, otherwise the loop falls back to
+   * serial execution.
+   */
+  parallelSafe?: boolean;
 }
 
 export class ToolRegistry {

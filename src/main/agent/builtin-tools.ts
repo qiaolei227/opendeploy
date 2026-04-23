@@ -1,6 +1,7 @@
 import type { ToolHandler } from './tools';
 
 export const getCurrentDateTime: ToolHandler = {
+  parallelSafe: true,
   definition: {
     name: 'get_current_datetime',
     description: 'Get the current date and time in ISO 8601 format. Use when the user asks about the current time or date.',

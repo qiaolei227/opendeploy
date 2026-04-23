@@ -72,6 +72,7 @@ function writePluginTool(): ToolHandler {
 
 function listPluginsTool(): ToolHandler {
   return {
+    parallelSafe: true,
     definition: {
       name: 'list_plugins',
       description:
@@ -88,6 +89,7 @@ function listPluginsTool(): ToolHandler {
 
 function readPluginTool(): ToolHandler {
   return {
+    parallelSafe: true,
     definition: {
       name: 'read_plugin',
       description:
