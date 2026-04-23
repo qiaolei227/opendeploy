@@ -32,6 +32,21 @@ export function Composer({ llmProviderId, presetText }: ComposerProps) {
     wasStreamingRef.current = isStreaming;
   }, [isStreaming]);
 
+  // Auto-grow the textarea as the user types, clamped to a sensible range.
+  // Reset to 'auto' first so scrollHeight measures the natural content
+  // size — otherwise repeated grows can only increase, never shrink when
+  // the user deletes lines. Sending (which empties `text`) re-runs this
+  // and collapses back to the min height. CSS max-height caps at 180px;
+  // anything longer scrolls internally.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const MIN_HEIGHT = 48;  // ~2 lines at our font-size, matches initial rows={2}
+    const MAX_HEIGHT = 180; // mirrors CSS — JS clamp prevents a brief layout jump on overflow
+    el.style.height = Math.min(Math.max(el.scrollHeight, MIN_HEIGHT), MAX_HEIGHT) + 'px';
+  }, [text]);
+
   const submit = async () => {
     if (!text.trim() || isStreaming) return;
     const msg = text;
