@@ -1,65 +1,81 @@
 # 开达 OpenDeploy
 
-> Open-source AI delivery agent for ERP implementation.
+> An open-source AI agent for ERP implementation consultants — making "a one-person delivery team" possible.
 
-English | [简体中文](./README.zh-CN.md)
+[English](./README.md) | [简体中文](./README.zh-CN.md)
 
-## What is OpenDeploy?
+---
 
-**开达 OpenDeploy** is an open-source AI agent that empowers ERP implementation consultants to deliver complex customizations (field extensions, workflow automation, plugin generation, interface integration) without relying on specialized developers.
+Most "AI assistant tools" today look like this:
 
-**First target**: Kingdee Cloud Cosmic (金蝶云星空) V9.x private deployment.
-**Future**: Kingdee Cangqiong (苍穹), YonYou, Odoo, and more via the multi-ERP provider architecture.
+> **Consultant**: The client wants an xxx feature.
+>
+> **AI**: Sure, I'll write the Python plugin.
+>
+> **Consultant**: ...but the field needs to be created in the system first, and the approval flow edited too.
+>
+> **AI**: That part's on you.
 
-## Philosophy: Harness + Knowledge (Claude Code style)
+**What OpenDeploy aims to do: the whole thing, done by AI.**
 
-- **Harness**: Agent loop framework, tool system, UI — provided by the app
-- **Knowledge**: Deep ERP domain expertise bundled with the app; runtime metadata read from client ERP
-- **LLM**: Bring your own (Claude, GPT, DeepSeek, Qwen, GLM, Kimi, Doubao, Ollama — any)
-- **No server**: Knowledge hosted on GitHub, LLM calls go direct to your provider's API
+## What does it do
 
-## Key Promises
+You're a Kingdee Cloud Cosmic (金蝶云星空) consultant. Clients keep asking for things like:
 
-- **Never touches your client's business data.** SQL access is hard-whitelisted at the code level — `T_META_*` metadata tables allowed, `T_SAL_*/T_BD_*/T_AR_*` business tables hard-blocked.
-- **Runs 100% on your laptop.** No OpenDeploy server, no telemetry you didn't opt into, your LLM key stays with you.
-- **Open source (MIT)** for the community edition. Enterprise edition (team collaboration Hub, deep knowledge library, boss dashboard) will be commercially licensed.
+> "Add a remark field to this sales order"
+> "Block checkout when the customer is over their credit limit"
+> "Add another step to the approval flow"
 
-## Status
+Today, either you open BOS Designer and configure it by hand, or you call in a specialized developer to write code — **slow and expensive**.
 
-Under active development. Plan 1 (project foundation) complete:
-- ✅ Electron + React + TypeScript shell
-- ✅ i18n (zh-CN / en-US)
-- ✅ Theme (light / dark / system)
-- ✅ LLM provider picker (11 providers)
-- ✅ Onboarding wizard
-- ⏳ LLM integration + Agent loop (Plan 2)
-- ⏳ Knowledge base + GitHub sync (Plan 3)
-- ⏳ Kingdee BOS metadata read (Plan 4)
-- ⏳ Python plugin generation (Plan 5)
-- ⏳ v0.1 release (Plan 6)
+**OpenDeploy** lets you talk to an AI that does the whole job:
 
-## Requirements
+- The AI reads your client's Kingdee system and understands how each form is set up
+- The AI decides whether this request should be handled via "standard config / BOS extension / Python plugin / hybrid"
+- The AI **calls Kingdee tools directly to get it done** — it doesn't hand you code to paste in manually
+- It verifies after writing, and gives you a backup file path + a refresh prompt
 
-- Windows 10/11
-- Your own LLM API key (Anthropic, OpenAI, DeepSeek, Qwen, or any supported provider)
-- (For development) Node.js 20+ and pnpm
+You're the reviewer and operator; the AI is the drafter. **The design is signed off by the consultant, not by the AI.**
 
-## Development
+Think Cursor / GitHub Copilot — but built for implementation consultants, and built around Kingdee.
+
+## Highlights
+
+- **Bring your own AI** — Claude / GPT / DeepSeek / Qwen / Kimi / Doubao / Ollama, whatever you like
+- **Zero server** — runs 100% on your laptop; client data never leaves your machine; no compliance headaches
+- **Metadata-only, enforced in code** — the AI cannot read your client's business data, even if it tries
+- **Cross-ERP by design** — Kingdee V9 first, with Cangqiong / YonYou / Digiwin extensible in the future
+- **MIT open source** (Community Edition)
+
+## Vision
+
+An ERP project isn't a pile of scattered requests — it's a staged pipeline: **research → blueprint → configuration → development → testing → go-live → operations**.
+
+OpenDeploy's full goal is to have the AI produce first drafts for each stage's deliverables. v0.1 focuses on "development" (BOS extensions + Python plugin generation) because the BOS meta-model platform is Kingdee's moat — **there's almost no BOS operational knowledge in general-purpose AI training data, and it's the hardest bone to crack**. Crack it, and the product stands up.
+
+## Getting started
+
+Requires Windows 10/11 + an LLM API key.
 
 ```bash
 pnpm install
-pnpm dev         # Start in dev mode (opens Electron window)
-pnpm test        # Run unit tests (Vitest)
-pnpm build       # Production build → out/
-pnpm typecheck   # TypeScript validation
+pnpm dev
 ```
 
-## Sibling Project
+A prebuilt installer will ship with v0.1 Alpha.
 
-**开匠 OpenForge** — Low-code application development platform.
-Together they form the "Open Stack (工匠系列)":
-- 开匠 forges apps (create)
-- 开达 delivers implementations (ship)
+## Status
+
+Under active development, on the eve of v0.1 Alpha.
+
+- Target: Kingdee Cloud Cosmic V9 on-premise
+- 10 skills / 57 markdown files / 10,638 lines of industry knowledge
+- See [CLAUDE.md](./CLAUDE.md) for architecture and roadmap details
+
+## Sibling project
+
+**开匠 OpenForge** — low-code app builder.
+Together they form "Open Stack (工匠系列)": OpenForge **forges** apps, OpenDeploy **ships** implementations.
 
 ## License
 

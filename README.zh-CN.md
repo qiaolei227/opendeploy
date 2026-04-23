@@ -1,66 +1,82 @@
 # 开达 OpenDeploy
 
-> 面向 ERP 实施交付的开源 AI 智能体。
+> 面向 ERP 实施顾问的开源 AI 智能体 —— 让"一个人的交付团队"成为可能。
 
-[English](./README.md) | 简体中文
+[English](./README.md) | [简体中文](./README.zh-CN.md)
 
-## 开达是什么？
+---
 
-**开达 OpenDeploy** 是一个开源 AI 智能体，帮助 ERP 实施顾问独立交付复杂二开需求（字段扩展、流程自动化、插件生成、接口对接等），无需依赖专业二开人员。
+大部分 "AI 辅助工具" 现在长这样:
 
-**首批目标**：金蝶云星空 V9.x 私有部署版。
-**未来**：金蝶云苍穹、用友、Odoo 等，通过多 ERP Provider 架构扩展。
+> **顾问**: 客户要加个 xxx 功能
+>
+> **AI**: 好,我帮你写 Python 插件
+>
+> **顾问**: ……但字段得先在系统里建,审批流也得改
+>
+> **AI**: 那个你自己去配
 
-## 产品哲学：Harness + Knowledge（Claude Code 风格）
+**开达想做的是: 这一整串,AI 全干。**
 
-- **Harness（骨架）**：Agent 循环框架、工具系统、UI — 产品提供
-- **Knowledge（知识）**：深度 ERP 领域知识内置；运行时从客户 ERP 读取元数据
-- **LLM**：用户自备（Claude / GPT / DeepSeek / Qwen / GLM / Kimi / 豆包 / Ollama 任选）
-- **零服务器**：知识库托管 GitHub，LLM 调用直连你自己的 provider
+## 这是做什么的
 
-## 关键承诺
+你是金蝶云星空的实施顾问,客户每天都会提这种需求:
 
-- **永不触碰客户业务数据。** SQL 访问在代码层面硬白名单 —— `T_META_*` 元数据表允许，`T_SAL_*/T_BD_*/T_AR_*` 等业务表硬拦截。
-- **100% 本地运行。** 没有开达服务器，没有你未同意的遥测，你的 LLM Key 留在你这里。
-- **社区版 MIT 开源**。企业版（团队协作 Hub、深度知识库、老板面板）为商业授权。
+> "销售订单加个备注字段"
+> "客户欠款超限不让下单"
+> "审批流再加一级"
 
-## 当前状态
+以前要么你自己打开 BOS Designer 手动配置,要么找二开人员写代码 —— **又慢又贵**。
 
-开发中。Plan 1（项目地基）已完成：
-- ✅ Electron + React + TypeScript 外壳
-- ✅ 国际化（中英）
-- ✅ 主题（浅色 / 深色 / 跟随系统）
-- ✅ LLM provider 选择（11 个）
-- ✅ 首次启动引导
-- ⏳ LLM 集成 + Agent Loop（Plan 2）
-- ⏳ 知识库 + GitHub 同步（Plan 3）
-- ⏳ 金蝶 BOS 元数据读取（Plan 4）
-- ⏳ Python 插件代码生成（Plan 5）
-- ⏳ v0.1 发布（Plan 6）
+**开达** 让你跟 AI 对话,AI 自动把活干完:
 
-## 环境要求
+- AI 读你客户的金蝶系统,知道每个单据长什么样
+- AI 判断这个需求该用 "标准配置 / BOS 扩展 / Python 插件 / 混合实现" 哪种方案
+- AI **直接调用金蝶工具把事落地**,不是把代码甩给你让你手动粘贴
+- 写完自己反查验证,给你 backup 路径 + 刷新提醒
 
-- Windows 10/11
-- 你自己的 LLM API Key（Anthropic / OpenAI / DeepSeek / Qwen 等任一支持的 provider）
-- （开发需要）Node.js 20+ 和 pnpm
+你当终审和操作员,AI 当起草者。**方案是顾问签字的,不是 AI 签字的。**
 
-## 开发
+类似 Cursor / GitHub Copilot,但专为**实施顾问**做、专门懂金蝶。
+
+## 特点
+
+- **用户自备 AI** —— Claude / GPT / DeepSeek / Qwen / Kimi / 豆包 / Ollama 任选
+- **零服务器** —— 100% 在你本机跑,客户数据不出你电脑,合规无压力
+- **只读元数据,代码硬拦** —— AI 读不到客户的业务数据,想读也读不到
+- **跨 ERP 架构** —— 首批金蝶 V9,未来可扩苍穹 / 用友 / 鼎捷
+- **MIT 开源**(社区版)
+
+## 愿景
+
+ERP 项目是条有阶段的链路: **调研 → 蓝图 → 配置 → 开发 → 测试 → 上线 → 运维**。
+
+OpenDeploy 的完整目标是让 AI 按这条骨架,在每个阶段产出对应交付物的初稿。v0.1 先聚焦"开发"这一格(BOS 扩展 + Python 插件生成)—— 因为 BOS 这个元模型平台是金蝶的壁垒,**通用 AI 训练数据里几乎没有 BOS 操作细节,是最难啃的骨头**。先啃下它,产品就立住了。
+
+## 怎么开始
+
+需要 Windows 10/11 + 一个 LLM API Key。
 
 ```bash
 pnpm install
-pnpm dev         # 开发模式启动（弹出 Electron 窗口）
-pnpm test        # 运行单元测试（Vitest）
-pnpm build       # 生产构建 → out/
-pnpm typecheck   # TypeScript 检查
+pnpm dev
 ```
+
+v0.1 Alpha 会提供现成安装包。
+
+## 当前状态
+
+开发中,v0.1 Alpha 前夕。
+
+- 目标: 金蝶云星空 V9 私有部署版
+- 10 个 skill / 57 份 markdown / 10638 行行业知识
+- 详细架构和路线看 [CLAUDE.md](./CLAUDE.md)
 
 ## 姐妹项目
 
 **开匠 OpenForge** —— 低代码应用开发平台。
-两者组成「Open Stack（工匠系列）」：
-- 开匠负责造（锻造应用）
-- 开达负责交（交付实施）
+两者组成「工匠系列 (Open Stack)」: 开匠**造**应用,开达**交**实施。
 
 ## 开源协议
 
-MIT — 详见 [LICENSE](./LICENSE)
+MIT —— 详见 [LICENSE](./LICENSE)

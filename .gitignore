@@ -55,3 +55,31 @@ user-data/
 
 # Local debug traces
 tmp/
+
+# 设计探索 / logo 迭代草稿(实验性,不进版本控制)
+design/
+
+# BOS 侦察产出(可能含客户数据 / 内部元数据,不进 git)
+scripts/bos-recon/output/
+*.xel
+
+# TypeScript 增量构建
+*.tsbuildinfo
+
+# 额外构建工具缓存
+.turbo/
+.eslintcache
+.vite-inspect/
+
+# npm pack 产出
+*.tgz
+
+# macOS 资源分叉
+._*
+
+# IronPython / Python 字节码(本地测试 .py 插件时可能产生)
+__pycache__/
+*.pyc
+
+# Electron forge / builder 元产出
+.webpack/
