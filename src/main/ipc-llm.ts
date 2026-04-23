@@ -8,7 +8,9 @@ import { buildSkillsContext } from './agent/skills-integration';
 import { activeProjectTag, buildK3CloudTools } from './agent/k3cloud-tools';
 import { erpRulesFragment } from './agent/erp-rules';
 import { getConnectionState } from './erp/active';
+import { getProject } from './projects/store';
 import { buildPluginTools } from './agent/plugin-tools';
+import { buildPlanTools } from './agent/plan-tools';
 import { buildBosWriteTools } from './agent/bos-write-tools';
 import {
   deleteConversation,
@@ -104,6 +106,7 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
         registry.register(loadSkillFileTool);
         for (const t of buildK3CloudTools()) registry.register(t);
         for (const t of buildPluginTools()) registry.register(t);
+        for (const t of buildPlanTools()) registry.register(t);
         for (const t of buildBosWriteTools()) registry.register(t);
 
         const projectTag = activeProjectTag(activeProjectTagRaw);
@@ -146,9 +149,21 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
         const convId = req.conversationId ?? requestId;
         activeConversations.set(convId, finalMessages);
 
-        // Save to disk
-        const titleGuess = req.userMessage.slice(0, 40);
-        await saveConversation({ id: convId, title: titleGuess, messages: finalMessages });
+        // Save to disk with a stable, scannable title:
+        //   - Body = **first** user message's first 40 chars — doesn't flip to
+        //     "继续" when the user sends follow-ups
+        //   - Prefix = active project name at save time (if any) — lets the
+        //     consultant tell "川沙诚信商贸" conversations from "X 公司" ones
+        //     in the sidebar without opening each
+        const firstUser = finalMessages.find((m) => m.role === 'user');
+        const titleBody = (firstUser?.content ?? req.userMessage).trim().slice(0, 40);
+        let title = titleBody;
+        const projectId = getConnectionState().projectId;
+        if (projectId) {
+          const project = await getProject(projectId).catch(() => null);
+          if (project) title = `[${project.name}] ${titleBody}`;
+        }
+        await saveConversation({ id: convId, title, messages: finalMessages });
 
         emit({ type: 'done' });
       } catch (err) {
