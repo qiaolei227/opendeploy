@@ -18,26 +18,33 @@ category: product-features
 
 按 K/3 Cloud 常见功能分区,每个模块对应一个 reference 子文件。用 `load_skill_file('k3cloud/product-features-index', 'references/<module>')` 加载。
 
-| 模块简称 | 中文 | 子文件 | 典型需求关键词 |
-|---|---|---|---|
-| **SAL** | 销售管理 | `references/sal-sales` | 销售订单、发货、退货、信用、价格、销售员 |
-| **PUR** | 采购管理 | `references/pur-purchase` | 采购申请、采购订单、收货、退货、供应商 |
-| **STK** | 库存管理 | `references/stk-inventory` | 出入库、库存查询、调拨、盘点、库存组织 |
-| **FIN** | 财务(AR/AP/GL) | `references/fin-finance` | 应收、应付、凭证、总账、税金、结算 |
-| **BD** | 基础资料 | `references/bd-basedata` | 客户、物料、供应商、仓库、部门、员工 |
+### 已起骨架(部分内容完整,部分是模块清单 + 临时话术)
+
+| 模块简称 | 中文 | 子文件 | 典型需求关键词 | 完整度 |
+|---|---|---|---|---|
+| **SAL** | 销售管理 | `references/sal-sales` | 销售订单、发货、退货、信用、价格、销售员 | 🟢 实证 |
+| **PUR** | 采购管理 | `references/pur-purchase` | 采购申请、采购订单、收货、退货、供应商 | 🟡 主流程 |
+| **STK** | 库存管理 | `references/stk-inventory` | 出入库、库存查询、调拨、盘点、库存组织 | 🟡 主流程 |
+| **FIN** | 财务(AR/AP/GL) | `references/fin-finance` | 应收、应付、凭证、总账、税金、结算 | 🟡 主流程 |
+| **BD** | 基础资料 | `references/bd-basedata` | 客户、物料、供应商、仓库、部门、员工 | 🟢 实证 |
+| **MFG** | 生产制造 | `references/mfg-manufacturing` | BOM、工艺路线、生产订单、工序、委外 | 🔴 骨架 |
+| **MRP** | 物料需求计划 | `references/mrp-planning` | MRP 运算、主生产计划、物料平衡 | 🔴 骨架 |
+| **FA** | 固定资产 | `references/fa-fixed-asset` | 资产卡片、折旧、减值、处置 | 🔴 骨架 |
+| **CB** | 现金 / 出纳 | `references/cb-cash` | 银行日记账、票据、资金计划、银企互联 | 🔴 骨架 |
+| **报表** | 报表平台 / BI | `references/reports` | 内置报表、账表设计、自定义报表、智能分析 | 🔴 骨架 |
+
+🟢 = 实证内容覆盖主要场景 · 🟡 = 主流程到位但子主题待补 · 🔴 = 仅模块清单 + 临时话术,**严禁基于此条目对用户给具体启用路径**
 
 ---
 
-## 其他重要模块(v0.1 暂不覆盖,但识别到就告知用户)
+## 其他模块(尚未起骨架)
 
-这些模块 K/3 Cloud 也有,本 skill 暂未整理功能字典。识别到相关关键词时告知用户"该模块属于 K/3 Cloud 标准覆盖,我这边暂无索引,建议咨询金蝶或查 K/3 Cloud 官方帮助":
-
-- **MRP** 物料需求计划
-- **MFG** 生产制造(生产订单、工单、BOM、工艺路线)
-- **HR** 人力资源(招聘、薪资、绩效)
+- **HR** 人力资源
 - **CRM** 客户关系管理
-- **OA** 协同办公(审批流相关归 OA)
-- **报表**(利润表、资产负债表、应收账龄、库龄等内置报表)
+- **OA** 协同 / 任务
+- **集成平台**(WebAPI / ESB / 数据中心)
+
+识别到相关关键词时告知用户"该模块属于 K/3 Cloud 标准覆盖,本知识库尚未起骨架,建议咨询金蝶官方帮助"。
 
 ---
 

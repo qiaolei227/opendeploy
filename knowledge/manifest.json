@@ -3,24 +3,34 @@
   "version": "0.1.0",
   "skills": [
     {
+      "id": "common/implementation-planning",
+      "version": "1.0.0",
+      "sha256": "b36f1fd65586774dd2d485175b94761ebc165942c9404e35d43c7deb6b3b276e"
+    },
+    {
+      "id": "common/systematic-debugging",
+      "version": "1.0.0",
+      "sha256": "6cb782d115c0e3215c591b10afb3f4623dbc3fd9f29c749ac3ccc3c573e962d5"
+    },
+    {
       "id": "k3cloud/bos-features-index",
       "version": "1.0.0",
-      "sha256": "15ca13350fb4d65e8996fac619774e19bc4d7e6798eef3d5883110b05d1a70c0"
+      "sha256": "4bc278854e0ff2d1069ecc52346718fa460114851e46b25b73d6ac39a906dc26"
     },
     {
       "id": "k3cloud/product-features-index",
       "version": "1.0.0",
-      "sha256": "7bfab1f1802e9df7e691d758ffd2b66b764c6658391d918de5fc6c87ef32d5ad"
+      "sha256": "a3afab9365bd904ed193ee5bb68572ce695cecabd7e1f5d5ee0a5c7e4964ae79"
     },
     {
       "id": "k3cloud/python-plugin-index",
       "version": "1.0.0",
-      "sha256": "a09dadf64db33d9354ffe07b47447ed81ae4092ecaedd95a144a2a12e4b3d6e8"
+      "sha256": "e296a0cb3fd954ed57a9d82ee604038c94bd1bbefd5877e1357eae003bc4e9e8"
     },
     {
       "id": "k3cloud/solution-decision-framework",
-      "version": "1.0.0",
-      "sha256": "ead6d23d1d4e5371ca045029e22f13fb6e9fa1c59a9d5d1ef06b7701268e6ff0"
+      "version": "2.0.0",
+      "sha256": "827c71592634e36faba12d6ac201b30505fdd2f7e61d39fa81a58b117790e3d1"
     },
     {
       "id": "system/skill-diagnostic",
