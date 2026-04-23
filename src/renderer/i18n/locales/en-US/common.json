@@ -16,8 +16,7 @@
     "empty": "Start your first conversation"
   },
   "workspace": {
-    "emptyHeading": "OpenDeploy · K/3 Cloud delivery copilot",
-    "emptyDesc": "Tell me what the client wants. I'll work out whether it's a standard feature, BOS config, or a Python plugin — no code if we don't need it."
+    "emptyHeading": "What can I help with?"
   },
   "artifacts": {
     "title": "Session artifacts",
@@ -29,7 +28,7 @@
     "loading": "Loading…"
   },
   "composer": {
-    "placeholder": "What does the client need? e.g. warn on save when credit exceeded…",
+    "placeholder": "Tell me…",
     "send": "Send"
   },
   "side": {

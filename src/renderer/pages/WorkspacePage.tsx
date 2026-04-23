@@ -45,12 +45,11 @@ function EmptyState() {
   const { t } = useTranslation();
   return (
     <div className="chat-empty-heading">
-      <h1 style={{fontSize: 28, letterSpacing: '-0.02em', margin: '0 0 6px'}}>
+      <h1 style={{fontSize: 28, letterSpacing: '-0.02em', margin: 0}}>
         <span style={{fontFamily: 'var(--font-serif)', fontWeight: 500}}>
           {t('workspace.emptyHeading')}
         </span>
       </h1>
-      <p className="muted" style={{margin: 0}}>{t('workspace.emptyDesc')}</p>
     </div>
   );
 }

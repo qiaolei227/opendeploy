@@ -16,8 +16,7 @@
     "empty": "开始你的第一次对话"
   },
   "workspace": {
-    "emptyHeading": "开达 · 金蝶云星空交付副驾",
-    "emptyDesc": "用日常语言说说客户想做什么。我会判断走标准功能 / BOS 配置 / Python 插件——能不二开就不二开。"
+    "emptyHeading": "想做什么?"
   },
   "artifacts": {
     "title": "本次会话产物",
@@ -29,7 +28,7 @@
     "loading": "加载中…"
   },
   "composer": {
-    "placeholder": "客户想实现什么?例:销售订单保存时校验信用额度…",
+    "placeholder": "说说看…",
     "send": "发送"
   },
   "side": {
