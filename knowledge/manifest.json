@@ -15,12 +15,12 @@
     {
       "id": "k3cloud/bos-features-index",
       "version": "1.0.0",
-      "sha256": "db4774c253f76b8fcd189e4dc8644fa42472c2ea71735aa8a3a49138139b3b84"
+      "sha256": "aeee2c224e88d623597fb86ffb18ab347874dc3fd86ad0182f3a73238c3c15ca"
     },
     {
       "id": "k3cloud/product-features-index",
       "version": "1.0.0",
-      "sha256": "6b151e7d61f2ae93af00bc28915bd0853282bb2c693d11f29ea901b636a2c68d"
+      "sha256": "9232ab28fd7c2f2986755f44bcfc8fb02ce1e34c29b77439ab94ba17d654f244"
     },
     {
       "id": "k3cloud/python-plugin-index",
@@ -31,6 +31,11 @@
       "id": "k3cloud/solution-decision-framework",
       "version": "2.0.0",
       "sha256": "827c71592634e36faba12d6ac201b30505fdd2f7e61d39fa81a58b117790e3d1"
+    },
+    {
+      "id": "k3cloud/webapi-index",
+      "version": "1.0.0",
+      "sha256": "5d8347b0b1ea28c0b2f2164fc31fba9132ce13bcd5904ec9df7e1cca9c17880a"
     },
     {
       "id": "system/skill-diagnostic",
