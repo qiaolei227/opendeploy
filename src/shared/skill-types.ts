@@ -17,6 +17,8 @@ export type SkillCategory =
   | 'plugin-dev'        // 插件/二开技术骨架（事件、API、模板）
   | 'product-features'  // ERP 标准产品功能速查（SAL / PUR / STK / FIN / BD …）
   | 'bos-features'      // BOS 平台可定制能力速查（扩展字段 / 业务规则 / 插件类型 …）
+  | 'integration'       // 外部系统对接(WebAPI / iPaaS / 事件订阅)
+  | 'troubleshooting'   // 客户日常报错诊断索引(Plan 5.8 起新增)
   | 'sales'             // 销售域
   | 'purchase'          // 采购域
   | 'inventory'         // 库存域

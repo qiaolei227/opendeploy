@@ -9,6 +9,8 @@ const VALID_CATEGORIES: readonly SkillCategory[] = [
   'plugin-dev',
   'product-features',
   'bos-features',
+  'integration',
+  'troubleshooting',
   'sales',
   'purchase',
   'inventory',
