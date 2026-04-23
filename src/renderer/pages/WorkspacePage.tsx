@@ -11,25 +11,30 @@ interface WorkspacePageProps {
 export function WorkspacePage({ llmProviderId }: WorkspacePageProps) {
   const messages = useChatStore((s) => s.messages);
   const error = useChatStore((s) => s.error);
+  const isEmpty = messages.length === 0;
 
   return (
     <div className="ws" style={{ display: 'flex', height: '100%' }}>
-      <div className="chat-col" style={{ flex: 1, minWidth: 0 }}>
-        {messages.length === 0 ? (
-          <div className="chat-scroll">
-            <div className="chat-inner">
-              <EmptyState />
-            </div>
+      <div
+        className={`chat-col${isEmpty ? ' is-empty' : ''}`}
+        style={{ flex: 1, minWidth: 0 }}
+      >
+        {isEmpty ? (
+          <div className="chat-empty-hero">
+            <EmptyState />
+            <Composer llmProviderId={llmProviderId} />
           </div>
         ) : (
-          <MessageList messages={messages} />
+          <>
+            <MessageList messages={messages} />
+            {error && (
+              <div style={{padding: '8px 20px', color: 'var(--danger)', fontSize: 12}}>
+                {error}
+              </div>
+            )}
+            <Composer llmProviderId={llmProviderId} />
+          </>
         )}
-        {error && (
-          <div style={{padding: '8px 20px', color: 'var(--danger)', fontSize: 12}}>
-            {error}
-          </div>
-        )}
-        <Composer llmProviderId={llmProviderId} />
       </div>
       <ArtifactsPanel />
     </div>
@@ -39,7 +44,7 @@ export function WorkspacePage({ llmProviderId }: WorkspacePageProps) {
 function EmptyState() {
   const { t } = useTranslation();
   return (
-    <div style={{padding: '40px 0'}}>
+    <div className="chat-empty-heading">
       <h1 style={{fontSize: 28, letterSpacing: '-0.02em', margin: '0 0 6px'}}>
         <span style={{fontFamily: 'var(--font-serif)', fontWeight: 500}}>
           {t('workspace.emptyHeading')}
