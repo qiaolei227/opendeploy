@@ -15,12 +15,12 @@
     {
       "id": "k3cloud/bos-features-index",
       "version": "1.0.0",
-      "sha256": "4bc278854e0ff2d1069ecc52346718fa460114851e46b25b73d6ac39a906dc26"
+      "sha256": "db4774c253f76b8fcd189e4dc8644fa42472c2ea71735aa8a3a49138139b3b84"
     },
     {
       "id": "k3cloud/product-features-index",
       "version": "1.0.0",
-      "sha256": "a3afab9365bd904ed193ee5bb68572ce695cecabd7e1f5d5ee0a5c7e4964ae79"
+      "sha256": "6b151e7d61f2ae93af00bc28915bd0853282bb2c693d11f29ea901b636a2c68d"
     },
     {
       "id": "k3cloud/python-plugin-index",
