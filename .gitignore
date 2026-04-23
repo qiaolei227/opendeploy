@@ -56,6 +56,9 @@ user-data/
 # Local debug traces
 tmp/
 
+# 项目内部协作资料(不对外发布)
+CLAUDE.md
+
 # 设计探索 / logo 迭代草稿(实验性,不进版本控制)
 design/
 

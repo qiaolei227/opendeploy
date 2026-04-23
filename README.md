@@ -35,7 +35,6 @@ Under active development, on the eve of v0.1 Alpha.
 
 - Target: Kingdee Cloud Cosmic V9 on-premise
 - 10 skills / 57 markdown files / 10,638 lines of industry knowledge
-- See [CLAUDE.md](./CLAUDE.md) for architecture and roadmap details
 
 ## Sibling project
 
