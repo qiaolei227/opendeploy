@@ -52,8 +52,10 @@ function ToolCallCard({ call }: { call: ToolCall }) {
 export function Message({ message }: MessageProps) {
   const { t } = useTranslation();
   const who = message.role === 'user' ? 'user' : 'ai';
-  const avatar = message.role === 'user' ? '乔' : 'AI';
   const name = message.role === 'user' ? t('messages.user') : t('messages.assistant');
+  // Derive the avatar glyph from the localized name so it stays neutral
+  // (no hardcoded surname). zh "顾问" → "顾", en "You" → "Y".
+  const avatar = message.role === 'user' ? name.charAt(0).toUpperCase() : 'AI';
   const time = new Date(message.createdAt).toLocaleTimeString('zh-CN', { hour12: false });
 
   return (
