@@ -31,6 +31,13 @@ function formatMessage(m: Message): string {
   if (m.toolCalls && m.toolCalls.length > 0) {
     body.push('', '```tool-calls', JSON.stringify(m.toolCalls, null, 2), '```');
   }
+  // Persist the stream-block order so a reloaded conversation renders
+  // text/tool_use in the causal sequence the LLM actually produced — not
+  // all-text-then-all-tools (which is what the old content+toolCalls pair
+  // collapses to).
+  if (m.blocks && m.blocks.length > 0) {
+    body.push('', '```message-blocks', JSON.stringify(m.blocks, null, 2), '```');
+  }
   return body.join('\n');
 }
 
@@ -73,8 +80,27 @@ function parseConversation(content: string): Conversation {
       }
     }
 
+    // Pull the ```message-blocks JSON``` fence — present on assistant
+    // messages saved after blocks support landed. Absent on legacy
+    // conversations; the renderer reconstructs blocks from content +
+    // toolCalls in that case.
+    const blocksMatch = body.match(/```message-blocks\s*\n([\s\S]*?)\n```/);
+    let blocks: Message['blocks'] | undefined;
+    if (blocksMatch) {
+      try {
+        const parsed = JSON.parse(blocksMatch[1]);
+        if (Array.isArray(parsed)) blocks = parsed;
+      } catch {
+        // Malformed — fall back to legacy reconstruction on render.
+      }
+    }
+
+    // Strip fences in reverse append order so `$` anchors work for both:
+    // formatMessage pushes tool-calls first then message-blocks, so blocks
+    // is at end — remove it first; tool-calls then becomes the new tail.
     body = body
       .replace(/^_\(tool_call_id:[^)]+\)_\s*$/m, '')
+      .replace(/```message-blocks[\s\S]*?```\s*$/, '')
       .replace(/```tool-calls[\s\S]*?```\s*$/, '')
       .trim();
 
@@ -84,7 +110,8 @@ function parseConversation(content: string): Conversation {
       content: body,
       createdAt,
       ...(toolCallId ? { toolCallId } : {}),
-      ...(toolCalls ? { toolCalls } : {})
+      ...(toolCalls ? { toolCalls } : {}),
+      ...(blocks ? { blocks } : {})
     });
   }
   return {

@@ -292,17 +292,21 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 
 .proj-item {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: flex-start; gap: 8px;
   padding: 6px 8px; margin-bottom: 1px;
   border-radius: 5px;
   color: var(--ink-2); font-size: 12.5px; cursor: pointer;
 }
 .proj-item:hover { background: var(--surface-2); }
 .proj-item.active { background: var(--surface); box-shadow: var(--shadow-xs); color: var(--ink); font-weight: 500; }
-.proj-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: var(--dim); }
+.proj-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: var(--dim); margin-top: 6px; }
 .proj-dot.live { background: var(--good); box-shadow: 0 0 0 3px var(--good-soft); }
 .proj-dot.conn { background: var(--warn); animation: pulse 1.2s infinite; }
-.proj-meta { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--dim); }
+.proj-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.proj-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.proj-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.proj-meta { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--dim); flex-shrink: 0; }
+.proj-product { align-self: flex-start; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
 .conv-item {

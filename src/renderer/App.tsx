@@ -70,6 +70,12 @@ export function App() {
   const projectSummaries: ProjectSummary[] = projects.map((p) => ({
     id: p.id,
     name: p.name,
+    // Full product label so a consultant can tell "which ERP" without
+    // opening the project page. Falls back to the provider id if a new
+    // provider ships before its i18n label lands.
+    product: t(`projects.products.${p.erpProvider}`, {
+      defaultValue: p.erpProvider
+    }),
     state:
       projectsConnectionState.projectId === p.id
         ? projectsConnectionState.status === 'connected'

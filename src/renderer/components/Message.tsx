@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ChatMessage } from '@renderer/stores/chat-store';
 import { MarkdownBlock } from './MarkdownBlock';
@@ -49,6 +49,66 @@ function ToolCallCard({ call }: { call: ToolCall }) {
   );
 }
 
+/**
+ * Was anything at all rendered yet? Used to decide whether the "思考中…"
+ * placeholder should show during the pre-first-delta gap.
+ */
+function hasAnyContent(message: ChatMessage): boolean {
+  if (message.blocks && message.blocks.length > 0) return true;
+  if (message.content) return true;
+  if (message.toolCalls && message.toolCalls.length > 0) return true;
+  return false;
+}
+
+/**
+ * Render the assistant turn body. If `blocks` is present, render in arrival
+ * order (text deltas and tool_use cards interleaved — matches the Claude
+ * Code experience where you see "I will X" → [tool] → "now Y" → [tool]).
+ * Historic messages that predate blocks fall back to text-first then all
+ * tool calls after.
+ *
+ * The streaming cursor ▍ is anchored to the *last text block* so it moves
+ * forward even when a tool call sits between text segments.
+ */
+function renderBody(message: ChatMessage) {
+  const streaming = Boolean(message.isStreaming);
+  const callsById = new Map<string, NonNullable<ChatMessage['toolCalls']>[number]>();
+  for (const tc of message.toolCalls ?? []) callsById.set(tc.id, tc);
+
+  if (message.blocks && message.blocks.length > 0) {
+    const lastTextIdx = findLastTextIndex(message.blocks);
+    return message.blocks.map((block, i) => {
+      if (block.type === 'text') {
+        return (
+          <Fragment key={i}>
+            <MarkdownBlock content={block.text} />
+            {streaming && i === lastTextIdx && <span className="streaming-cursor">▍</span>}
+          </Fragment>
+        );
+      }
+      const call = callsById.get(block.callId);
+      if (!call) return null;
+      return <ToolCallCard key={i} call={call} />;
+    });
+  }
+
+  // Legacy path: no blocks → render text first, then all tool calls.
+  return (
+    <>
+      {message.content && <MarkdownBlock content={message.content} />}
+      {streaming && message.content && <span className="streaming-cursor">▍</span>}
+      {message.toolCalls?.map((tc, i) => <ToolCallCard key={i} call={tc} />)}
+    </>
+  );
+}
+
+function findLastTextIndex(blocks: NonNullable<ChatMessage['blocks']>): number {
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    if (blocks[i].type === 'text') return i;
+  }
+  return -1;
+}
+
 export function Message({ message }: MessageProps) {
   const { t } = useTranslation();
   const who = message.role === 'user' ? 'user' : 'ai';
@@ -66,15 +126,13 @@ export function Message({ message }: MessageProps) {
         <span className="turn-time">{time}</span>
       </div>
       <div className="turn-body">
-        {message.content && <MarkdownBlock content={message.content} />}
-        {message.isStreaming && !message.content && (!message.toolCalls || message.toolCalls.length === 0) && (
+        {renderBody(message)}
+        {message.isStreaming && !hasAnyContent(message) && (
           // The 500ms-2s gap between "user hits send" and "first delta
           // arrives" used to show nothing except a small ▍ — users read it
           // as "frozen". An explicit "思考中…" label removes the ambiguity.
           <div className="turn-thinking">{t('messages.thinking')}</div>
         )}
-        {message.isStreaming && message.content && <span className="streaming-cursor">▍</span>}
-        {message.toolCalls?.map((tc, i) => <ToolCallCard key={i} call={tc} />)}
       </div>
     </div>
   );

@@ -2,12 +2,28 @@ import { create } from 'zustand';
 import type { LlmStreamEvent } from '@shared/types';
 import { makeId } from '@shared/id';
 import { useArtifactsStore } from './artifacts-store';
+import {
+  appendTextDelta,
+  appendToolUse,
+  reconstructBlocksFromLegacy,
+  type MessageBlock
+} from '@shared/blocks';
+
+export type { MessageBlock } from '@shared/blocks';
 
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'tool';
   content: string;
   toolCalls?: Array<{ id: string; name: string; args: string; result?: string }>;
+  /**
+   * Ordered stream of text and tool_use blocks as they arrived. When present,
+   * the renderer iterates this instead of rendering content + toolCalls
+   * separately — preserves the "said X, did tool, said Y" causal order the
+   * user sees in Claude Code. Legacy messages (persisted before blocks
+   * existed) have this reconstructed at load time from content + toolCalls.
+   */
+  blocks?: MessageBlock[];
   isStreaming?: boolean;
   createdAt: string;
 }
@@ -39,7 +55,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       id: makeChatId(), role: 'user', content: text, createdAt: new Date().toISOString()
     };
     const assistantMsg: ChatMessage = {
-      id: makeChatId(), role: 'assistant', content: '', isStreaming: true, createdAt: new Date().toISOString()
+      id: makeChatId(), role: 'assistant', content: '', blocks: [], isStreaming: true, createdAt: new Date().toISOString()
     };
     set({
       messages: [...get().messages, userMsg, assistantMsg],
@@ -54,22 +70,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const msgs = [...get().messages];
         const last = msgs[msgs.length - 1];
         if (last && last.role === 'assistant') {
-          msgs[msgs.length - 1] = { ...last, content: last.content + ev.content };
+          msgs[msgs.length - 1] = {
+            ...last,
+            content: last.content + ev.content,
+            blocks: appendTextDelta(last.blocks ?? [], ev.content)
+          };
           set({ messages: msgs });
         }
       } else if (ev.type === 'tool_call') {
         const msgs = [...get().messages];
         const last = msgs[msgs.length - 1];
         if (last && last.role === 'assistant') {
+          const callId = ev.toolCallId ?? '?';
           const tcs = [
             ...(last.toolCalls ?? []),
             {
-              id: ev.toolCallId ?? '?',
+              id: callId,
               name: ev.toolCallName ?? '?',
               args: ev.toolCallArgs ?? ''
             }
           ];
-          msgs[msgs.length - 1] = { ...last, toolCalls: tcs };
+          msgs[msgs.length - 1] = {
+            ...last,
+            toolCalls: tcs,
+            blocks: appendToolUse(last.blocks ?? [], callId)
+          };
           set({ messages: msgs });
         }
       } else if (ev.type === 'tool_result') {
@@ -167,13 +192,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
           content: m.content,
           createdAt: m.createdAt
         };
-        if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
-          base.toolCalls = m.toolCalls.map((tc) => ({
+        if (m.role === 'assistant') {
+          const toolCalls = (m.toolCalls ?? []).map((tc) => ({
             id: tc.id,
             name: tc.name,
             args: JSON.stringify(tc.arguments),
             result: toolResultById.get(tc.id)
           }));
+          if (toolCalls.length > 0) base.toolCalls = toolCalls;
+          // Prefer persisted stream order; fall back to "text first then
+          // all tools" for conversations saved before blocks support.
+          base.blocks = m.blocks && m.blocks.length > 0
+            ? m.blocks
+            : reconstructBlocksFromLegacy(m.content, toolCalls.map((tc) => ({ id: tc.id })));
         }
         return base;
       });

@@ -8,6 +8,7 @@ import type {
 } from './erp-types';
 import type { PluginFile, PluginWriteResult } from './plugin-types';
 import type { KnowledgeSource, LoadedSkill, SkillMeta } from './skill-types';
+import type { MessageBlock } from './blocks';
 
 export type Language = 'zh-CN' | 'en-US';
 export type Theme = 'light' | 'dark' | 'system';
@@ -76,6 +77,8 @@ export interface IpcApi {
       toolCallId?: string;
       /** Present on assistant messages that invoked tools; order matches invocation order. */
       toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+      /** Present on assistant messages saved after blocks support — ordered stream of text / tool_use. */
+      blocks?: MessageBlock[];
     }>;
   }>;
   conversationsDelete: (id: string) => Promise<void>;

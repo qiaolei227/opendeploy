@@ -34,6 +34,7 @@
     "react-i18next": "^17.0.4",
     "react-markdown": "^10.1.0",
     "rehype-highlight": "^7.0.2",
+    "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "tar": "^7.5.13",
     "zustand": "^5.0.12"

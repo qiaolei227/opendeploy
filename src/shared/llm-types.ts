@@ -1,3 +1,5 @@
+import type { MessageBlock } from './blocks';
+
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 
 export interface Message {
@@ -6,6 +8,13 @@ export interface Message {
   content: string;
   toolCallId?: string;         // set when role === 'tool'
   toolCalls?: ToolCall[];      // set on assistant messages that invoke tools
+  /**
+   * Ordered stream of text / tool_use blocks as they arrived. Set on
+   * assistant messages so persistence can round-trip the "said X → did
+   * tool → said Y" interleaving the LLM actually produced. Not sent to the
+   * LLM API (which only consumes content + toolCalls).
+   */
+  blocks?: MessageBlock[];
   createdAt: string;           // ISO timestamp
 }
 

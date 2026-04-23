@@ -7,6 +7,13 @@ export interface ProjectSummary {
   name: string;
   /** Environment tag: 'prod' | 'uat' | 'dev' (free-form for forward compat). */
   env?: string;
+  /**
+   * Short, localized ERP product label (e.g. "金蝶云星空" / "K/3 Cloud").
+   * Rendered in the rail meta slot so the consultant sees at a glance which
+   * product a project targets — identical names across ERPs would otherwise
+   * be indistinguishable.
+   */
+  product?: string;
   /** Connection state: 'live' (green), 'conn' (amber/connecting), 'idle' (dim). */
   state?: 'live' | 'conn' | 'idle';
 }
@@ -85,8 +92,13 @@ export function SecondarySide({
         onClick={() => onProjectSelect?.(p.id)}
       >
         <span className={`proj-dot ${dotState}`} />
-        <span>{p.name}</span>
-        {p.env ? <span className="proj-meta">{p.env}</span> : null}
+        <div className="proj-info">
+          <div className="proj-name-row">
+            <span className="proj-name">{p.name}</span>
+            {p.env ? <span className="proj-meta">{p.env}</span> : null}
+          </div>
+          {p.product ? <span className="chip proj-product">{p.product}</span> : null}
+        </div>
       </div>
     );
   };

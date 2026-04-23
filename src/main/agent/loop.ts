@@ -2,6 +2,7 @@ import type { Message, ToolCall } from '@shared/llm-types';
 import type { LlmClient } from '../llm/types';
 import type { ToolRegistry } from './tools';
 import { pruneOldToolResults } from './history-prune';
+import { appendTextDelta, appendToolUse, type MessageBlock } from '@shared/blocks';
 
 /**
  * Keep the last N `tool` role messages with their full content; older tool
@@ -61,6 +62,7 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
 
     let assistantContent = '';
     const toolCalls: ToolCall[] = [];
+    let blocks: MessageBlock[] = [];
     let finishReason: 'stop' | 'tool_calls' | 'length' | 'error' = 'stop';
     let errored = false;
 
@@ -77,9 +79,11 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
     }, params.signal)) {
       if (ev.type === 'delta') {
         assistantContent += ev.content;
+        blocks = appendTextDelta(blocks, ev.content);
         emit({ type: 'delta', content: ev.content });
       } else if (ev.type === 'tool_call') {
         toolCalls.push(ev.toolCall);
+        blocks = appendToolUse(blocks, ev.toolCall.id);
         emit({ type: 'tool_call', toolCall: ev.toolCall });
       } else if (ev.type === 'done') {
         finishReason = ev.finishReason;
@@ -96,6 +100,7 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
       role: 'assistant',
       content: assistantContent,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      blocks: blocks.length > 0 ? blocks : undefined,
       createdAt: new Date().toISOString()
     };
     messages.push(assistantMsg);

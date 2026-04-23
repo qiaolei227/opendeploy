@@ -44,4 +44,52 @@ describe('conversation store', () => {
     expect(id).toBeTruthy();
     expect(getConversationsDir()).toContain(testDir);
   });
+
+  it('round-trips assistant blocks (text / tool_use / text / tool_use / text)', async () => {
+    const msgs: Message[] = [
+      { id: 'u1', role: 'user', content: 'go', createdAt: '2026-04-24T10:00:00Z' },
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'I will check first. Now continuing. Done.',
+        toolCalls: [
+          { id: 'tc1', name: 'list_extensions', arguments: {} },
+          { id: 'tc2', name: 'get_object', arguments: { id: 'SAL_SaleOrder' } }
+        ],
+        blocks: [
+          { type: 'text', text: 'I will check first.' },
+          { type: 'tool_use', callId: 'tc1' },
+          { type: 'text', text: 'Now continuing.' },
+          { type: 'tool_use', callId: 'tc2' },
+          { type: 'text', text: 'Done.' }
+        ],
+        createdAt: '2026-04-24T10:00:02Z'
+      }
+    ];
+    const id = await saveConversation({ title: 'blocks rt', messages: msgs });
+    const loaded = await loadConversation(id);
+    const assistant = loaded.messages.find((m) => m.role === 'assistant');
+    expect(assistant).toBeTruthy();
+    expect(assistant!.blocks).toEqual(msgs[1].blocks);
+    expect(assistant!.toolCalls).toEqual(msgs[1].toolCalls);
+    expect(assistant!.content).toBe('I will check first. Now continuing. Done.');
+  });
+
+  it('assistants without blocks round-trip cleanly (legacy path)', async () => {
+    const msgs: Message[] = [
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'old message',
+        toolCalls: [{ id: 'tc1', name: 't', arguments: {} }],
+        createdAt: '2026-04-24T10:00:02Z'
+      }
+    ];
+    const id = await saveConversation({ title: 'legacy', messages: msgs });
+    const loaded = await loadConversation(id);
+    const assistant = loaded.messages[0];
+    expect(assistant.content).toBe('old message');
+    expect(assistant.toolCalls).toHaveLength(1);
+    expect(assistant.blocks).toBeUndefined();
+  });
 });
