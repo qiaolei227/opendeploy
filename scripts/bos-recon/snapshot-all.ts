@@ -109,6 +109,12 @@ export interface SnapshotResult {
   unmatchedTables: string[];
   /** 有候选键但对给定 extId 无行的表 */
   emptyTables: string[];
+  /**
+   * 查询时 SQL Server 报错的表。常见: 该表的候选键列是 int 类型, 而
+   * extId 是 GUID 字符串, 类型不兼容。这类表不是扩展元数据表, 跳过
+   * 不影响侦察精度。
+   */
+  errorTables: Array<{ table: string; reason: string }>;
   /** 有行的表, key = 表名, value = 行数组 */
   tables: Record<string, Record<string, unknown>[]>;
 }
@@ -122,6 +128,7 @@ export async function snapshotAllMeta(
 
   const unmatchedTables: string[] = [];
   const emptyTables: string[] = [];
+  const errorTables: Array<{ table: string; reason: string }> = [];
   const tables: Record<string, Record<string, unknown>[]> = {};
 
   for (const tableName of allTables) {
@@ -138,15 +145,24 @@ export async function snapshotAllMeta(
     }
 
     const selectSQL = buildSnapshotSelectSQL(tableName, keyColumn);
-    const rows = await pool
-      .request()
-      .input('v', sql.VarChar(64), extId)
-      .query<Record<string, unknown>>(selectSQL);
+    try {
+      const rows = await pool
+        .request()
+        .input('v', sql.VarChar(64), extId)
+        .query<Record<string, unknown>>(selectSQL);
 
-    if (rows.recordset.length === 0) {
-      emptyTables.push(tableName);
-    } else {
-      tables[tableName] = rows.recordset.map(stripBinary);
+      if (rows.recordset.length === 0) {
+        emptyTables.push(tableName);
+      } else {
+        tables[tableName] = rows.recordset.map(stripBinary);
+      }
+    } catch (err) {
+      // 典型: 某 T_META_X 的 FID 是 int 类型而 extId 是 GUID,
+      // SQL Server type conversion 失败。这些表不是扩展元数据表, 跳过。
+      errorTables.push({
+        table: tableName,
+        reason: err instanceof Error ? err.message : String(err)
+      });
     }
   }
 
@@ -154,6 +170,7 @@ export async function snapshotAllMeta(
     scannedTables: allTables.length,
     unmatchedTables,
     emptyTables,
+    errorTables,
     tables
   };
 }

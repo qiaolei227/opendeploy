@@ -120,7 +120,8 @@ async function cmdSnapshotBefore(args: CliArgs): Promise<void> {
     console.log(`[bos-recon] before snapshot: ${out}`);
     console.log(
       `           scanned=${snap.scannedTables} unmatched=${snap.unmatchedTables.length} ` +
-      `empty=${snap.emptyTables.length} hit=${Object.keys(snap.tables).length}`
+      `empty=${snap.emptyTables.length} error=${snap.errorTables.length} ` +
+      `hit=${Object.keys(snap.tables).length}`
     );
   } finally {
     await pool.close();
@@ -137,7 +138,8 @@ async function cmdSnapshotAfter(args: CliArgs): Promise<void> {
     console.log(`[bos-recon] after snapshot: ${out}`);
     console.log(
       `           scanned=${snap.scannedTables} unmatched=${snap.unmatchedTables.length} ` +
-      `empty=${snap.emptyTables.length} hit=${Object.keys(snap.tables).length}`
+      `empty=${snap.emptyTables.length} error=${snap.errorTables.length} ` +
+      `hit=${Object.keys(snap.tables).length}`
     );
   } finally {
     await pool.close();
