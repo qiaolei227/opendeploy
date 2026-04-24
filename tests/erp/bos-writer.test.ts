@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type sql from 'mssql';
 import {
+  addFieldToExtension,
   listExtensions,
   listFormPlugins,
   probeBosEnvironment,
@@ -378,4 +379,78 @@ describe('createExtensionWithPythonPlugin · T_META_TRACKERBILLTABLE FTABLEID al
     expect(src).toMatch(/IF\s+@base\s*<\s*900000/);
     expect(src).toMatch(/SET\s+@base\s*=\s*899999/);
   });
+});
+
+describe('addFieldToExtension', () => {
+  const EXT = '96d3fbdd-d383-4ea8-b119-4b9703b9567c';
+  let tempHome: string;
+  let prevHome: string | undefined;
+
+  beforeEach(() => {
+    tempHome = mkdtempSync(join(tmpdir(), 'opendeploy-writer-test-'));
+    prevHome = process.env.OPENDEPLOY_HOME;
+    process.env.OPENDEPLOY_HOME = tempHome;
+  });
+
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env.OPENDEPLOY_HOME;
+    else process.env.OPENDEPLOY_HOME = prevHome;
+    rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it('type=text: UPDATE T_META_OBJECTTYPE.FKERNELXML 含新 TextField + TextFieldAppearance', async () => {
+    const updates: WritePoolOpts['updateCapture'] = [];
+    const pool = makeWritePool({
+      updateCapture: updates,
+      tables: {
+        T_META_OBJECTTYPE: [
+          { FID: EXT, FKERNELXML: buildExtensionKernelXml(EXT, []) }
+        ]
+      }
+    });
+    const res = await addFieldToExtension(pool, 'pid', EXT, 'text', {
+      key: 'F_TEST01',
+      caption: '文本字段'
+    });
+    expect(res.backupFile).toContain('_add-field_');
+    expect(updates).toHaveLength(1);
+    const xmlArg = String(updates[0].inputs.xml);
+    expect(xmlArg).toContain('<Key>F_TEST01</Key>');
+    expect(xmlArg).toContain('<Caption>文本字段</Caption>');
+    expect(xmlArg).toContain('<TextField');
+    expect(xmlArg).toContain('<TextFieldAppearance');
+    expect(updates[0].inputs.id).toBe(EXT);
+  });
+
+  it('不支持的 type 直接抛错, 不写 DB 不 backup', async () => {
+    const updates: WritePoolOpts['updateCapture'] = [];
+    const pool = makeWritePool({
+      updateCapture: updates,
+      tables: {
+        T_META_OBJECTTYPE: [
+          { FID: EXT, FKERNELXML: buildExtensionKernelXml(EXT, []) }
+        ]
+      }
+    });
+    await expect(
+      addFieldToExtension(pool, 'pid', EXT, 'number' as 'text', {
+        key: 'F_X',
+        caption: 'x'
+      })
+    ).rejects.toThrow(/type.*not.*supported|unsupported/i);
+    expect(updates).toHaveLength(0);
+  });
+
+  it('扩展不存在 → 抛 not found, 不写 DB', async () => {
+    const updates: WritePoolOpts['updateCapture'] = [];
+    const pool = makeWritePool({ updateCapture: updates, tables: {} });
+    await expect(
+      addFieldToExtension(pool, 'pid', EXT, 'text', { key: 'F_X', caption: 'x' })
+    ).rejects.toThrow(/not found/);
+    expect(updates).toHaveLength(0);
+  });
+
+  // 第二次加字段时扩展已有 LayoutInfos 的行为 — 纯函数层 bos-xml.test.ts 的
+  // `第二次加字段 → 只追加 TextFieldAppearance` 测试已完整覆盖。writer 层只
+  // 负责 snapshot + 调用纯函数 + update, 无需在这里重复验证。
 });

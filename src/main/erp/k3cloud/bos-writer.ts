@@ -20,8 +20,10 @@ import { validateQuery } from '../validator';
 import {
   addPluginToKernelXml,
   buildExtensionKernelXml,
+  insertTextFieldIntoKernelXml,
   parseFormPluginsFromKernelXml,
-  removePluginFromKernelXml
+  removePluginFromKernelXml,
+  type TextFieldSpec
 } from './bos-xml';
 import { snapshotExtension, writeBackupSnapshot } from './bos-backup';
 
@@ -252,6 +254,42 @@ export async function unregisterPlugin(
 
   const newXml = removePluginFromKernelXml(currentXml, className);
   if (newXml === currentXml) return { backupFile }; // nothing changed
+  await updateKernelXml(pool, extId, newXml);
+  return { backupFile };
+}
+
+// ─── addFieldToExtension ───────────────────────────────────────────────
+
+/**
+ * 往扩展里加一个业务字段。v0.1 只实现 `type='text'`, 后续 cycle 会增加
+ * `number / date / decimal / combobox / basedata_ref` 等 (共用一个工具,
+ * 按 type 分支)。实测 (add-text-field recon 2026-04-24): 加文本字段对 DB 的
+ * 实际改动只有 T_META_OBJECTTYPE.FKERNELXML 的 XML delta, 其他看似变化的 3
+ * 张表 (OBJECTTYPE_L / OBJECTTYPENAMEEX_L / OBJECTFUNCINTERFACE) 是 BOS
+ * Designer 打开扩展时自动把扩展名从 `opendeploy_auto_ext_<ts>` 同步到父对
+ * 象中文名引起的, 与加字段本身无关 —— agent 不用管, Designer 自己修复。
+ */
+export type FieldType = 'text'; // TODO: 'number' | 'date' | 'decimal' | 'combobox' | 'basedata_ref'
+
+export async function addFieldToExtension(
+  pool: sql.ConnectionPool,
+  projectId: string,
+  extId: string,
+  type: FieldType,
+  spec: TextFieldSpec
+): Promise<{ backupFile: string }> {
+  if (type !== 'text') {
+    throw new Error(`field type "${type}" not yet supported — only 'text' is implemented`);
+  }
+  const snapshot = await snapshotExtension(pool, extId, 'add-field');
+  const backupFile = await writeBackupSnapshot(projectId, snapshot);
+
+  const row = snapshot.tables.T_META_OBJECTTYPE[0];
+  if (!row) throw new Error(`extension ${extId} not found`);
+  const currentXml = typeof row.FKERNELXML === 'string' ? row.FKERNELXML : '';
+  if (!currentXml) throw new Error(`extension ${extId} has no FKERNELXML to extend`);
+
+  const newXml = insertTextFieldIntoKernelXml(currentXml, { spec });
   await updateKernelXml(pool, extId, newXml);
   return { backupFile };
 }

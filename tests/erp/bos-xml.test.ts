@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addPluginToKernelXml,
   buildExtensionKernelXml,
+  insertTextFieldIntoKernelXml,
   parseFormPluginsFromKernelXml,
   removePluginFromKernelXml,
   xmlEscape
@@ -199,5 +200,127 @@ describe('removePluginFromKernelXml', () => {
     const next = removePluginFromKernelXml(xml, 'solo');
     expect(next).toContain('<FormPlugins/>');
     expect(parseFormPluginsFromKernelXml(next)).toEqual([]);
+  });
+});
+
+describe('insertTextFieldIntoKernelXml', () => {
+  // 固定 id/numeric generator 让输出可确定, 测试能精确断言。
+  const fixedIds = () => {
+    let n = 0;
+    return () => {
+      n++;
+      return `0000000000000000000000000000000${n}`.slice(-32);
+    };
+  };
+  const fixedNumerics = () => ({ listTabIndex: 100, zOrderIndex: 10, tabindex: 200 });
+
+  const baseExtXml = buildExtensionKernelXml(EXT, []);
+
+  it('在还没字段的扩展里首次加文本字段 → 创建 TextField 节点 + 新建 LayoutInfos 块', () => {
+    const xml = insertTextFieldIntoKernelXml(baseExtXml, {
+      spec: { key: 'F_TEST01', caption: '文本字段' },
+      idGenerator: fixedIds(),
+      numericGenerator: fixedNumerics
+    });
+    expect(xml).toContain('<TextField');
+    expect(xml).toContain('<Key>F_TEST01</Key>');
+    expect(xml).toContain('<Caption>文本字段</Caption>');
+    expect(xml).toContain('<LayoutInfos>');
+    expect(xml).toContain('<TextFieldAppearance');
+  });
+
+  it('TextField 节点插在 Form 之后 Elements 之内 (兄弟节点位置, 不嵌在 Form 里)', () => {
+    const xml = insertTextFieldIntoKernelXml(baseExtXml, {
+      spec: { key: 'F_X', caption: 'x' },
+      idGenerator: fixedIds(),
+      numericGenerator: fixedNumerics
+    });
+    const formCloseIdx = xml.indexOf('</Form>');
+    const textFieldIdx = xml.indexOf('<TextField');
+    const elementsCloseIdx = xml.indexOf('</Elements>');
+    expect(formCloseIdx).toBeGreaterThan(0);
+    expect(textFieldIdx).toBeGreaterThan(formCloseIdx);
+    expect(elementsCloseIdx).toBeGreaterThan(textFieldIdx);
+  });
+
+  it('派生 PropertyName/FieldName: 未提供时用 key (FieldName 大写)', () => {
+    const xml = insertTextFieldIntoKernelXml(baseExtXml, {
+      spec: { key: 'F_my_col', caption: 'x' },
+      idGenerator: fixedIds(),
+      numericGenerator: fixedNumerics
+    });
+    expect(xml).toContain('<PropertyName>F_my_col</PropertyName>');
+    expect(xml).toContain('<FieldName>F_MY_COL</FieldName>');
+  });
+
+  it('自定义 propertyName / fieldName 覆盖默认派生', () => {
+    const xml = insertTextFieldIntoKernelXml(baseExtXml, {
+      spec: {
+        key: 'F_X',
+        caption: 'x',
+        propertyName: 'F_Custom_Prop',
+        fieldName: 'F_CUSTOM_COL'
+      },
+      idGenerator: fixedIds(),
+      numericGenerator: fixedNumerics
+    });
+    expect(xml).toContain('<PropertyName>F_Custom_Prop</PropertyName>');
+    expect(xml).toContain('<FieldName>F_CUSTOM_COL</FieldName>');
+  });
+
+  it('containerKey 默认 FTAB_P0', () => {
+    const xml = insertTextFieldIntoKernelXml(baseExtXml, {
+      spec: { key: 'F_X', caption: 'x' },
+      idGenerator: fixedIds(),
+      numericGenerator: fixedNumerics
+    });
+    expect(xml).toContain('<Container>FTAB_P0</Container>');
+  });
+
+  it('第二次加字段 (XML 已有 LayoutInfos) → 只追加 TextFieldAppearance, 不重建 LayoutInfos', () => {
+    const first = insertTextFieldIntoKernelXml(baseExtXml, {
+      spec: { key: 'F_A', caption: 'A' },
+      idGenerator: fixedIds(),
+      numericGenerator: fixedNumerics
+    });
+    const second = insertTextFieldIntoKernelXml(first, {
+      spec: { key: 'F_B', caption: 'B' },
+      idGenerator: fixedIds(),
+      numericGenerator: fixedNumerics
+    });
+    // 两个 TextField, 两个 TextFieldAppearance, 但只有一个 LayoutInfos 块
+    expect((second.match(/<TextField[\s>]/g) || [])).toHaveLength(2);
+    expect((second.match(/<TextFieldAppearance\b/g) || [])).toHaveLength(2);
+    expect((second.match(/<LayoutInfos>/g) || [])).toHaveLength(1);
+    expect((second.match(/<\/LayoutInfos>/g) || [])).toHaveLength(1);
+  });
+
+  it('XML 转义: caption 含特殊字符时被安全转义, 不破坏 XML 结构', () => {
+    const xml = insertTextFieldIntoKernelXml(baseExtXml, {
+      spec: { key: 'F_X', caption: '<script>&"危险"' },
+      idGenerator: fixedIds(),
+      numericGenerator: fixedNumerics
+    });
+    expect(xml).toContain('<Caption>&lt;script&gt;&amp;&quot;危险&quot;</Caption>');
+  });
+
+  it('key 非法 (空) → 抛错', () => {
+    expect(() =>
+      insertTextFieldIntoKernelXml(baseExtXml, {
+        spec: { key: '', caption: 'x' },
+        idGenerator: fixedIds(),
+        numericGenerator: fixedNumerics
+      })
+    ).toThrow(/key/i);
+  });
+
+  it('XML 没有扩展 <Id> 节点 → 抛错 (不是扩展 kernel xml)', () => {
+    expect(() =>
+      insertTextFieldIntoKernelXml('<not-extension/>', {
+        spec: { key: 'F_X', caption: 'x' },
+        idGenerator: fixedIds(),
+        numericGenerator: fixedNumerics
+      })
+    ).toThrow();
   });
 });

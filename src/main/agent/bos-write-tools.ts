@@ -15,6 +15,7 @@ import { getActiveConnector, getConnectionState } from '../erp/active';
 import type { ToolHandler } from './tools';
 import type { K3CloudConnector } from '../erp/k3cloud/connector';
 import {
+  addFieldToExtension,
   createExtensionWithPythonPlugin,
   deleteExtension,
   listExtensions,
@@ -49,7 +50,8 @@ export function buildBosWriteTools(
     createExtensionTool(c, pid),
     registerPluginTool(c, pid),
     unregisterPluginTool(c, pid),
-    deleteExtensionTool(c, pid)
+    deleteExtensionTool(c, pid),
+    addFieldTool(c, pid)
   ];
 }
 
@@ -276,6 +278,81 @@ function deleteExtensionTool(c: K3CloudConnector, projectId: string): ToolHandle
       const pool = await c.getPool();
       const r = await deleteExtension(pool, projectId, String(args.extId));
       return JSON.stringify({ ok: true, backupFile: r.backupFile }, null, 2);
+    }
+  };
+}
+
+function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_add_field',
+      description:
+        '给已有扩展加一个业务字段 (写 T_META_OBJECTTYPE.FKERNELXML)。客户 F5 刷新 BOS Designer 后就能看到。v0.1 只支持 type="text" (文本单行); 后续会扩展 number/date/decimal/combobox/basedata_ref 等,届时同一工具按 type 分支,agent 侧接口不变。不知道扩展 ID 先调 kingdee_list_extensions。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展 FID (GUID)。' },
+          type: {
+            type: 'string',
+            enum: ['text'],
+            description: '字段类型。目前只支持 "text" (单行文本)。'
+          },
+          key: {
+            type: 'string',
+            description:
+              '字段 Key, 例 "F_CUSTOM_TEXT"。BOS 约定 F_ 开头, 仅字母/数字/下划线。这是表单绑定和 BOS Designer 显示的唯一标识。'
+          },
+          caption: {
+            type: 'string',
+            description: '中文显示标签, 例 "客户备注"。用户在表单上看到的就是这个。'
+          },
+          name: {
+            type: 'string',
+            description: '(可选) 内部名称, 默认 = caption。'
+          },
+          propertyName: {
+            type: 'string',
+            description: '(可选) PropertyName, 默认 = key。代码里绑定用。'
+          },
+          fieldName: {
+            type: 'string',
+            description: '(可选) DB 列名, 默认 = key 的大写。'
+          },
+          containerKey: {
+            type: 'string',
+            description: '(可选) 放在哪个布局容器, 默认 "FTAB_P0" (主页签)。'
+          }
+        },
+        required: ['extId', 'type', 'key', 'caption']
+      }
+    },
+    async execute(args) {
+      await ensureReady(c);
+      const pool = await c.getPool();
+      const type = String(args.type);
+      if (type !== 'text') {
+        throw new Error(`field type "${type}" 还没实现, 目前只支持 "text"。`);
+      }
+      const r = await addFieldToExtension(pool, projectId, String(args.extId), 'text', {
+        key: String(args.key),
+        caption: String(args.caption),
+        name: args.name !== undefined ? String(args.name) : undefined,
+        propertyName: args.propertyName !== undefined ? String(args.propertyName) : undefined,
+        fieldName: args.fieldName !== undefined ? String(args.fieldName) : undefined,
+        containerKey: args.containerKey !== undefined ? String(args.containerKey) : undefined
+      });
+      return JSON.stringify(
+        {
+          ok: true,
+          extId: args.extId,
+          fieldKey: args.key,
+          backupFile: r.backupFile,
+          reminder:
+            '字段已写入 DB。去 BOS Designer F5 刷新扩展就能看到新字段 —— 位次 / 坐标 Designer 会自动 normalize。如用 SVN 同步共享给团队, 记得点一次"同步"。'
+        },
+        null,
+        2
+      );
     }
   };
 }
