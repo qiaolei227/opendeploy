@@ -3,9 +3,11 @@ import {
   addPluginToKernelXml,
   buildExtensionKernelXml,
   insertTextFieldIntoKernelXml,
+  parseFieldsFromKernelXml,
   parseFormPluginsFromKernelXml,
   removePluginFromKernelXml,
-  xmlEscape
+  xmlEscape,
+  type ExtensionFieldMeta
 } from '../../src/main/erp/k3cloud/bos-xml';
 import type { PluginMeta } from '@shared/erp-types';
 
@@ -322,5 +324,66 @@ describe('insertTextFieldIntoKernelXml', () => {
         numericGenerator: fixedNumerics
       })
     ).toThrow();
+  });
+});
+
+describe('parseFieldsFromKernelXml', () => {
+  it('returns [] for XML without TextField', () => {
+    const xml = buildExtensionKernelXml(EXT, []);
+    expect(parseFieldsFromKernelXml(xml)).toEqual([]);
+  });
+
+  it('parses one inserted text field with caption from appearance', () => {
+    const base = buildExtensionKernelXml(EXT, []);
+    const xml = insertTextFieldIntoKernelXml(base, {
+      spec: { key: 'F_DEMO', caption: '演示字段' }
+    });
+    const fields = parseFieldsFromKernelXml(xml);
+    expect(fields).toEqual<ExtensionFieldMeta[]>([
+      {
+        key: 'F_DEMO',
+        type: 'text',
+        caption: '演示字段',
+        propertyName: 'F_DEMO',
+        fieldName: 'F_DEMO',
+        container: 'FTAB_P0'
+      }
+    ]);
+  });
+
+  it('parses multiple fields keeping insertion order', () => {
+    let xml = buildExtensionKernelXml(EXT, []);
+    xml = insertTextFieldIntoKernelXml(xml, { spec: { key: 'F_A', caption: '甲' } });
+    xml = insertTextFieldIntoKernelXml(xml, { spec: { key: 'F_B', caption: '乙' } });
+    const fields = parseFieldsFromKernelXml(xml);
+    expect(fields.map((f) => f.key)).toEqual(['F_A', 'F_B']);
+    expect(fields.find((f) => f.key === 'F_A')?.caption).toBe('甲');
+    expect(fields.find((f) => f.key === 'F_B')?.caption).toBe('乙');
+  });
+
+  it('falls back to Name when no matching appearance Caption', () => {
+    // 手工构造一个只有 TextField 没有 Appearance 的 XML — 实际场景罕见
+    // (Designer 总会写 Appearance), 但 parser 不能因此 crash.
+    const xml =
+      '<FormMetadata><BusinessInfo><BusinessInfo><Elements>' +
+      '<Form action="edit" oid="BOS_BillModel" ElementType="100" ElementStyle="0">' +
+      `<Id>${EXT}</Id><FormPlugins/>` +
+      '</Form>' +
+      '<TextField ElementType="1" ElementStyle="0">' +
+      '<PropertyName>F_X</PropertyName><FieldName>F_X</FieldName>' +
+      '<Name>仅名称</Name><Id>x</Id><Key>F_X</Key>' +
+      '</TextField>' +
+      '</Elements></BusinessInfo></BusinessInfo></FormMetadata>';
+    const fields = parseFieldsFromKernelXml(xml);
+    expect(fields).toEqual<ExtensionFieldMeta[]>([
+      {
+        key: 'F_X',
+        type: 'text',
+        caption: '仅名称',
+        propertyName: 'F_X',
+        fieldName: 'F_X',
+        container: undefined
+      }
+    ]);
   });
 });

@@ -365,3 +365,111 @@ export function insertTextFieldIntoKernelXml(
 
   return out;
 }
+
+// ─── Field reading ────────────────────────────────────────────────────
+
+export interface ExtensionFieldMeta {
+  /** 表单 Key, 如 'F_DEMO' (BOS Designer 中的"字段标识")。*/
+  key: string;
+  /** v0.1 只解析 TextField → 'text';后续支持其他类型时此处分支。*/
+  type: 'text';
+  /** 显示标签;优先取 Appearance 的 Caption,次取 TextField 的 Name。*/
+  caption: string;
+  propertyName: string;
+  fieldName: string;
+  /** 布局容器 Key (如 'FTAB_P0'), Appearance 缺失时 undefined。*/
+  container: string | undefined;
+}
+
+/**
+ * 解析扩展 FKERNELXML 里的扩展字段定义(目前只识别 <TextField>)。
+ * 流程:① 遍历 Elements 直接子级的 <TextField> 收 base info(按 key 入 map);
+ * ② 在 LayoutInfos/Appearances/TextFieldAppearance 里按 Key 配对捞 Caption / Container,
+ *    并以 Appearance 出现顺序作为最终输出顺序——这是 BOS Designer 里用户感知的字段顺序;
+ *    `insertTextFieldIntoKernelXml` 把新 TextField 插在 `</Form>` 之后, 文档里 TextField
+ *    顺序与插入顺序相反, 但 Appearance 是追加进 `</Appearances>` 之前, 顺序正向。
+ * ③ 没有 Appearance 的 TextField 兜底按文档出现顺序追加, 保证 parser 不丢字段。
+ */
+export function parseFieldsFromKernelXml(xml: string): ExtensionFieldMeta[] {
+  if (!xml) return [];
+
+  // Step 1: 取 Appearance 的 Key → {caption, container} 映射(保留出现顺序)
+  const appearanceByKey = new Map<string, { caption?: string; container?: string }>();
+  collectAppearances(xml, appearanceByKey);
+
+  // Step 2: 收所有顶层 <TextField> 的 base info, 按 key → meta(无 caption/container)入 map
+  type Base = { propertyName: string; fieldName: string; name: string };
+  const baseByKey = new Map<string, Base>();
+  const baseOrder: string[] = []; // 文档出现顺序, 兜底用
+  type Frame = { tag: string; bodyStart: number; isTextField: boolean };
+  const stack: Frame[] = [];
+  for (const tk of iterateTagTokens(xml)) {
+    if (tk.isSelfClose) continue;
+    if (!tk.isClose) {
+      stack.push({ tag: tk.tag, bodyStart: tk.end, isTextField: tk.tag === 'TextField' });
+      continue;
+    }
+    const frame = stack.pop();
+    if (!frame || !frame.isTextField) continue;
+    // 嵌在 LayoutInfos / Appearances 下的 <TextField> 不算字段定义本身。
+    if (stack.some((f) => f.tag === 'LayoutInfos' || f.tag === 'Appearances')) continue;
+    const body = xml.substring(frame.bodyStart, tk.start);
+    const key = findLastTopLevelChildText(body, 'Key');
+    if (!key || baseByKey.has(key)) continue;
+    baseByKey.set(key, {
+      propertyName: findLastTopLevelChildText(body, 'PropertyName') ?? key,
+      fieldName: findLastTopLevelChildText(body, 'FieldName') ?? key.toUpperCase(),
+      name: findLastTopLevelChildText(body, 'Name') ?? key
+    });
+    baseOrder.push(key);
+  }
+
+  // Step 3: 优先按 Appearance 顺序输出, 没 Appearance 的按 TextField 文档顺序兜底
+  const fields: ExtensionFieldMeta[] = [];
+  const emitted = new Set<string>();
+  const emit = (key: string) => {
+    const base = baseByKey.get(key);
+    if (!base || emitted.has(key)) return;
+    emitted.add(key);
+    const app = appearanceByKey.get(key);
+    fields.push({
+      key,
+      type: 'text',
+      caption: app?.caption ?? base.name,
+      propertyName: base.propertyName,
+      fieldName: base.fieldName,
+      container: app?.container
+    });
+  };
+  for (const key of appearanceByKey.keys()) emit(key);
+  for (const key of baseOrder) emit(key);
+  return fields;
+}
+
+function collectAppearances(
+  xml: string,
+  out: Map<string, { caption?: string; container?: string }>
+): void {
+  type Frame = { tag: string; bodyStart: number; isTextFieldAppearance: boolean };
+  const stack: Frame[] = [];
+  for (const tk of iterateTagTokens(xml)) {
+    if (tk.isSelfClose) continue;
+    if (!tk.isClose) {
+      stack.push({
+        tag: tk.tag,
+        bodyStart: tk.end,
+        isTextFieldAppearance: tk.tag === 'TextFieldAppearance'
+      });
+      continue;
+    }
+    const frame = stack.pop();
+    if (!frame || !frame.isTextFieldAppearance) continue;
+    const body = xml.substring(frame.bodyStart, tk.start);
+    const key = findLastTopLevelChildText(body, 'Key');
+    if (!key) continue;
+    out.set(key, {
+      caption: findLastTopLevelChildText(body, 'Caption'),
+      container: findLastTopLevelChildText(body, 'Container')
+    });
+  }
+}
