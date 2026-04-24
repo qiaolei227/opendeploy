@@ -181,7 +181,7 @@ function createExtensionTool(c: K3CloudConnector, projectId: string): ToolHandle
           extId: r.extId,
           backupFile: r.backupFile,
           reminder:
-            '请在 BOS Designer 按 F5 刷新扩展列表;新建销售订单时客户端可能需重登一次才能加载新插件。如需共享给团队,去 BOS Designer 点一次"同步"(SVN)。'
+            '请在 BOS Designer 中刷新扩展列表(工具栏刷新按钮);新建销售订单时客户端可能需重登一次才能加载新插件。如需共享给团队,去 BOS Designer 点一次"同步"(SVN)。'
         },
         null,
         2
@@ -222,7 +222,7 @@ function registerPluginTool(c: K3CloudConnector, projectId: string): ToolHandler
           ok: true,
           backupFile: r.backupFile,
           reminder:
-            '请在 BOS Designer 按 F5 刷新,客户端可能需重登一次。团队协作用 SVN 的话去 BOS 点一次"同步"。'
+            '请在 BOS Designer 中刷新扩展,客户端可能需重登一次。团队协作用 SVN 的话去 BOS 点一次"同步"。'
         },
         null,
         2
@@ -287,7 +287,7 @@ function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
     definition: {
       name: 'kingdee_add_field',
       description:
-        '给已有扩展加一个业务字段 (写 T_META_OBJECTTYPE.FKERNELXML)。客户 F5 刷新 BOS Designer 后就能看到。v0.1 只支持 type="text" (文本单行); 后续会扩展 number/date/decimal/combobox/basedata_ref 等,届时同一工具按 type 分支,agent 侧接口不变。不知道扩展 ID 先调 kingdee_list_extensions。',
+        '给已有扩展加一个业务字段 (写 T_META_OBJECTTYPE.FKERNELXML)。客户在 BOS Designer 中刷新扩展后就能看到。v0.1 只支持 type="text" (文本单行); 后续会扩展 number/date/decimal/combobox/basedata_ref 等,届时同一工具按 type 分支,agent 侧接口不变。不知道扩展 ID 先调 kingdee_list_extensions。',
       parameters: {
         type: 'object',
         properties: {
@@ -348,7 +348,7 @@ function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
           fieldKey: args.key,
           backupFile: r.backupFile,
           reminder:
-            '字段已写入 DB。去 BOS Designer F5 刷新扩展就能看到新字段 —— 位次 / 坐标 Designer 会自动 normalize。如用 SVN 同步共享给团队, 记得点一次"同步"。'
+            '字段已写入 DB。去 BOS Designer 中刷新扩展(工具栏刷新按钮)就能看到新字段 —— 位次 / 坐标 Designer 会自动 normalize。如用 SVN 同步共享给团队, 记得点一次"同步"。'
         },
         null,
         2
