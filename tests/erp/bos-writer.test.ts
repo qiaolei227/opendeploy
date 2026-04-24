@@ -6,13 +6,17 @@ import { fileURLToPath } from 'node:url';
 import type sql from 'mssql';
 import {
   addFieldToExtension,
+  listExtensionFields,
   listExtensions,
   listFormPlugins,
   probeBosEnvironment,
   registerPythonPluginOnExtension,
   unregisterPlugin
 } from '../../src/main/erp/k3cloud/bos-writer';
-import { buildExtensionKernelXml } from '../../src/main/erp/k3cloud/bos-xml';
+import {
+  buildExtensionKernelXml,
+  insertTextFieldIntoKernelXml
+} from '../../src/main/erp/k3cloud/bos-xml';
 
 /**
  * Thin fake for `mssql.ConnectionPool`: captures the SQL + bound parameters
@@ -187,6 +191,33 @@ describe('listFormPlugins', () => {
     });
     await listFormPlugins(pool, 'SAL_SaleOrder');
     expect(captured[0].inputs.id).toBe('SAL_SaleOrder');
+  });
+});
+
+describe('listExtensionFields', () => {
+  const EXT_ID = '719dec90-f2d9-4c13-b26e-08b88642c3eb';
+
+  it('returns [] when extension row missing', async () => {
+    const pool = makeFakePool({ queryResult: { recordset: [] } });
+    const fields = await listExtensionFields(pool, EXT_ID);
+    expect(fields).toEqual([]);
+  });
+
+  it('returns [] when FKERNELXML is null', async () => {
+    const pool = makeFakePool({ queryResult: { recordset: [{ xml: null }] } });
+    const fields = await listExtensionFields(pool, EXT_ID);
+    expect(fields).toEqual([]);
+  });
+
+  it('parses fields from FKERNELXML round-trip', async () => {
+    const xml = insertTextFieldIntoKernelXml(
+      buildExtensionKernelXml(EXT_ID, []),
+      { spec: { key: 'F_DEMO', caption: '演示字段' } }
+    );
+    const pool = makeFakePool({ queryResult: { recordset: [{ xml }] } });
+    const fields = await listExtensionFields(pool, EXT_ID);
+    expect(fields.map((f) => f.key)).toEqual(['F_DEMO']);
+    expect(fields[0].caption).toBe('演示字段');
   });
 });
 

@@ -21,8 +21,10 @@ import {
   addPluginToKernelXml,
   buildExtensionKernelXml,
   insertTextFieldIntoKernelXml,
+  parseFieldsFromKernelXml,
   parseFormPluginsFromKernelXml,
   removePluginFromKernelXml,
+  type ExtensionFieldMeta,
   type TextFieldSpec
 } from './bos-xml';
 import { snapshotExtension, writeBackupSnapshot } from './bos-backup';
@@ -256,6 +258,28 @@ export async function unregisterPlugin(
   if (newXml === currentXml) return { backupFile }; // nothing changed
   await updateKernelXml(pool, extId, newXml);
   return { backupFile };
+}
+
+// ─── listExtensionFields ───────────────────────────────────────────────
+
+/**
+ * 读扩展的 FKERNELXML, 解析出已有扩展字段(目前只识别 TextField)。
+ * 写入工具(`addFieldToExtension`)的反查闭环 —— agent 调 add_field 之后
+ * 必须用这个验证字段真的进了 XML, 而不是骗自己用查原厂字段的
+ * `kingdee_get_fields`(那个工具看不到扩展字段)。
+ */
+export async function listExtensionFields(
+  pool: sql.ConnectionPool,
+  extId: string
+): Promise<ExtensionFieldMeta[]> {
+  requireValid(GET_KERNEL_XML_SQL);
+  const r = await pool
+    .request()
+    .input('id', sql.VarChar(64), extId)
+    .query<{ xml: string | null }>(GET_KERNEL_XML_SQL);
+  const xml = r.recordset[0]?.xml;
+  if (!xml) return [];
+  return parseFieldsFromKernelXml(xml);
 }
 
 // ─── addFieldToExtension ───────────────────────────────────────────────
