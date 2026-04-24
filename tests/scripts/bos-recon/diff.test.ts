@@ -99,4 +99,49 @@ describe('formatRowAsTable', () => {
     expect(md).toMatch(/\| FID \| x \|/);
     expect(md).toMatch(/\| FNAME \| Test \|/);
   });
+
+  it('escapes newlines so multi-line values (FKERNELXML) do not break the table', () => {
+    const md = formatRowAsTable({ FID: 'x', FKERNELXML: '<FormMetadata>\n  <Form/>\n</FormMetadata>' });
+    // Each column should be one line in the markdown output.
+    expect(md.split('\n').filter((l) => l.startsWith('| FKERNELXML'))).toHaveLength(1);
+    expect(md).toMatch(/<br>/);
+  });
+
+  it('escapes pipes in values', () => {
+    const md = formatRowAsTable({ FID: 'x', FNAME: 'a|b' });
+    expect(md).toMatch(/\| FNAME \| a\\\|b \|/);
+  });
+});
+
+describe('renderReportMarkdown extras', () => {
+  it('surfaces unidentifiableCount when > 0', () => {
+    const md = renderReportMarkdown({
+      label: 'x',
+      extId: 'e',
+      beforeJsonPath: '',
+      afterJsonPath: '',
+      xelPath: '',
+      tableChanges: [],
+      xmlChanges: [],
+      xeEvents: 0,
+      unexplained: [],
+      unidentifiableCount: 3
+    });
+    expect(md).toMatch(/3 row\(s\) had no resolvable key/);
+  });
+
+  it('omits unidentifiable warning when 0 or absent', () => {
+    const md = renderReportMarkdown({
+      label: 'x',
+      extId: 'e',
+      beforeJsonPath: '',
+      afterJsonPath: '',
+      xelPath: '',
+      tableChanges: [],
+      xmlChanges: [],
+      xeEvents: 0,
+      unexplained: []
+    });
+    expect(md).not.toMatch(/no resolvable key/);
+  });
 });

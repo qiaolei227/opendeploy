@@ -1291,11 +1291,21 @@ export interface ReportInput {
   unexplained: string[];
 }
 
+/**
+ * Markdown 表格单元格要躲两类字符:
+ *   1. `|` —— 结构字符, 转义成 `\|`
+ *   2. 换行 (\n / \r\n) —— markdown 表格是行基的, 裸换行会把一个 cell 拆成多行
+ *      破坏表格结构。FKERNELXML 等多行字段会踩到, 用 <br> 替换
+ */
+function escapeTableCell(s: string): string {
+  return s.replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
+}
+
 export function formatRowAsTable(row: Record<string, unknown>): string {
   const lines = ['| column | value |', '| --- | --- |'];
   for (const [k, v] of Object.entries(row)) {
-    const safeVal = typeof v === 'string' ? v.replace(/\|/g, '\\|') : JSON.stringify(v);
-    lines.push(`| ${k} | ${safeVal} |`);
+    const raw = typeof v === 'string' ? v : JSON.stringify(v);
+    lines.push(`| ${k} | ${escapeTableCell(raw)} |`);
   }
   return lines.join('\n');
 }
@@ -1374,7 +1384,7 @@ export function renderReportMarkdown(input: ReportInput): string {
 pnpm vitest run tests/scripts/bos-recon/diff.test.ts
 ```
 
-Expected: `9 passed`
+Expected: `12 passed` (原 8 + newline 转义 1 + pipe 转义 1 + unidentifiableCount 2)
 
 - [ ] **Step 5: Commit**
 

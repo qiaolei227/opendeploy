@@ -105,13 +105,25 @@ export interface ReportInput {
   }>;
   xeEvents: number;
   unexplained: string[];
+  /** 无法按候选键识别的行数 (before + after 合计)。renderReportMarkdown 顶部警告。 */
+  unidentifiableCount?: number;
+}
+
+/**
+ * Markdown 表格单元格要躲两类字符:
+ *   1. `|` —— 结构字符, 转义成 `\|`
+ *   2. 换行 (\n / \r\n) —— markdown 表格是行基的, 裸换行会把一个 cell 拆成多行
+ *      破坏表格结构。FKERNELXML 等多行字段会踩到, 用 <br> 替换
+ */
+function escapeTableCell(s: string): string {
+  return s.replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
 }
 
 export function formatRowAsTable(row: Record<string, unknown>): string {
   const lines = ['| column | value |', '| --- | --- |'];
   for (const [k, v] of Object.entries(row)) {
-    const safeVal = typeof v === 'string' ? v.replace(/\|/g, '\\|') : JSON.stringify(v);
-    lines.push(`| ${k} | ${safeVal} |`);
+    const raw = typeof v === 'string' ? v : JSON.stringify(v);
+    lines.push(`| ${k} | ${escapeTableCell(raw)} |`);
   }
   return lines.join('\n');
 }
@@ -125,6 +137,14 @@ export function renderReportMarkdown(input: ReportInput): string {
   sections.push(`**After snapshot:** \`${input.afterJsonPath}\`  `);
   sections.push(`**XE trace:** \`${input.xelPath}\` (${input.xeEvents} events)`);
   sections.push('');
+
+  if (input.unidentifiableCount && input.unidentifiableCount > 0) {
+    sections.push(
+      `> ⚠ ${input.unidentifiableCount} row(s) had no resolvable key column — ` +
+        `excluded from add/remove/modify buckets. Schema drift on a new table?`
+    );
+    sections.push('');
+  }
 
   if (input.unexplained.length > 0) {
     sections.push('## ⚠ Unexplained changes');
