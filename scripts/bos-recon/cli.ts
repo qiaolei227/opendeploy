@@ -10,6 +10,7 @@
 
 import sql from 'mssql';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { loadSettings, resolveProjectConfig } from './config';
 import {
@@ -33,7 +34,10 @@ import {
 } from './diff';
 
 const SESSION_NAME = 'opendeploy_bos_recon';
-const OUTPUT_DIR = path.resolve('scripts/bos-recon/output');
+// 相对 import.meta.url (这个文件在 scripts/bos-recon/ 下), 不依赖 cwd ——
+// 从 repo 根 / 从 scripts 子目录跑 / 从 tsx 跑, 都落到同一 output 路径。
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const OUTPUT_DIR = path.resolve(HERE, 'output');
 
 type Subcommand =
   | 'snapshot-before'
@@ -163,8 +167,9 @@ async function cmdXeStop(args: CliArgs): Promise<void> {
   const pool = await connect(project);
   try {
     await pool.request().batch(buildStopSessionSQL(SESSION_NAME));
-    // 等 buffer flush。
-    await new Promise((r) => setTimeout(r, 1500));
+    // 等 buffer flush。XE session 建时 MAX_DISPATCH_LATENCY=5s, 取 3s
+    // 给中间值 —— 正常单次保存的场景足够, 极端情况最多漏一批事件后再补跑。
+    await new Promise((r) => setTimeout(r, 3000));
 
     const readSql = buildReadXelFileSQL(xelPath);
     const res = await pool.request().query<{ event_xml: string }>(readSql);
