@@ -143,7 +143,7 @@ function getFieldsTool(c: K3CloudConnector): ToolHandler {
     definition: {
       name: 'kingdee_get_fields',
       description:
-        '获取 K/3 Cloud 业务对象的字段清单。默认只返 key 列表(轻量);用 keyword 过滤到具体字段、或 includeDetail:true 获取全部字段的 ElementType / entryKey 详情。',
+        '获取 K/3 Cloud 业务对象的字段清单 —— **只查父对象的原厂字段, 不包括扩展字段**。默认只返 key 列表(轻量);用 keyword 过滤到具体字段、或 includeDetail:true 获取全部字段的 ElementType / entryKey 详情。验证扩展上新加的字段请用 kingdee_get_extension_fields。',
       parameters: {
         type: 'object',
         properties: {
