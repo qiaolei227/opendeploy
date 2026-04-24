@@ -3,7 +3,8 @@ import {
   buildDropSessionSQL,
   buildCreateSessionSQL,
   buildStartSessionSQL,
-  buildStopSessionSQL
+  buildStopSessionSQL,
+  buildReadXelFileSQL
 } from '../../../scripts/bos-recon/xe-session';
 
 describe('xe-session SQL builders', () => {
@@ -24,7 +25,20 @@ describe('xe-session SQL builders', () => {
     expect(sql).toMatch(/sqlserver\.sql_text/);
     expect(sql).toMatch(/sqlserver\.client_app_name/);
     expect(sql).toMatch(/event_file/);
-    expect(sql).toMatch(/C:\\\\traces\\\\add-text-field\.xel/);
+    // T-SQL 字面量无反斜杠转义 —— Windows 路径原样插入。
+    expect(sql).toMatch(/C:\\traces\\add-text-field\.xel/);
+  });
+
+  it('buildReadXelFileSQL emits SELECT from fn_xe_file_target_read_file', () => {
+    const sql = buildReadXelFileSQL('C:\\traces\\add-text-field.xel');
+    expect(sql).toMatch(/SELECT CAST\(event_data AS xml\) AS event_xml/);
+    expect(sql).toMatch(/sys\.fn_xe_file_target_read_file/);
+    expect(sql).toMatch(/N'C:\\traces\\add-text-field\.xel'/);
+    expect(sql).toMatch(/NULL, NULL, NULL/);
+  });
+
+  it('buildReadXelFileSQL rejects path with single quote', () => {
+    expect(() => buildReadXelFileSQL("C:\\evil'; xp_cmdshell--")).toThrow(/invalid/i);
   });
 
   it('buildCreateSessionSQL does NOT add client_app_name filter in Phase 1', () => {

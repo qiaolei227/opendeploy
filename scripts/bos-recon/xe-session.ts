@@ -42,8 +42,8 @@ export function buildDropSessionSQL(sessionName: string): string {
 export function buildCreateSessionSQL(opts: CreateSessionOptions): string {
   assertSafeSessionName(opts.sessionName);
   assertSafeXelPath(opts.xelPath);
-  // Escape backslashes for T-SQL string literal
-  const escapedXelPath = opts.xelPath.replace(/\\/g, '\\\\');
+  // T-SQL `N'...'` 字符串字面量没有反斜杠转义语义, 直接插入 Windows 路径即可。
+  // `N'C:\traces\foo.xel'` 是正确的 T-SQL, 不是 `N'C:\\traces\\foo.xel'`。
   return [
     `CREATE EVENT SESSION [${opts.sessionName}] ON SERVER`,
     `ADD EVENT sqlserver.sp_statement_completed(`,
@@ -52,7 +52,7 @@ export function buildCreateSessionSQL(opts: CreateSessionOptions): string {
     `ADD EVENT sqlserver.sql_batch_completed(`,
     `  ACTION(sqlserver.sql_text, sqlserver.session_id, sqlserver.client_app_name, sqlserver.database_name, sqlserver.tsql_stack)`,
     `)`,
-    `ADD TARGET package0.event_file(SET filename = N'${escapedXelPath}', max_file_size = 50)`,
+    `ADD TARGET package0.event_file(SET filename = N'${opts.xelPath}', max_file_size = 50)`,
     `WITH (MAX_MEMORY = 4096 KB, EVENT_RETENTION_MODE = ALLOW_SINGLE_EVENT_LOSS,`,
     `      MAX_DISPATCH_LATENCY = 5 SECONDS, STARTUP_STATE = OFF);`
   ].join('\n');
@@ -74,10 +74,8 @@ export function buildStopSessionSQL(sessionName: string): string {
  */
 export function buildReadXelFileSQL(xelPath: string): string {
   assertSafeXelPath(xelPath);
-  // Escape backslashes for T-SQL string literal
-  const escapedXelPath = xelPath.replace(/\\/g, '\\\\');
   return (
     `SELECT CAST(event_data AS xml) AS event_xml\n` +
-    `  FROM sys.fn_xe_file_target_read_file(N'${escapedXelPath}', NULL, NULL, NULL)`
+    `  FROM sys.fn_xe_file_target_read_file(N'${xelPath}', NULL, NULL, NULL)`
   );
 }
