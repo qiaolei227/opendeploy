@@ -19,8 +19,14 @@ export interface ReconMssqlConfig {
   options?: sql.config['options'];
 }
 
-interface RawK3CloudConnection {
-  host?: string;
+/**
+ * 对齐 src/shared/erp-types.ts 的 `K3CloudConnectionConfig` 形状 ——
+ * 顶层 key 是 `connection`(不是 `k3cloud`), 字段名是 `server`(不是 `host`)。
+ * 所有字段在这里都声明为 optional 做防御式解析, 但产品正常写入的 settings.json
+ * server/database/user/password 都有值; 默认只在理论上兜底。
+ */
+interface RawConnection {
+  server?: string;
   port?: number;
   database?: string;
   user?: string;
@@ -32,7 +38,7 @@ interface RawK3CloudConnection {
 interface RawProject {
   id: string;
   erpProvider?: string;
-  k3cloud?: RawK3CloudConnection;
+  connection?: RawConnection;
 }
 
 interface RawSettings {
@@ -48,16 +54,16 @@ export function resolveProjectConfig(
   if (p.erpProvider !== 'k3cloud') {
     throw new Error(`erpProvider "${p.erpProvider}" not supported by bos-recon`);
   }
-  const k = p.k3cloud ?? {};
+  const c = p.connection ?? {};
   return {
-    server: k.host ?? 'localhost',
-    port: k.port ?? 1433,
-    database: k.database ?? '',
-    user: k.user ?? '',
-    password: k.password ?? '',
+    server: c.server ?? 'localhost',
+    port: c.port ?? 1433,
+    database: c.database ?? '',
+    user: c.user ?? '',
+    password: c.password ?? '',
     options: {
-      encrypt: k.encrypt ?? true,
-      trustServerCertificate: k.trustServerCertificate ?? true
+      encrypt: c.encrypt ?? true,
+      trustServerCertificate: c.trustServerCertificate ?? true
     }
   };
 }

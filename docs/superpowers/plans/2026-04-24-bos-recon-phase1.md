@@ -223,13 +223,15 @@ import { resolveProjectConfig } from '../../../scripts/bos-recon/config';
 
 describe('resolveProjectConfig', () => {
   it('reads project config from a settings.json shape', () => {
+    // 与 src/shared/erp-types.ts `Project.connection: K3CloudConnectionConfig` 对齐:
+    //   顶层是 `connection` (不是 `k3cloud`), 字段名是 `server` (不是 `host`)。
     const fakeSettings = {
       projects: [
         {
           id: 'proj-uat',
           erpProvider: 'k3cloud',
-          k3cloud: {
-            host: 'localhost',
+          connection: {
+            server: 'localhost',
             port: 1433,
             database: 'AIS20260101',
             user: 'sa',
@@ -250,7 +252,9 @@ describe('resolveProjectConfig', () => {
   });
 
   it('throws when projectId not found', () => {
-    const fakeSettings = { projects: [{ id: 'proj-a', erpProvider: 'k3cloud', k3cloud: {} }] };
+    const fakeSettings = {
+      projects: [{ id: 'proj-a', erpProvider: 'k3cloud', connection: {} }]
+    };
     expect(() => resolveProjectConfig(fakeSettings, 'missing')).toThrow(
       /project "missing" not found/
     );
@@ -258,7 +262,7 @@ describe('resolveProjectConfig', () => {
 
   it('throws when project is not a k3cloud project', () => {
     const fakeSettings = {
-      projects: [{ id: 'proj-a', erpProvider: 'sap', sap: {} }]
+      projects: [{ id: 'proj-a', erpProvider: 'sap' }]
     };
     expect(() => resolveProjectConfig(fakeSettings, 'proj-a')).toThrow(
       /erpProvider "sap" not supported/
@@ -300,8 +304,14 @@ export interface ReconMssqlConfig {
   options?: sql.config['options'];
 }
 
-interface RawK3CloudConnection {
-  host?: string;
+/**
+ * 对齐 src/shared/erp-types.ts 的 `K3CloudConnectionConfig` 形状 ——
+ * 顶层 key 是 `connection`(不是 `k3cloud`), 字段名是 `server`(不是 `host`)。
+ * 所有字段在这里都声明为 optional 做防御式解析, 但产品正常写入的 settings.json
+ * server/database/user/password 都有值; 默认只在理论上兜底。
+ */
+interface RawConnection {
+  server?: string;
   port?: number;
   database?: string;
   user?: string;
@@ -313,7 +323,7 @@ interface RawK3CloudConnection {
 interface RawProject {
   id: string;
   erpProvider?: string;
-  k3cloud?: RawK3CloudConnection;
+  connection?: RawConnection;
 }
 
 interface RawSettings {
@@ -329,16 +339,16 @@ export function resolveProjectConfig(
   if (p.erpProvider !== 'k3cloud') {
     throw new Error(`erpProvider "${p.erpProvider}" not supported by bos-recon`);
   }
-  const k = p.k3cloud ?? {};
+  const c = p.connection ?? {};
   return {
-    server: k.host ?? 'localhost',
-    port: k.port ?? 1433,
-    database: k.database ?? '',
-    user: k.user ?? '',
-    password: k.password ?? '',
+    server: c.server ?? 'localhost',
+    port: c.port ?? 1433,
+    database: c.database ?? '',
+    user: c.user ?? '',
+    password: c.password ?? '',
     options: {
-      encrypt: k.encrypt ?? true,
-      trustServerCertificate: k.trustServerCertificate ?? true
+      encrypt: c.encrypt ?? true,
+      trustServerCertificate: c.trustServerCertificate ?? true
     }
   };
 }

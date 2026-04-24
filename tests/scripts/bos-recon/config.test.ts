@@ -3,13 +3,15 @@ import { resolveProjectConfig } from '../../../scripts/bos-recon/config';
 
 describe('resolveProjectConfig', () => {
   it('reads project config from a settings.json shape', () => {
+    // 与 src/shared/erp-types.ts `Project.connection: K3CloudConnectionConfig` 对齐:
+    //   顶层是 `connection` (不是 `k3cloud`), 字段名是 `server` (不是 `host`).
     const fakeSettings = {
       projects: [
         {
           id: 'proj-uat',
           erpProvider: 'k3cloud',
-          k3cloud: {
-            host: 'localhost',
+          connection: {
+            server: 'localhost',
             port: 1433,
             database: 'AIS20260101',
             user: 'sa',
@@ -30,7 +32,9 @@ describe('resolveProjectConfig', () => {
   });
 
   it('throws when projectId not found', () => {
-    const fakeSettings = { projects: [{ id: 'proj-a', erpProvider: 'k3cloud', k3cloud: {} }] };
+    const fakeSettings = {
+      projects: [{ id: 'proj-a', erpProvider: 'k3cloud', connection: {} }]
+    };
     expect(() => resolveProjectConfig(fakeSettings, 'missing')).toThrow(
       /project "missing" not found/
     );
@@ -38,7 +42,7 @@ describe('resolveProjectConfig', () => {
 
   it('throws when project is not a k3cloud project', () => {
     const fakeSettings = {
-      projects: [{ id: 'proj-a', erpProvider: 'sap', sap: {} }]
+      projects: [{ id: 'proj-a', erpProvider: 'sap' }]
     };
     expect(() => resolveProjectConfig(fakeSettings, 'proj-a')).toThrow(
       /erpProvider "sap" not supported/
