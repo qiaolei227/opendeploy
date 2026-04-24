@@ -92,6 +92,63 @@ export function computeTableRowDiff(
   return result;
 }
 
+// ─── XML delta (FKERNELXML 字段级 diff) ──────────────────────────────────────
+
+/**
+ * 抽 XML 里的所有 open-tag 签名作 multiset diff。
+ *
+ * 签名形式 `<TagName attr1="v1" attr2="v2">` (属性按 key 排序, 跳过 self-close
+ * 斜杠以免 <A/> 和 <A> 算不同签名)。before/after 同签名的计数差决定 added /
+ * removed, 更大比当前"顶级标签名集合"(23 个 tag atoms, 没属性) 有信息量:
+ * 现在能看到 `<TextFieldAppearance ElementType="1" ElementStyle="1">` 这种
+ * 带属性的元素被加进去, 而不仅仅"TextFieldAppearance 这个 tag 第一次出现"。
+ *
+ * 限制: 不抽 `<Key>FXXX</Key>` 这种 inner-text 作签名 (K/3 Cloud 的 Key/Id 大
+ * 多是子元素不是属性); 精确到"带属性的 tag 层级"已经比旧版好 10x, 但仍是
+ * 粗粒度 diff, 精细到 innerText 留 Phase 2。
+ */
+const OPEN_TAG_RE = /<([A-Za-z_][\w.\-]*)([^>]*?)\s*\/?>/g;
+const ATTR_RE = /([A-Za-z_][\w.\-]*)\s*=\s*"([^"]*)"/g;
+
+function signatureOf(tagName: string, attrRaw: string): string {
+  const pairs: Array<[string, string]> = [];
+  for (const m of attrRaw.matchAll(ATTR_RE)) pairs.push([m[1], m[2]]);
+  if (pairs.length === 0) return `<${tagName}>`;
+  pairs.sort((a, b) => a[0].localeCompare(b[0]));
+  const attrStr = pairs.map(([k, v]) => `${k}="${v}"`).join(' ');
+  return `<${tagName} ${attrStr}>`;
+}
+
+function collectSignatures(xml: string): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const m of xml.matchAll(OPEN_TAG_RE)) {
+    // 跳过 closing tag (</X>), 不会出现(因为正则 [A-Za-z_] 要求首字母字母/下划线)
+    // 但 comments <!-- ... --> 和 CDATA <![...]]> 起始是 `<!`, 也被首字母规则排除。
+    const sig = signatureOf(m[1], m[2]);
+    out.set(sig, (out.get(sig) ?? 0) + 1);
+  }
+  return out;
+}
+
+export interface XmlDelta {
+  addedElements: string[];
+  removedElements: string[];
+}
+
+export function buildXmlDelta(before: string, after: string): XmlDelta {
+  const beforeMS = collectSignatures(before);
+  const afterMS = collectSignatures(after);
+  const added: string[] = [];
+  const removed: string[] = [];
+  const allSigs = new Set([...beforeMS.keys(), ...afterMS.keys()]);
+  for (const sig of allSigs) {
+    const delta = (afterMS.get(sig) ?? 0) - (beforeMS.get(sig) ?? 0);
+    if (delta > 0) for (let i = 0; i < delta; i++) added.push(sig);
+    else if (delta < 0) for (let i = 0; i < -delta; i++) removed.push(sig);
+  }
+  return { addedElements: added, removedElements: removed };
+}
+
 // ─── Markdown report ──────────────────────────────────────────────
 
 export interface ReportInput {

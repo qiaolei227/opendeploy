@@ -7,18 +7,19 @@ import {
   CANDIDATE_KEY_COLUMNS,
   NOISE_COLUMN_BLACKLIST,
   KNOWN_EXTENSION_LINK,
-  COMPOSITE_KEY_TABLES
+  COMPOSITE_KEY_TABLES,
+  LIST_CANDIDATE_TABLES_SQL
 } from '../../../scripts/bos-recon/snapshot-all';
 
 describe('pickMatchingKeyColumn', () => {
-  it('prefers FID when table has it', () => {
+  it('prefers FOBJECTTYPEID when table has it (扩展外键优先, 对新发现的 T_BAS/T_BOS 表这是正确 key)', () => {
     const col = pickMatchingKeyColumn(['FID', 'FOBJECTTYPEID', 'FMODIFYDATE']);
-    expect(col).toBe('FID');
+    expect(col).toBe('FOBJECTTYPEID');
   });
 
-  it('falls back to FOBJECTTYPEID when no FID', () => {
-    const col = pickMatchingKeyColumn(['FOBJECTTYPEID', 'FNAME']);
-    expect(col).toBe('FOBJECTTYPEID');
+  it('falls back to FID when no FOBJECTTYPEID', () => {
+    const col = pickMatchingKeyColumn(['FID', 'FNAME']);
+    expect(col).toBe('FID');
   });
 
   it('returns null when table has no candidate key column', () => {
@@ -26,9 +27,9 @@ describe('pickMatchingKeyColumn', () => {
     expect(col).toBeNull();
   });
 
-  it('exposes CANDIDATE_KEY_COLUMNS ordered by preference', () => {
-    expect(CANDIDATE_KEY_COLUMNS[0]).toBe('FID');
-    expect(CANDIDATE_KEY_COLUMNS).toContain('FOBJECTTYPEID');
+  it('exposes CANDIDATE_KEY_COLUMNS ordered by preference (FOBJECTTYPEID first)', () => {
+    expect(CANDIDATE_KEY_COLUMNS[0]).toBe('FOBJECTTYPEID');
+    expect(CANDIDATE_KEY_COLUMNS).toContain('FID');
     expect(CANDIDATE_KEY_COLUMNS).toContain('FBILLFORMID');
     expect(CANDIDATE_KEY_COLUMNS).toContain('FENTRYID');
     expect(CANDIDATE_KEY_COLUMNS).toContain('FBASEOBJECTID');
@@ -142,6 +143,36 @@ describe('pickKeyForDiff (1:N 复合键选择)', () => {
     // 不要 silently 返回无效复合键。
     const cols = ['FOBJECTTYPEID', 'FREFOBJECTTYPEID']; // missing FTABLENAME + FFIELDNAME
     expect(pickKeyForDiff('T_META_OBJECTTYPEREF', cols)).toBe('FOBJECTTYPEID');
+  });
+});
+
+describe('LIST_CANDIDATE_TABLES_SQL (snapshot 表发现)', () => {
+  it('保留所有 T_META_* 表 (老行为, 主表 OBJECTTYPE/OBJECTTYPE_L 等没 FOBJECTTYPEID 也要扫)', () => {
+    expect(LIST_CANDIDATE_TABLES_SQL).toMatch(/LIKE\s+'T_META\[_\]%'/);
+  });
+
+  it('额外纳入 T_ 前缀且含 FOBJECTTYPEID 列的表 (扩表覆盖面: T_BAS_* / T_BOS_* 等)', () => {
+    // 新发现机制: 除 T_META_* 外, 任何 T_ 前缀表只要有 FOBJECTTYPEID 列
+    // 就是候选, 自动吃 BOS 把扩展关联扔到其他命名空间表的情况。
+    expect(LIST_CANDIDATE_TABLES_SQL).toMatch(/sys\.columns/i);
+    expect(LIST_CANDIDATE_TABLES_SQL).toMatch(/FOBJECTTYPEID/);
+    expect(LIST_CANDIDATE_TABLES_SQL).toMatch(/LIKE\s+'T\[_\]%'/);
+  });
+
+  it('按列类型预筛 GUID 兼容 (uniqueidentifier / varchar / nvarchar / char / nchar)', () => {
+    // 业务表 (T_SAL_* 等) 的 FOBJECTTYPEID 常是 int, 查 GUID extId 必然 type
+    // mismatch, 没必要进候选集污染 errorTables。按 system_type_id 预筛减少
+    // per-table 查询失败噪音 (add-text-field P1 实测: 97 张 int 类型表被 筛掉)。
+    expect(LIST_CANDIDATE_TABLES_SQL).toMatch(/system_type_id/i);
+  });
+
+  it('使用 UNION / OR 组合两个来源 (T_META_* 集合 ∪ 含 FOBJECTTYPEID 集合)', () => {
+    expect(LIST_CANDIDATE_TABLES_SQL).toMatch(/UNION|OR/i);
+  });
+
+  it('结果按表名排序, 用 DISTINCT', () => {
+    expect(LIST_CANDIDATE_TABLES_SQL).toMatch(/ORDER BY/i);
+    expect(LIST_CANDIDATE_TABLES_SQL).toMatch(/DISTINCT/i);
   });
 });
 

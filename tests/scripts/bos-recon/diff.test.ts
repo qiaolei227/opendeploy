@@ -3,7 +3,8 @@ import {
   computeTableRowDiff,
   hashRowExcludingNoise,
   formatRowAsTable,
-  renderReportMarkdown
+  renderReportMarkdown,
+  buildXmlDelta
 } from '../../../scripts/bos-recon/diff';
 
 describe('hashRowExcludingNoise', () => {
@@ -94,6 +95,59 @@ describe('computeTableRowDiff', () => {
     const after = [{ FOBJECTTYPEID: 'ext-1' /* FID missing */ }];
     const diff = computeTableRowDiff(before, after, ['FOBJECTTYPEID', 'FID']);
     expect(diff.unidentifiable).toHaveLength(1);
+  });
+});
+
+describe('buildXmlDelta (FKERNELXML 字段级 diff)', () => {
+  it('抽带属性的 open-tag 作签名, 能区分 <TextField Key="F1"> vs <TextField Key="F2">', () => {
+    const before = '<Root><Form action="edit"/></Root>';
+    const after = '<Root><Form action="edit"/><TextField Key="F1"/></Root>';
+    const d = buildXmlDelta(before, after);
+    expect(d.addedElements).toContain('<TextField Key="F1">');
+    expect(d.removedElements).toHaveLength(0);
+  });
+
+  it('属性值变化 → 新签名 added + 旧签名 removed', () => {
+    const before = '<R><Tag a="1"/></R>';
+    const after = '<R><Tag a="2"/></R>';
+    const d = buildXmlDelta(before, after);
+    expect(d.addedElements).toContain('<Tag a="2">');
+    expect(d.removedElements).toContain('<Tag a="1">');
+  });
+
+  it('多重集计数: before 两份同 tag, after 一份 → 1 removed', () => {
+    const before = '<R><A/><A/></R>';
+    const after = '<R><A/></R>';
+    const d = buildXmlDelta(before, after);
+    expect(d.removedElements.filter((e) => e === '<A>')).toHaveLength(1);
+    expect(d.addedElements).toHaveLength(0);
+  });
+
+  it('XML 完全相同 → empty delta', () => {
+    const xml = '<R><A attr="v"/><B/></R>';
+    const d = buildXmlDelta(xml, xml);
+    expect(d.addedElements).toHaveLength(0);
+    expect(d.removedElements).toHaveLength(0);
+  });
+
+  it('属性顺序被规范化 (排序) → 不会误报 added/removed', () => {
+    // XML 本身 attribute 顺序无语义, diff 算法不该因顺序不同算成两个不同签名
+    const before = '<R><T b="2" a="1"/></R>';
+    const after = '<R><T a="1" b="2"/></R>';
+    const d = buildXmlDelta(before, after);
+    expect(d.addedElements).toHaveLength(0);
+    expect(d.removedElements).toHaveLength(0);
+  });
+
+  it('自闭合 vs 有 innerContent 的 tag 签名一致 (仅比 open 部分)', () => {
+    // <A/> 和 <A>...</A> 的 open-tag 签名都是 <A>, 内容差异在多重集里由
+    // 内部子 token 覆盖, 顶层 A 的 count 相同
+    const before = '<R><A/></R>';
+    const after = '<R><A><B/></A></R>';
+    const d = buildXmlDelta(before, after);
+    expect(d.addedElements).toContain('<B>');
+    expect(d.addedElements).not.toContain('<A>');
+    expect(d.removedElements).not.toContain('<A>');
   });
 });
 

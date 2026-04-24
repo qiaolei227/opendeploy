@@ -15,9 +15,20 @@ import sql from 'mssql';
 import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 
+/**
+ * 启发式 key 列顺序 —— FOBJECTTYPEID 优先。
+ *
+ * 为什么 FOBJECTTYPEID 在前: 对新发现的扩表 (T_BAS_* / T_BOS_* 等), 我们
+ * 要按"指向扩展的外键"筛行, FOBJECTTYPEID 就是这列; FID 是行自己的 PK,
+ * 对这些表而言是不相关的 int 值, 查 GUID extId 必然 type mismatch。
+ *
+ * 老 T_META_* 主表 (OBJECTTYPE / OBJECTTYPE_L 等) 的 FID = 扩展 FID, 看似要
+ * FID 优先, 但这些表都已在 KNOWN_EXTENSION_LINK 里被 override 到 FID,
+ * 启发式对它们不生效, 所以安全调整。
+ */
 export const CANDIDATE_KEY_COLUMNS: readonly string[] = [
-  'FID',
   'FOBJECTTYPEID',
+  'FID',
   'FBILLFORMID',
   'FENTRYID',
   'FBASEOBJECTID'
@@ -121,8 +132,37 @@ export function buildSnapshotSelectSQL(tableName: string, keyColumn: string): st
   return `SELECT * FROM ${tableName} WHERE ${keyColumn} = @v`;
 }
 
-const LIST_META_TABLES_SQL = `
-  SELECT name FROM sys.tables WHERE name LIKE 'T_META[_]%' ORDER BY name
+/**
+ * 候选表发现 SQL —— 两路来源的并集:
+ *
+ * 1. 所有 `T_META_*` 前缀表 (老行为) —— 保证扩展主表 T_META_OBJECTTYPE
+ *    (FID 自己就是扩展 ID, 没 FOBJECTTYPEID)、本地化表 _L、
+ *    T_META_OBJECTTYPENAMEEX (按 FENTRYID 关联) 等不被漏掉
+ * 2. 所有 T_ 前缀且含 FOBJECTTYPEID 列 (类型为字符串/GUID 兼容) 的表 ——
+ *    扩展覆盖面到 T_BAS_* / T_BOS_* / T_CAS_* 等可能承载扩展元数据的表
+ *
+ * 为什么 system_type_id 预筛:
+ *   K/3 Cloud 业务表 (T_SAL_* / T_BD_* 等) 很多也有 FOBJECTTYPEID 列但
+ *   类型是 int (指向主数据 ID 不是扩展 FID), 查 GUID extId 一定 SQL type
+ *   mismatch。实测 add-text-field 场景不预筛有 97 张表进 errorTables
+ *   污染日志。system_type_id 限定:
+ *     36 = uniqueidentifier | 167 = varchar | 231 = nvarchar
+ *     175 = char            | 239 = nchar
+ */
+export const LIST_CANDIDATE_TABLES_SQL = `
+  SELECT DISTINCT t.name
+    FROM sys.tables t
+    WHERE t.name LIKE 'T_META[_]%'
+       OR (
+         t.name LIKE 'T[_]%'
+         AND EXISTS (
+           SELECT 1 FROM sys.columns c
+           WHERE c.object_id = t.object_id
+             AND c.name = 'FOBJECTTYPEID'
+             AND c.system_type_id IN (36, 167, 231, 175, 239)
+         )
+       )
+    ORDER BY t.name
 `;
 
 const LIST_COLS_SQL = `
@@ -140,7 +180,7 @@ function stripBinary(row: Record<string, unknown>): Record<string, unknown> {
 }
 
 export interface SnapshotResult {
-  /** 扫的 T_META_* 总表数 */
+  /** 扫的候选表总数 (含 FOBJECTTYPEID 列的 T_ 前缀表) */
   scannedTables: number;
   /** 没有任何候选键列的表 (跳过, 计入 unmatched) */
   unmatchedTables: string[];
@@ -160,7 +200,7 @@ export async function snapshotAllMeta(
   pool: sql.ConnectionPool,
   extId: string
 ): Promise<SnapshotResult> {
-  const tablesRes = await pool.request().query<{ name: string }>(LIST_META_TABLES_SQL);
+  const tablesRes = await pool.request().query<{ name: string }>(LIST_CANDIDATE_TABLES_SQL);
   const allTables = tablesRes.recordset.map((r) => r.name);
 
   const unmatchedTables: string[] = [];

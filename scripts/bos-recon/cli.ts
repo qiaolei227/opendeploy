@@ -29,6 +29,7 @@ import {
 } from './snapshot-all';
 import {
   computeTableRowDiff,
+  buildXmlDelta,
   renderReportMarkdown,
   type ReportInput
 } from './diff';
@@ -265,25 +266,21 @@ async function cmdDiff(args: CliArgs): Promise<void> {
     }
   }
 
-  // FKERNELXML 子树 diff (MVP: 粗粒度字符串 diff,Phase 2 再精细)。
+  // FKERNELXML 字段级 diff —— buildXmlDelta 按带属性 open-tag 签名多重集 diff,
+  // 比老版纯顶级标签名集合有信息量 (能区分 <TextField Key="F1"> vs "F2")。
   const xmlChanges: ReportInput['xmlChanges'] = [];
   const bKernel = (before.tables.T_META_OBJECTTYPE ?? [])[0]?.FKERNELXML as string | undefined;
   const aKernel = (after.tables.T_META_OBJECTTYPE ?? [])[0]?.FKERNELXML as string | undefined;
   if (bKernel && aKernel && bKernel !== aKernel) {
-    // MVP: 抽出 after 里有 before 没有的顶级标签。
-    const beforeTags = new Set(
-      Array.from(bKernel.matchAll(/<([A-Z][A-Za-z0-9]+)\b/g)).map((m) => m[1])
-    );
-    const afterTagMatches = Array.from(aKernel.matchAll(/<([A-Z][A-Za-z0-9]+)\b/g)).map(
-      (m) => m[1]
-    );
-    const addedTags = [...new Set(afterTagMatches.filter((t) => !beforeTags.has(t)))];
-    xmlChanges.push({
-      table: 'T_META_OBJECTTYPE',
-      column: 'FKERNELXML',
-      addedElements: addedTags,
-      removedElements: []
-    });
+    const delta = buildXmlDelta(bKernel, aKernel);
+    if (delta.addedElements.length > 0 || delta.removedElements.length > 0) {
+      xmlChanges.push({
+        table: 'T_META_OBJECTTYPE',
+        column: 'FKERNELXML',
+        addedElements: delta.addedElements,
+        removedElements: delta.removedElements
+      });
+    }
   }
 
   // extId 粗略从 T_META_OBJECTTYPE 行拿。
