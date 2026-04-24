@@ -411,8 +411,10 @@ export function parseFieldsFromKernelXml(xml: string): ExtensionFieldMeta[] {
     }
     const frame = stack.pop();
     if (!frame || !frame.isTextField) continue;
-    // 嵌在 LayoutInfos / Appearances 下的 <TextField> 不算字段定义本身。
-    if (stack.some((f) => f.tag === 'LayoutInfos' || f.tag === 'Appearances')) continue;
+    // 字段定义的 <TextField> 是 <Elements> 的直接子。任何嵌得更深(LayoutInfos /
+    // Appearances / 未来可能的 wrapper 标签)的同名节点都不是字段定义本身。
+    const parent = stack[stack.length - 1];
+    if (!parent || parent.tag !== 'Elements') continue;
     const body = xml.substring(frame.bodyStart, tk.start);
     const key = findLastTopLevelChildText(body, 'Key');
     if (!key || baseByKey.has(key)) continue;
