@@ -63,9 +63,17 @@ export function buildStartSessionSQL(sessionName: string): string {
   return `ALTER EVENT SESSION [${sessionName}] ON SERVER STATE = START;`;
 }
 
+/**
+ * 幂等 stop —— 只在 session 处于 running 状态时才发 STOP 命令。
+ * `sys.dm_xe_sessions` 只列正在运行的 session, 所以已 stopped / 不存在
+ * 的 session 会被 EXISTS 过滤掉, 不会报 "already been stopped"。
+ */
 export function buildStopSessionSQL(sessionName: string): string {
   assertSafeSessionName(sessionName);
-  return `ALTER EVENT SESSION [${sessionName}] ON SERVER STATE = STOP;`;
+  return (
+    `IF EXISTS (SELECT 1 FROM sys.dm_xe_sessions WHERE name = N'${sessionName}')\n` +
+    `  ALTER EVENT SESSION [${sessionName}] ON SERVER STATE = STOP;`
+  );
 }
 
 /**

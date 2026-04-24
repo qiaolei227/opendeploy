@@ -166,6 +166,11 @@ async function cmdXeStart(args: CliArgs): Promise<void> {
 async function cmdXeStop(args: CliArgs): Promise<void> {
   const project = requireArg(args, 'project', 'xe-stop');
   const xelPath = args.xelAbsPath ?? xelPathFor(args.label);
+  // SQL Server event_file target 实际产出文件名会加 rollover 后缀
+  // `_<N>_<ticks>.xel`, 不是我们传进去的 filename 原样。读时要用通配
+  // 符 pattern 匹配所有 rollover 文件 —— fn_xe_file_target_read_file
+  // 支持 * wildcard。
+  const xelReadPattern = xelPath.replace(/\.xel$/, '*.xel');
   const pool = await connect(project);
   try {
     await pool.request().batch(buildStopSessionSQL(SESSION_NAME));
@@ -173,7 +178,7 @@ async function cmdXeStop(args: CliArgs): Promise<void> {
     // 给中间值 —— 正常单次保存的场景足够, 极端情况最多漏一批事件后再补跑。
     await new Promise((r) => setTimeout(r, 3000));
 
-    const readSql = buildReadXelFileSQL(xelPath);
+    const readSql = buildReadXelFileSQL(xelReadPattern);
     const res = await pool.request().query<{ event_xml: string }>(readSql);
     const rawEvents: XeEvent[] = [];
     for (const row of res.recordset) {
