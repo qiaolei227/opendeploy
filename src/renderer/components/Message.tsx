@@ -10,6 +10,33 @@ interface MessageProps {
 
 type ToolCall = NonNullable<ChatMessage['toolCalls']>[number];
 
+export type PendingActivity = { kind: 'thinking' } | { kind: 'awaiting-tool'; toolName: string };
+
+/**
+ * Decide what (if anything) to show in the "still working" indicator at the
+ * bottom of an assistant turn. The streaming-cursor `▍` already conveys
+ * progress for text deltas, so we only surface a pending hint during gaps:
+ *
+ *   - pre-first-delta gap (no blocks yet) → "thinking…"
+ *   - tool currently running (last block is tool_use without a result) →
+ *     "running <tool>…"
+ *   - tool just finished and we're waiting on the next LLM hop → "thinking…"
+ *
+ * Returns null when nothing should be shown (not streaming, or last block is
+ * text mid-stream where the cursor takes over).
+ */
+export function derivePendingActivity(message: ChatMessage): PendingActivity | null {
+  if (!message.isStreaming) return null;
+  const blocks = message.blocks;
+  if (!blocks || blocks.length === 0) return { kind: 'thinking' };
+  const last = blocks[blocks.length - 1];
+  if (last.type === 'text') return null;
+  // last is tool_use — is the matching call still running?
+  const call = message.toolCalls?.find((tc) => tc.id === last.callId);
+  if (call && !call.result) return { kind: 'awaiting-tool', toolName: call.name };
+  return { kind: 'thinking' };
+}
+
 /**
  * Tool-call card with a collapsible result body. Default is collapsed —
  * kingdee_search_metadata can return 50+ rows of JSON that swamp the turn
@@ -47,17 +74,6 @@ function ToolCallCard({ call }: { call: ToolCall }) {
       )}
     </div>
   );
-}
-
-/**
- * Was anything at all rendered yet? Used to decide whether the "思考中…"
- * placeholder should show during the pre-first-delta gap.
- */
-function hasAnyContent(message: ChatMessage): boolean {
-  if (message.blocks && message.blocks.length > 0) return true;
-  if (message.content) return true;
-  if (message.toolCalls && message.toolCalls.length > 0) return true;
-  return false;
 }
 
 /**
@@ -117,6 +133,10 @@ export function Message({ message }: MessageProps) {
   // (no hardcoded surname). zh "顾问" → "顾", en "You" → "Y".
   const avatar = message.role === 'user' ? name.charAt(0).toUpperCase() : 'AI';
   const time = new Date(message.createdAt).toLocaleTimeString('zh-CN', { hour12: false });
+  // Show a pending hint during the gaps where the streaming cursor isn't
+  // visible (pre-first-delta, between hops, while a tool is running). The
+  // cursor itself handles the live-text case so we don't double-up.
+  const pending = derivePendingActivity(message);
 
   return (
     <div className="turn">
@@ -127,11 +147,12 @@ export function Message({ message }: MessageProps) {
       </div>
       <div className="turn-body">
         {renderBody(message)}
-        {message.isStreaming && !hasAnyContent(message) && (
-          // The 500ms-2s gap between "user hits send" and "first delta
-          // arrives" used to show nothing except a small ▍ — users read it
-          // as "frozen". An explicit "思考中…" label removes the ambiguity.
-          <div className="turn-thinking">{t('messages.thinking')}</div>
+        {pending && (
+          <div className="turn-thinking">
+            {pending.kind === 'thinking'
+              ? t('messages.thinking')
+              : t('messages.toolRunning', { name: pending.toolName })}
+          </div>
         )}
       </div>
     </div>
