@@ -905,12 +905,38 @@ function isSafeIdentifier(name: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name);
 }
 
+/**
+ * 已知扩展表的"链接列"硬覆盖映射 —— mirror src/main/erp/k3cloud/bos-backup.ts 的 KEY_COLUMN。
+ * 有些表同时有 FID (行 PK) 和 FOBJECTTYPEID (指向扩展的外键),
+ * 纯启发式会挑 FID → 0 行 → 误归 emptyTables。override 保证挑对列。
+ */
+export const KNOWN_EXTENSION_LINK: Record<string, string> = {
+  T_META_OBJECTTYPE: 'FID',
+  T_META_OBJECTTYPE_L: 'FID',
+  T_META_OBJECTTYPE_E: 'FID',
+  T_META_OBJECTTYPENAMEEX: 'FENTRYID',
+  T_META_OBJECTTYPENAMEEX_L: 'FENTRYID',
+  T_META_OBJECTFUNCINTERFACE: 'FID',
+  T_META_OBJECTTYPEREF: 'FOBJECTTYPEID',
+  T_META_TRACKERBILLTABLE: 'FOBJECTTYPEID'
+};
+
 export function pickMatchingKeyColumn(columns: string[]): string | null {
   const set = new Set(columns.map((c) => c.toUpperCase()));
   for (const candidate of CANDIDATE_KEY_COLUMNS) {
     if (set.has(candidate)) return candidate;
   }
   return null;
+}
+
+/** 优先用已知映射, fallback 启发式; 还要验证 override 列真存在。 */
+export function pickKeyForTable(tableName: string, columns: string[]): string | null {
+  const override = KNOWN_EXTENSION_LINK[tableName];
+  if (override) {
+    const upperCols = new Set(columns.map((c) => c.toUpperCase()));
+    if (upperCols.has(override)) return override;
+  }
+  return pickMatchingKeyColumn(columns);
 }
 
 export function buildSnapshotSelectSQL(tableName: string, keyColumn: string): string {
@@ -965,7 +991,7 @@ export async function snapshotAllMeta(
       .input('t', sql.VarChar(128), tableName)
       .query<{ name: string }>(LIST_COLS_SQL);
     const columns = colsRes.recordset.map((r) => r.name);
-    const keyColumn = pickMatchingKeyColumn(columns);
+    const keyColumn = pickKeyForTable(tableName, columns);
 
     if (keyColumn === null) {
       unmatchedTables.push(tableName);
@@ -1012,7 +1038,7 @@ export async function writeSnapshotJson(
 pnpm vitest run tests/scripts/bos-recon/snapshot-all.test.ts
 ```
 
-Expected: `9 passed` (4 groups, counts: 4+3+1+1 = 9)
+Expected: `14 passed` (原 8 + pickKeyForTable 5 + KNOWN_EXTENSION_LINK 覆盖 1)
 
 - [ ] **Step 5: Commit**
 

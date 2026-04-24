@@ -37,12 +37,45 @@ function isSafeIdentifier(name: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name);
 }
 
+/**
+ * 已知扩展表的"链接列"硬覆盖映射 —— mirror src/main/erp/k3cloud/bos-backup.ts 的 KEY_COLUMN。
+ *
+ * 为什么需要: 有些表(T_META_TRACKERBILLTABLE / T_META_OBJECTTYPEREF)同时有 FID
+ * 和 FOBJECTTYPEID, 但 FID 是该行自己的主键(不是扩展 FID), FOBJECTTYPEID 才是
+ * 指向扩展的外键。纯 candidate-key 启发式会挑 FID → 0 行 → 误归 emptyTables。
+ *
+ * 对不在此映射里的表(新发现的 T_META_*), 回退到 pickMatchingKeyColumn 启发式。
+ */
+export const KNOWN_EXTENSION_LINK: Record<string, string> = {
+  T_META_OBJECTTYPE: 'FID',
+  T_META_OBJECTTYPE_L: 'FID',
+  T_META_OBJECTTYPE_E: 'FID',
+  T_META_OBJECTTYPENAMEEX: 'FENTRYID',
+  T_META_OBJECTTYPENAMEEX_L: 'FENTRYID',
+  T_META_OBJECTFUNCINTERFACE: 'FID',
+  T_META_OBJECTTYPEREF: 'FOBJECTTYPEID',
+  T_META_TRACKERBILLTABLE: 'FOBJECTTYPEID'
+};
+
 export function pickMatchingKeyColumn(columns: string[]): string | null {
   const set = new Set(columns.map((c) => c.toUpperCase()));
   for (const candidate of CANDIDATE_KEY_COLUMNS) {
     if (set.has(candidate)) return candidate;
   }
   return null;
+}
+
+/**
+ * 优先用已知映射, fallback 启发式。只对本表 columns 里真的存在的列才接受映射
+ * 值, 防止 schema drift 时误用一个已经不存在的列名。
+ */
+export function pickKeyForTable(tableName: string, columns: string[]): string | null {
+  const override = KNOWN_EXTENSION_LINK[tableName];
+  if (override) {
+    const upperCols = new Set(columns.map((c) => c.toUpperCase()));
+    if (upperCols.has(override)) return override;
+  }
+  return pickMatchingKeyColumn(columns);
 }
 
 export function buildSnapshotSelectSQL(tableName: string, keyColumn: string): string {
@@ -97,7 +130,7 @@ export async function snapshotAllMeta(
       .input('t', sql.VarChar(128), tableName)
       .query<{ name: string }>(LIST_COLS_SQL);
     const columns = colsRes.recordset.map((r) => r.name);
-    const keyColumn = pickMatchingKeyColumn(columns);
+    const keyColumn = pickKeyForTable(tableName, columns);
 
     if (keyColumn === null) {
       unmatchedTables.push(tableName);
