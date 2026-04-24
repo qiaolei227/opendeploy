@@ -387,3 +387,23 @@ describe('parseFieldsFromKernelXml', () => {
     ]);
   });
 });
+
+describe('insertTextFieldIntoKernelXml default placement', () => {
+  it('places new field with high Top/ZOrder so it does not overlap top-left', () => {
+    const xml = insertTextFieldIntoKernelXml(
+      buildExtensionKernelXml(EXT, []),
+      { spec: { key: 'F_DEMO', caption: '演示字段' } }
+    );
+    expect(xml).toContain('<Top>9000</Top>');
+    expect(xml).toContain('<ZOrderIndex>9999</ZOrderIndex>');
+  });
+
+  it('respects explicit top/left from spec', () => {
+    const xml = insertTextFieldIntoKernelXml(
+      buildExtensionKernelXml(EXT, []),
+      { spec: { key: 'F_X', caption: '甲', top: 200, left: 50 } }
+    );
+    expect(xml).toContain('<Top>200</Top>');
+    expect(xml).toContain('<Left>50</Left>');
+  });
+});

@@ -347,6 +347,14 @@ function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
           containerKey: {
             type: 'string',
             description: '(可选) 放在哪个布局容器, 默认 "FTAB_P0" (主页签)。'
+          },
+          top: {
+            type: 'number',
+            description: '(可选) 字段 Top 像素, 默认 9000 (容器底部, 不和现有字段重叠)。'
+          },
+          left: {
+            type: 'number',
+            description: '(可选) 字段 Left 像素, 默认 10。'
           }
         },
         required: ['extId', 'type', 'key', 'caption']
@@ -365,7 +373,9 @@ function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
         name: args.name !== undefined ? String(args.name) : undefined,
         propertyName: args.propertyName !== undefined ? String(args.propertyName) : undefined,
         fieldName: args.fieldName !== undefined ? String(args.fieldName) : undefined,
-        containerKey: args.containerKey !== undefined ? String(args.containerKey) : undefined
+        containerKey: args.containerKey !== undefined ? String(args.containerKey) : undefined,
+        top: args.top !== undefined ? Number(args.top) : undefined,
+        left: args.left !== undefined ? Number(args.left) : undefined
       });
       return JSON.stringify(
         {
@@ -374,7 +384,7 @@ function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
           fieldKey: args.key,
           backupFile: r.backupFile,
           reminder:
-            '字段已写入 DB。去 BOS Designer 中刷新扩展(工具栏刷新按钮)就能看到新字段 —— 位次 / 坐标 Designer 会自动 normalize。如用 SVN 同步共享给团队, 记得点一次"同步"。'
+            '字段已写入 DB。去 BOS Designer 中刷新扩展(工具栏刷新按钮)就能看到新字段。**字段默认落在容器底部(Top=9000),需在 BOS Designer 拖动到合适位置。**如用 SVN 同步共享给团队, 记得点一次"同步"。'
         },
         null,
         2
