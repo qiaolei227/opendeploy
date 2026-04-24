@@ -3,6 +3,9 @@ import type { LlmClient } from '../llm/types';
 import type { ToolRegistry } from './tools';
 import { pruneOldToolResults } from './history-prune';
 import { appendTextDelta, appendToolUse, type MessageBlock } from '@shared/blocks';
+import { createLogger } from '../logger';
+
+const logger = createLogger('agent-loop');
 
 /**
  * Keep the last N `tool` role messages with their full content; older tool
@@ -15,6 +18,8 @@ const KEEP_LAST_N_TOOL_RESULTS = 10;
 
 export type AgentLoopEvent =
   | { type: 'delta'; content: string }
+  | { type: 'reasoning_delta'; content: string }
+  | { type: 'reasoning_signature'; signature: string }
   | { type: 'tool_call'; toolCall: ToolCall }
   | { type: 'tool_result'; toolCallId: string; content: string; isError: boolean }
   | { type: 'iteration_start'; iteration: number }
@@ -61,6 +66,8 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
     emit({ type: 'iteration_start', iteration: iter });
 
     let assistantContent = '';
+    let reasoningContent = '';
+    let reasoningSignature = '';
     const toolCalls: ToolCall[] = [];
     let blocks: MessageBlock[] = [];
     let finishReason: 'stop' | 'tool_calls' | 'length' | 'error' = 'stop';
@@ -81,6 +88,15 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
         assistantContent += ev.content;
         blocks = appendTextDelta(blocks, ev.content);
         emit({ type: 'delta', content: ev.content });
+      } else if (ev.type === 'reasoning_delta') {
+        // 累加 thinking text, 下一轮构造请求时会被 client 回传给 LLM 满足
+        // DeepSeek V4 / Claude extended-thinking 的多轮契约。
+        reasoningContent += ev.content;
+        emit({ type: 'reasoning_delta', content: ev.content });
+      } else if (ev.type === 'reasoning_signature') {
+        // Claude extended-thinking 特有: 必须和 thinking 文本配对回传。
+        reasoningSignature = ev.signature;
+        emit({ type: 'reasoning_signature', signature: ev.signature });
       } else if (ev.type === 'tool_call') {
         toolCalls.push(ev.toolCall);
         blocks = appendToolUse(blocks, ev.toolCall.id);
@@ -90,6 +106,14 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
       } else if (ev.type === 'error') {
         errored = true;
         assistantContent = ev.error;
+        // Persist to app.log for post-mortem — LLM protocol bugs (DeepSeek V4
+        // reasoning_content / Claude signature mismatch / 400 invalid tool
+        // schema) all land here. The error string already contains HTTP
+        // status + full body from the client, so grepping the log is enough
+        // to diagnose without re-running the session.
+        void logger.error(
+          `LLM stream error provider=${params.providerId} iteration ${iter}: ${ev.error}`
+        );
         emit({ type: 'error', error: ev.error });
         break;
       }
@@ -101,6 +125,8 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
       content: assistantContent,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       blocks: blocks.length > 0 ? blocks : undefined,
+      ...(reasoningContent ? { reasoningContent } : {}),
+      ...(reasoningSignature ? { reasoningSignature } : {}),
       createdAt: new Date().toISOString()
     };
     messages.push(assistantMsg);

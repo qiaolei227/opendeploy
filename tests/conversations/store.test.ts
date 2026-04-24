@@ -92,4 +92,34 @@ describe('conversation store', () => {
     expect(assistant.toolCalls).toHaveLength(1);
     expect(assistant.blocks).toBeUndefined();
   });
+
+  it('round-trips reasoningContent + reasoningSignature on assistant messages', async () => {
+    const msgs: Message[] = [
+      { id: 'u1', role: 'user', content: 'hi', createdAt: '2026-04-25T00:00:00Z' },
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'answer',
+        reasoningContent: '先侦察\n再推进',
+        reasoningSignature: 'sig-abc123',
+        createdAt: '2026-04-25T00:00:02Z'
+      }
+    ];
+    const id = await saveConversation({ title: 'thinking', messages: msgs });
+    const loaded = await loadConversation(id);
+    const assistant = loaded.messages[1];
+    expect(assistant.reasoningContent).toBe('先侦察\n再推进');
+    expect(assistant.reasoningSignature).toBe('sig-abc123');
+    expect(assistant.content).toBe('answer');
+  });
+
+  it('legacy conversations without reasoning fields load cleanly (no reasoning keys added)', async () => {
+    const msgs: Message[] = [
+      { id: 'a', role: 'assistant', content: 'plain', createdAt: '2026-04-20T00:00:00Z' }
+    ];
+    const id = await saveConversation({ title: 'legacy-no-reasoning', messages: msgs });
+    const loaded = await loadConversation(id);
+    expect(loaded.messages[0].reasoningContent).toBeUndefined();
+    expect(loaded.messages[0].reasoningSignature).toBeUndefined();
+  });
 });

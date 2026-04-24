@@ -42,8 +42,17 @@ export interface LlmChatRequest {
 
 export interface LlmStreamEvent {
   requestId: string;
-  type: 'delta' | 'tool_call' | 'tool_result' | 'done' | 'error';
+  type:
+    | 'delta'
+    | 'reasoning_delta'
+    | 'reasoning_signature'
+    | 'tool_call'
+    | 'tool_result'
+    | 'done'
+    | 'error';
   content?: string;
+  /** Present on `reasoning_signature` — Anthropic thinking block signature. */
+  signature?: string;
   /**
    * Identifies which tool call an event belongs to. REQUIRED on `tool_call`
    * (so the renderer can register a slot) and on `tool_result` (so the

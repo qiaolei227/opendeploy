@@ -28,6 +28,12 @@ export function createOpenAiClient(opts: OpenAiClientOpts): LlmClient {
               function: { name: tc.name, arguments: JSON.stringify(tc.arguments) }
             }));
           }
+          // Thinking-mode round-trip: DeepSeek V4 / Qwen3 / GLM-5.1 / Kimi K2.6
+          // 要求多轮调用时把上一轮的 reasoning_content 回传,否则 HTTP 400。
+          // OpenAI 原厂 chat.completions 忽略未知字段,字段穿透过去无副作用。
+          if (m.role === 'assistant' && m.reasoningContent) {
+            base.reasoning_content = m.reasoningContent;
+          }
           return base;
         }),
         stream: true,
@@ -88,6 +94,11 @@ export function createOpenAiClient(opts: OpenAiClientOpts): LlmClient {
         const delta = choice.delta ?? {};
         if (typeof delta.content === 'string' && delta.content.length > 0) {
           yield { type: 'delta', content: delta.content };
+        }
+        // Thinking models emit 思考内容 via delta.reasoning_content,
+        // parallel to delta.content (DeepSeek V4 / Qwen3 / GLM-5.1 / Kimi K2.6)。
+        if (typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0) {
+          yield { type: 'reasoning_delta', content: delta.reasoning_content };
         }
         if (Array.isArray(delta.tool_calls)) {
           for (const tc of delta.tool_calls) {
