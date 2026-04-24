@@ -222,7 +222,7 @@ function registerPluginTool(c: K3CloudConnector, projectId: string): ToolHandler
           ok: true,
           backupFile: r.backupFile,
           reminder:
-            '请在 BOS Designer 中刷新扩展,客户端可能需重登一次。团队协作用 SVN 的话去 BOS 点一次"同步"。'
+            '请在 BOS Designer 中刷新扩展(工具栏刷新按钮),客户端可能需重登一次。团队协作用 SVN 的话去 BOS 点一次"同步"。'
         },
         null,
         2
