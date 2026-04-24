@@ -18,6 +18,7 @@ import {
   addFieldToExtension,
   createExtensionWithPythonPlugin,
   deleteExtension,
+  listExtensionFields,
   listExtensions,
   listFormPlugins,
   probeBosEnvironment,
@@ -46,6 +47,7 @@ export function buildBosWriteTools(
   return [
     listExtensionsTool(c),
     listFormPluginsTool(c),
+    listExtensionFieldsTool(c),
     probeBosEnvironmentTool(c),
     createExtensionTool(c, pid),
     registerPluginTool(c, pid),
@@ -128,6 +130,30 @@ function listFormPluginsTool(c: K3CloudConnector): ToolHandler {
       const pool = await c.getPool();
       const plugins = await listFormPlugins(pool, formOrExtId);
       return JSON.stringify({ count: plugins.length, plugins }, null, 2);
+    }
+  };
+}
+
+function listExtensionFieldsTool(c: K3CloudConnector): ToolHandler {
+  return {
+    parallelSafe: true,
+    definition: {
+      name: 'kingdee_get_extension_fields',
+      description:
+        '列出某扩展上已有的扩展字段 (parse FKERNELXML 中的 TextField 节点)。注意:这只看扩展字段,不看父对象的原厂字段——查原厂字段用 kingdee_get_fields。新加扩展字段后必用这个反查,不要用 kingdee_get_fields 验证扩展字段(那是查原厂的)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展 GUID。' }
+        },
+        required: ['extId']
+      }
+    },
+    async execute(args) {
+      const extId = String(args.extId);
+      const pool = await c.getPool();
+      const fields = await listExtensionFields(pool, extId);
+      return JSON.stringify({ count: fields.length, fields }, null, 2);
     }
   };
 }

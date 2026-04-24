@@ -4,8 +4,8 @@
 
 ### 工具
 
-- 元数据**只读**:`kingdee_list_objects` / `kingdee_get_object` / `kingdee_get_fields` / `kingdee_list_subsystems` / `kingdee_search_metadata` / `kingdee_list_extensions` / `kingdee_list_form_plugins` / `kingdee_probe_bos_environment`
-- BOS 扩展 + 插件**写入**:`kingdee_create_extension_with_python_plugin`(新扩展)、`kingdee_register_python_plugin`(已有扩展)
+- 元数据**只读**:`kingdee_list_objects` / `kingdee_get_object` / `kingdee_get_fields` (**只查父对象原厂字段**) / `kingdee_get_extension_fields` (**只查扩展字段**) / `kingdee_list_subsystems` / `kingdee_search_metadata` / `kingdee_list_extensions` / `kingdee_list_form_plugins` / `kingdee_probe_bos_environment`
+- BOS 扩展 + 插件**写入**:`kingdee_create_extension_with_python_plugin`(新扩展)、`kingdee_register_python_plugin`(已有扩展)、`kingdee_add_field`(扩展字段)
 - **回滚**:`kingdee_restore_from_backup`
 
 写入前**必须**先调 `kingdee_list_extensions` 看同一个父单据上是否已有扩展可以复用;新建扩展是**重**操作,别随手来一份。
@@ -53,6 +53,7 @@ base-system 硬规则一要求你"**先侦察再精准反问**"。针对 K/3 Clo
 base-system 硬规则四要求"写完必须验证才能说完成"。K/3 Cloud 的具体闭环:
 
 1. **反查扩展落库**:`kingdee_list_extensions <parentFormId>` 里应该能看到新 FID + 名称
+1.5. **反查扩展字段**(若调用了 `kingdee_add_field`):`kingdee_get_extension_fields <extId>` 必须能看到新 key 和 caption。**不要用 `kingdee_get_fields` 验证扩展字段——那个工具只看父对象的原厂字段,扩展字段永远查不到,它返回空不代表写入失败。**
 2. **反查插件挂载**:`kingdee_list_form_plugins <extId>` 里应该能看到 `className` 对得上、`type=python`、`pyScript` 不为空
 3. **任一反查异常** → 告知用户 + 给回滚建议(`backupFile` 路径 + `kingdee_restore_from_backup`),不要硬往下走
 4. 反查都通过,**完成消息**里显式包含:
