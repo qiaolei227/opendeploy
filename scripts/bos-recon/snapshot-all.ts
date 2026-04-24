@@ -78,6 +78,43 @@ export function pickKeyForTable(tableName: string, columns: string[]): string | 
   return pickMatchingKeyColumn(columns);
 }
 
+/**
+ * 1:N 子表的复合键映射。第 1 列是指向扩展的外键 (snapshot 阶段筛行用),
+ * 后续列是 "同扩展下区分行" 的识别列。
+ *
+ * 实证来源 (add-text-field recon 2026-04-24):
+ * - T_META_OBJECTTYPEREF: 每扩展 77 行, 没有 FID 列, 4 列才唯一
+ *   (3 列只到 75 唯一, 有 2 对 tbl+field 撞但 FREFOBJECTTYPEID 不同)
+ * - T_META_TRACKERBILLTABLE: 每扩展 4 行, FTABLEID 全局 int 唯一
+ *
+ * snapshot 阶段按外键 (第 1 列) 筛, diff 阶段用全复合键匹配 —— 否则单键 Map
+ * 后写覆盖, 整批行被错误标 modified (77 行假阳性的根源)。
+ */
+export const COMPOSITE_KEY_TABLES: Record<string, readonly string[]> = {
+  T_META_OBJECTTYPEREF: ['FOBJECTTYPEID', 'FTABLENAME', 'FFIELDNAME', 'FREFOBJECTTYPEID'],
+  T_META_TRACKERBILLTABLE: ['FOBJECTTYPEID', 'FTABLEID']
+};
+
+/**
+ * diff 阶段挑 keyColumn。1:N 子表返回复合键 (全列都要存在), 否则 fallback
+ * pickKeyForTable 的单列结果。schema drift 时 (任一识别列缺失) 退回单外键,
+ * 不要 silently 返回短缺的复合键。
+ */
+export function pickKeyForDiff(
+  tableName: string,
+  columns: string[]
+): string | readonly string[] | null {
+  const composite = COMPOSITE_KEY_TABLES[tableName];
+  if (composite && composite.length >= 2) {
+    const upperCols = new Set(columns.map((c) => c.toUpperCase()));
+    const fk = composite[0];
+    if (composite.every((c) => upperCols.has(c))) return composite;
+    // 识别列缺失 → 退回单外键 (仍比返回 null 强: 至少 snapshot 查询能生效)
+    if (upperCols.has(fk)) return fk;
+  }
+  return pickKeyForTable(tableName, columns);
+}
+
 export function buildSnapshotSelectSQL(tableName: string, keyColumn: string): string {
   if (!isSafeIdentifier(tableName)) throw new Error(`unsafe table name: ${tableName}`);
   if (!isSafeIdentifier(keyColumn)) throw new Error(`unsafe column name: ${keyColumn}`);

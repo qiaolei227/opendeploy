@@ -24,7 +24,7 @@ import { normalizeEvents, parseXelEventXml, type XeEvent } from './xe-parse';
 import {
   snapshotAllMeta,
   writeSnapshotJson,
-  pickKeyForTable,
+  pickKeyForDiff,
   type SnapshotResult
 } from './snapshot-all';
 import {
@@ -63,6 +63,8 @@ interface CliArgs {
   extId?: string;
   label: string;
   xelAbsPath?: string;
+  /** xe-start 专用: sqlserver.client_app_name LIKE 模式, 例 `%Kingdee%`。降噪关键选项。 */
+  filterApp?: string;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -73,6 +75,7 @@ function parseArgs(argv: string[]): CliArgs {
     else if (a === '--ext-id') out.extId = argv[++i];
     else if (a === '--label') out.label = argv[++i];
     else if (a === '--xel-path') out.xelAbsPath = argv[++i];
+    else if (a === '--filter-app') out.filterApp = argv[++i];
   }
   return out;
 }
@@ -154,9 +157,20 @@ async function cmdXeStart(args: CliArgs): Promise<void> {
   try {
     // 幂等 drop 再 create, 防止上次跑崩残留。
     await pool.request().batch(buildDropSessionSQL(SESSION_NAME));
-    await pool.request().batch(buildCreateSessionSQL({ sessionName: SESSION_NAME, xelPath }));
+    await pool
+      .request()
+      .batch(
+        buildCreateSessionSQL({ sessionName: SESSION_NAME, xelPath, filterClientApp: args.filterApp })
+      );
     await pool.request().batch(buildStartSessionSQL(SESSION_NAME));
     console.log(`[bos-recon] XE session "${SESSION_NAME}" started, target=${xelPath}`);
+    if (args.filterApp) {
+      console.log(`           filter: client_app_name LIKE '${args.filterApp}'`);
+    } else {
+      console.log(
+        `           (无 app filter, 全 session trace) — 可 --filter-app '%Kingdee%' 降噪`
+      );
+    }
     console.log(`           → 现在去 BOS Designer 做你要侦察的操作, 完了跑 pnpm recon:xe-stop`);
   } finally {
     await pool.close();
@@ -226,7 +240,10 @@ async function cmdDiff(args: CliArgs): Promise<void> {
     // 不是扩展外键)。先从 after (一般行更完整) 的首行拿列清单, 空则退 before。
     const sampleRow = a[0] ?? b[0] ?? {};
     const cols = Object.keys(sampleRow);
-    const keyCol = pickKeyForTable(tableName, cols);
+    // pickKeyForDiff: 对 1:N 子表 (OBJECTTYPEREF / TRACKERBILLTABLE) 返回
+    // [外键, 内 PK] 复合键, 避免多行共享 FOBJECTTYPEID 时单键 Map 后写覆盖
+    // 导致整批行假阳性。
+    const keyCol = pickKeyForDiff(tableName, cols);
     if (!keyCol) continue;
     const d = computeTableRowDiff(b, a, keyCol);
     unidentifiableCount += d.unidentifiable.length;

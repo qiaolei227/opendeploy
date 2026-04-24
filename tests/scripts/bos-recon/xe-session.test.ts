@@ -41,12 +41,37 @@ describe('xe-session SQL builders', () => {
     expect(() => buildReadXelFileSQL("C:\\evil'; xp_cmdshell--")).toThrow(/invalid/i);
   });
 
-  it('buildCreateSessionSQL does NOT add client_app_name filter in Phase 1', () => {
+  it('buildCreateSessionSQL omits filter WHERE when filterClientApp not provided (背景 trace 全抓)', () => {
     const sql = buildCreateSessionSQL({
       sessionName: 'opendeploy_bos_recon',
       xelPath: 'C:\\traces\\x.xel'
     });
-    expect(sql).not.toMatch(/WHERE client_app_name/);
+    expect(sql).not.toMatch(/WHERE/i);
+  });
+
+  it('buildCreateSessionSQL adds WHERE client_app_name LIKE filter on BOTH events when filterClientApp provided', () => {
+    const sql = buildCreateSessionSQL({
+      sessionName: 'opendeploy_bos_recon',
+      xelPath: 'C:\\traces\\x.xel',
+      filterClientApp: '%Kingdee%'
+    });
+    // 两个 event 都要加 WHERE (否则一半事件还是全抓)
+    expect(sql).toMatch(
+      /sp_statement_completed[\s\S]*WHERE[\s\S]*client_app_name\s+LIKE\s+N'%Kingdee%'/
+    );
+    expect(sql).toMatch(
+      /sql_batch_completed[\s\S]*WHERE[\s\S]*client_app_name\s+LIKE\s+N'%Kingdee%'/
+    );
+  });
+
+  it('buildCreateSessionSQL rejects filterClientApp containing single-quote (T-SQL injection guard)', () => {
+    expect(() =>
+      buildCreateSessionSQL({
+        sessionName: 'x',
+        xelPath: 'C:\\traces\\x.xel',
+        filterClientApp: "%'; DROP TABLE--"
+      })
+    ).toThrow(/invalid/i);
   });
 
   it('buildStartSessionSQL emits STATE=START', () => {

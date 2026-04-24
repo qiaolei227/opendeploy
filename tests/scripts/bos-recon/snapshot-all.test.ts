@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
   pickMatchingKeyColumn,
   pickKeyForTable,
+  pickKeyForDiff,
   buildSnapshotSelectSQL,
   CANDIDATE_KEY_COLUMNS,
   NOISE_COLUMN_BLACKLIST,
-  KNOWN_EXTENSION_LINK
+  KNOWN_EXTENSION_LINK,
+  COMPOSITE_KEY_TABLES
 } from '../../../scripts/bos-recon/snapshot-all';
 
 describe('pickMatchingKeyColumn', () => {
@@ -100,5 +102,66 @@ describe('KNOWN_EXTENSION_LINK', () => {
     for (const t of expected) {
       expect(KNOWN_EXTENSION_LINK).toHaveProperty(t);
     }
+  });
+});
+
+describe('pickKeyForDiff (1:N 复合键选择)', () => {
+  it('T_META_OBJECTTYPEREF 需 4 列复合键 (实证: 没 FID 列, 3 列唯一性不够 → 77 行里 2 对撞)', () => {
+    // 实际列 (bos-recon add-text-field snapshot 实证): FOBJECTTYPEID /
+    // FREFOBJECTTYPEID / FTABLENAME / FFIELDNAME, 无 FID。77 行全共享同一
+    // FOBJECTTYPEID, 4 列组合才能唯一。
+    const cols = ['FOBJECTTYPEID', 'FREFOBJECTTYPEID', 'FTABLENAME', 'FFIELDNAME'];
+    expect(pickKeyForDiff('T_META_OBJECTTYPEREF', cols)).toEqual([
+      'FOBJECTTYPEID',
+      'FTABLENAME',
+      'FFIELDNAME',
+      'FREFOBJECTTYPEID'
+    ]);
+  });
+
+  it('T_META_TRACKERBILLTABLE 用 [FOBJECTTYPEID, FTABLEID] 2 列 (FTABLEID 全局 int 唯一)', () => {
+    const cols = ['FTABLEID', 'FTABLENAME', 'FPKFIELDNAME', 'FOBJECTTYPEID'];
+    expect(pickKeyForDiff('T_META_TRACKERBILLTABLE', cols)).toEqual([
+      'FOBJECTTYPEID',
+      'FTABLEID'
+    ]);
+  });
+
+  it('falls back to single key (FID) for 1:1 主表 T_META_OBJECTTYPE', () => {
+    const cols = ['FID', 'FOBJECTTYPEID', 'FKERNELXML'];
+    expect(pickKeyForDiff('T_META_OBJECTTYPE', cols)).toBe('FID');
+  });
+
+  it('falls back to pickKeyForTable for unknown tables', () => {
+    const cols = ['FID', 'FSOMETHING'];
+    expect(pickKeyForDiff('T_META_NEWLY_DISCOVERED', cols)).toBe('FID');
+  });
+
+  it('schema drift: 任一复合键列缺失时退回单外键 (FOBJECTTYPEID 仍比 null 强)', () => {
+    // 如果 T_META_OBJECTTYPEREF 未来某列被移除, 至少退回单列外键,
+    // 不要 silently 返回无效复合键。
+    const cols = ['FOBJECTTYPEID', 'FREFOBJECTTYPEID']; // missing FTABLENAME + FFIELDNAME
+    expect(pickKeyForDiff('T_META_OBJECTTYPEREF', cols)).toBe('FOBJECTTYPEID');
+  });
+});
+
+describe('COMPOSITE_KEY_TABLES', () => {
+  it('declares 1:N child tables that share foreign key across many rows', () => {
+    expect(COMPOSITE_KEY_TABLES).toHaveProperty('T_META_OBJECTTYPEREF');
+    expect(COMPOSITE_KEY_TABLES).toHaveProperty('T_META_TRACKERBILLTABLE');
+  });
+
+  it('每个条目至少 2 列 (外键 + 至少 1 内识别列)', () => {
+    for (const [, composite] of Object.entries(COMPOSITE_KEY_TABLES)) {
+      expect(Array.isArray(composite)).toBe(true);
+      expect(composite.length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('OBJECTTYPEREF 复合键包含必需列 (FOBJECTTYPEID + 字段级识别)', () => {
+    const c = COMPOSITE_KEY_TABLES.T_META_OBJECTTYPEREF;
+    expect(c).toContain('FOBJECTTYPEID');
+    expect(c).toContain('FTABLENAME');
+    expect(c).toContain('FFIELDNAME');
   });
 });

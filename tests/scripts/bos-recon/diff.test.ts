@@ -48,6 +48,53 @@ describe('computeTableRowDiff', () => {
     const diff = computeTableRowDiff([{ FID: 'a' }], [{ FOTHER: 'b' }], 'FID');
     expect(diff.unidentifiable).toHaveLength(1);
   });
+
+  it('handles 1:N child table via composite key (foreign key + inner PK)', () => {
+    // 场景: T_META_OBJECTTYPEREF — 扩展 FID (FOBJECTTYPEID) 对 77 行都相同,
+    // 真正区分行的是 FID。单列 keyColumn='FOBJECTTYPEID' 会让 Map 后写覆盖,
+    // 导致 76 行被错误标 modified。复合键 ['FOBJECTTYPEID', 'FID'] 让每行有
+    // 唯一身份, diff 恢复准确。
+    const before = [
+      { FOBJECTTYPEID: 'ext-1', FID: 'r1', FREFOBJECT: 'A' },
+      { FOBJECTTYPEID: 'ext-1', FID: 'r2', FREFOBJECT: 'B' },
+      { FOBJECTTYPEID: 'ext-1', FID: 'r3', FREFOBJECT: 'C' }
+    ];
+    const after = [
+      { FOBJECTTYPEID: 'ext-1', FID: 'r1', FREFOBJECT: 'A' }, // unchanged
+      { FOBJECTTYPEID: 'ext-1', FID: 'r2', FREFOBJECT: 'B2' }, // modified
+      { FOBJECTTYPEID: 'ext-1', FID: 'r3', FREFOBJECT: 'C' } // unchanged
+    ];
+    const diff = computeTableRowDiff(before, after, ['FOBJECTTYPEID', 'FID']);
+    expect(diff.unchanged).toHaveLength(2);
+    expect(diff.modified).toHaveLength(1);
+    expect(diff.modified[0].after.FID).toBe('r2');
+    expect(diff.added).toHaveLength(0);
+    expect(diff.removed).toHaveLength(0);
+  });
+
+  it('composite key detects row added / removed on shared foreign key', () => {
+    const before = [
+      { FOBJECTTYPEID: 'ext-1', FID: 'r1' },
+      { FOBJECTTYPEID: 'ext-1', FID: 'r2' }
+    ];
+    const after = [
+      { FOBJECTTYPEID: 'ext-1', FID: 'r1' }, // unchanged
+      { FOBJECTTYPEID: 'ext-1', FID: 'r3' } // r2 removed, r3 added
+    ];
+    const diff = computeTableRowDiff(before, after, ['FOBJECTTYPEID', 'FID']);
+    expect(diff.removed.map((r) => r.FID)).toEqual(['r2']);
+    expect(diff.added.map((r) => r.FID)).toEqual(['r3']);
+    expect(diff.modified).toHaveLength(0);
+    expect(diff.unchanged).toHaveLength(1);
+  });
+
+  it('composite key with one missing column -> unidentifiable', () => {
+    // 复合键里任一列缺失都应标 unidentifiable,不能 silently 用空串当 key 匹配错。
+    const before = [{ FOBJECTTYPEID: 'ext-1', FID: 'r1' }];
+    const after = [{ FOBJECTTYPEID: 'ext-1' /* FID missing */ }];
+    const diff = computeTableRowDiff(before, after, ['FOBJECTTYPEID', 'FID']);
+    expect(diff.unidentifiable).toHaveLength(1);
+  });
 });
 
 describe('renderReportMarkdown', () => {

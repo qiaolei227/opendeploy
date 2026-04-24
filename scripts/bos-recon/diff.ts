@@ -38,7 +38,7 @@ export function hashRowExcludingNoise(row: Record<string, unknown>): string {
 export function computeTableRowDiff(
   before: Record<string, unknown>[],
   after: Record<string, unknown>[],
-  keyColumn: string
+  keyColumn: string | readonly string[]
 ): RowDiffResult {
   const result: RowDiffResult = {
     added: [],
@@ -48,9 +48,18 @@ export function computeTableRowDiff(
     unidentifiable: []
   };
 
+  // 复合键场景 (1:N 子表): 同一 FOBJECTTYPEID 下 N 行共享外键, 内 PK (FID) 才
+  // 区分行。单键 Map 后写覆盖 → 假阳性。改用 `col1\0col2\0...` 作为复合
+  // Map key, 任一列缺值即 unidentifiable (不用空串代替, 避免误匹配)。
+  const cols = typeof keyColumn === 'string' ? [keyColumn] : keyColumn;
   const keyOf = (r: Record<string, unknown>): string | null => {
-    const v = r[keyColumn];
-    return v === undefined || v === null ? null : String(v);
+    const parts: string[] = [];
+    for (const c of cols) {
+      const v = r[c];
+      if (v === undefined || v === null) return null;
+      parts.push(String(v));
+    }
+    return parts.join('\x00');
   };
 
   const beforeByKey = new Map<string, Record<string, unknown>>();

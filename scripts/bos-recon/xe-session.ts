@@ -15,12 +15,25 @@
 export interface CreateSessionOptions {
   sessionName: string;
   xelPath: string;
+  /**
+   * 可选: sqlserver.client_app_name LIKE 匹配值, 例如 `%Kingdee%` / `%BOSDesigner%`.
+   * 提供时会给两个 event 都加 `WHERE client_app_name LIKE N'...'` filter, 降噪 —
+   * 不加 filter 一次侦察动辄抓 7000+ 事件, 大部分是其他 session 的 noise。
+   */
+  filterClientApp?: string;
 }
 
 /** 合法 xel 路径: Windows 路径 + 非引号字符。单引号会破坏 T-SQL 字符串。 */
 function assertSafeXelPath(xelPath: string): void {
   if (/['\x00-\x1f]/.test(xelPath)) {
     throw new Error(`invalid xel path: must not contain quotes or control chars`);
+  }
+}
+
+/** filter 值同样不能含单引号/控制字符, 否则 T-SQL 注入。 */
+function assertSafeFilterValue(v: string): void {
+  if (/['\x00-\x1f]/.test(v)) {
+    throw new Error(`invalid filter value: must not contain quotes or control chars`);
   }
 }
 
@@ -42,15 +55,20 @@ export function buildDropSessionSQL(sessionName: string): string {
 export function buildCreateSessionSQL(opts: CreateSessionOptions): string {
   assertSafeSessionName(opts.sessionName);
   assertSafeXelPath(opts.xelPath);
+  if (opts.filterClientApp !== undefined) assertSafeFilterValue(opts.filterClientApp);
   // T-SQL `N'...'` 字符串字面量没有反斜杠转义语义, 直接插入 Windows 路径即可。
   // `N'C:\traces\foo.xel'` 是正确的 T-SQL, 不是 `N'C:\\traces\\foo.xel'`。
+  const action = `ACTION(sqlserver.sql_text, sqlserver.session_id, sqlserver.client_app_name, sqlserver.database_name, sqlserver.tsql_stack)`;
+  const whereClause = opts.filterClientApp
+    ? `\n  WHERE (sqlserver.client_app_name LIKE N'${opts.filterClientApp}')`
+    : '';
   return [
     `CREATE EVENT SESSION [${opts.sessionName}] ON SERVER`,
     `ADD EVENT sqlserver.sp_statement_completed(`,
-    `  ACTION(sqlserver.sql_text, sqlserver.session_id, sqlserver.client_app_name, sqlserver.database_name, sqlserver.tsql_stack)`,
+    `  ${action}${whereClause}`,
     `),`,
     `ADD EVENT sqlserver.sql_batch_completed(`,
-    `  ACTION(sqlserver.sql_text, sqlserver.session_id, sqlserver.client_app_name, sqlserver.database_name, sqlserver.tsql_stack)`,
+    `  ${action}${whereClause}`,
     `)`,
     `ADD TARGET package0.event_file(SET filename = N'${opts.xelPath}', max_file_size = 50)`,
     `WITH (MAX_MEMORY = 4096 KB, EVENT_RETENTION_MODE = ALLOW_SINGLE_EVENT_LOSS,`,
