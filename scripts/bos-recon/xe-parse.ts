@@ -29,14 +29,30 @@ function xmlUnescape(s: string): string {
     .replace(/&amp;/g, '&');
 }
 
-/** 从 XML 里抽 <data name="X"><value>...</value></data> 或 <action name="X">... 同理。 */
+/**
+ * 从 XML 里抽 <data name="X">...<value>...</value>...</data> 或 <action> 同理。
+ *
+ * SQL Server 的 `CAST(event_data AS xml)` 对强类型列(duration=uint64 等)会
+ * 在 <value> 前面序列化 <type name="..."/> 描述符:
+ *   <data name="duration">
+ *     <type name="uint64" package="package0"/>
+ *     <value>4567</value>
+ *   </data>
+ * 所以匹配用 `[\s\S]*?` 懒匹配跳过任意中间子元素, 而不是只允许 `\s*`。
+ */
 function extractField(xml: string, tag: 'data' | 'action', name: string): string | null {
   const re = new RegExp(
-    `<${tag}\\s+name="${name}"[^>]*>\\s*<value>([\\s\\S]*?)<\\/value>`,
+    `<${tag}\\s+name="${name}"[^>]*>[\\s\\S]*?<value>([\\s\\S]*?)<\\/value>`,
     'i'
   );
   const m = xml.match(re);
   return m ? xmlUnescape(m[1]) : null;
+}
+
+/** 第一个非空字符串, 全都 null/空则返 ''。?? 不会在空字符串时 fallback, 这个函数会。 */
+function firstNonEmpty(...xs: (string | null)[]): string {
+  for (const x of xs) if (x !== null && x.trim() !== '') return x;
+  return '';
 }
 
 export function parseXelEventXml(eventXml: string): XeEvent | null {
@@ -47,12 +63,13 @@ export function parseXelEventXml(eventXml: string): XeEvent | null {
   const timestamp = tsMatch ? tsMatch[1] : '';
 
   // statement 可能在 data (sp_statement_completed) 或 batch_text (sql_batch_completed)。
-  // action=sql_text 有时覆盖完整语句。优先 action,fallback data。
-  const stmt =
-    extractField(eventXml, 'action', 'sql_text') ??
-    extractField(eventXml, 'data', 'statement') ??
-    extractField(eventXml, 'data', 'batch_text') ??
-    '';
+  // action=sql_text 有时覆盖完整语句。优先 action, fallback data 顺序;
+  // firstNonEmpty 保证空字符串也会穿透到下一个候选(?? 只在 null 时穿透)。
+  const stmt = firstNonEmpty(
+    extractField(eventXml, 'action', 'sql_text'),
+    extractField(eventXml, 'data', 'statement'),
+    extractField(eventXml, 'data', 'batch_text')
+  );
 
   const durationText = extractField(eventXml, 'data', 'duration');
   const duration = durationText ? Number(durationText) : 0;
