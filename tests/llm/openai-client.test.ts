@@ -123,6 +123,30 @@ describe('OpenAI-compatible client', () => {
       type: 'tool_call',
       toolCall: { id: 'c1', name: 'get_time', arguments: {} }
     });
+    // 锁住 fallback: 此 fixture 全程没 usage,post-loop 必须发 done 不然 agent loop 挂住
+    expect(events.at(-1)).toMatchObject({ type: 'done', finishReason: 'tool_calls' });
+    expect(events.find((e: any) => e.type === 'usage')).toBeUndefined();
+  });
+
+  it('falls back to done-without-usage when provider does not honor stream_options.include_usage', async () => {
+    // 如果某 OpenAI 兼容 provider 忽略 stream_options,流就只有 finish_reason chunk + [DONE],
+    // 没 usage chunk。post-loop fallback 必须仍然发 done 让 agent loop 终止。
+    const fetch = mockFetchStream([
+      'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n',
+      'data: {"choices":[{"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n'
+    ]);
+    const client = createOpenAiClient({ baseUrl: 'https://x', defaultModel: 'm', fetchImpl: fetch });
+    const events: unknown[] = [];
+    for await (const e of client.stream({
+      providerId: 'test', apiKey: 'sk',
+      messages: [{ id: '1', role: 'user', content: 'hi', createdAt: '' }]
+    })) events.push(e);
+
+    expect(events).toEqual([
+      { type: 'delta', content: 'Hi' },
+      { type: 'done', finishReason: 'stop' }
+    ]);
   });
 
   it('emits error event on non-200 response', async () => {

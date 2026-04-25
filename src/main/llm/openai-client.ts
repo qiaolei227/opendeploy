@@ -97,6 +97,9 @@ export function createOpenAiClient(opts: OpenAiClientOpts): LlmClient {
         // with stream_options.include_usage). Handle either by emitting the usage
         // event the first time we see usage data, then if a finish_reason has
         // already been captured, also emit done.
+        // First-wins: OpenAI spec emits usage exactly once on the final chunk;
+        // if any compat provider sends multiple usage payloads we pin the earliest
+        // to keep chat-store's token counter monotonic and avoid double-counting.
         if (data.usage && !usageEmitted) {
           const outputTokens = data.usage.completion_tokens ?? 0;
           yield { type: 'usage', outputTokens };
