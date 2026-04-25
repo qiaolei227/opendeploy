@@ -46,12 +46,34 @@ export interface ToolResult {
   isError?: boolean;
 }
 
+/**
+ * JSON-Schema-shaped tool parameter property. Permissive on purpose — Anthropic
+ * / OpenAI / Ollama all accept the full JSON Schema vocabulary; we don't want
+ * to gate ourselves to scalar-only properties (rejects array `items` + nested
+ * object `properties`). Keep `type / description / enum` named so common
+ * scalar uses keep a tight type, and allow the rest via the index signature.
+ */
+export interface ToolParamSchema {
+  type: string;
+  description?: string;
+  enum?: unknown[];
+  /** Array element schema (when type === 'array'). */
+  items?: ToolParamSchema;
+  /** Nested object schema (when type === 'object'). */
+  properties?: Record<string, ToolParamSchema>;
+  /** Nested object required props. */
+  required?: string[];
+  // Allow other JSON Schema keywords (minimum, maximum, pattern, ...) without
+  // forcing every consumer to update the type when a new one is introduced.
+  [k: string]: unknown;
+}
+
 export interface ToolDefinition {
   name: string;
   description: string;
   parameters: {
     type: 'object';
-    properties: Record<string, { type: string; description?: string; enum?: unknown[] }>;
+    properties: Record<string, ToolParamSchema>;
     required?: string[];
   };
 }

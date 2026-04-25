@@ -25,6 +25,7 @@ import {
   registerPythonPluginOnExtension,
   unregisterPlugin
 } from '../erp/k3cloud/bos-writer';
+import { FIELD_TYPES, type FieldSpec, type FieldType as BosFieldType } from '../erp/k3cloud/bos-xml';
 import type { PluginMeta } from '@shared/erp-types';
 
 /**
@@ -313,15 +314,25 @@ function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
     definition: {
       name: 'kingdee_add_field',
       description:
-        '给已有扩展加一个业务字段 (写 T_META_OBJECTTYPE.FKERNELXML)。客户在 BOS Designer 中刷新扩展后就能看到。v0.1 只支持 type="text" (文本单行); 后续会扩展 number/date/decimal/combobox/basedata_ref 等,届时同一工具按 type 分支,agent 侧接口不变。不知道扩展 ID 先调 kingdee_list_extensions。',
+        '给已有扩展加一个业务字段 (写 T_META_OBJECTTYPE.FKERNELXML)。客户在 BOS Designer 中刷新扩展(工具栏刷新)后就能看到。Plan 5.12.1 起支持 16 种字段类型 — 选择规则:\n' +
+        '• text / large_text — 单行 / 多行文本(备注)\n' +
+        '• int / decimal / amount / qty — 整数 / 小数 / 金额 / 数量(qty 默认带单位字段)\n' +
+        '• date / datetime — 日期 / 日期时间\n' +
+        '• checkbox — 是/否 复选框\n' +
+        '• combo / mul_combo — 单选 / 多选下拉(必带 comboItems)\n' +
+        '• base_data — 基础资料引用(客户 / 物料 / 部门 ...,**必带 refBaseDataObjectKey 是 GUID** — 先调 kingdee_describe_basedata 拿 GUID)\n' +
+        '• base_property — 基础资料属性带值(必带 sourceField + srcDisplayFieldName,sourceField 必须是同单据已有 BaseDataField)\n' +
+        '• reference_property — 引用属性(高级版,可分组多语言)\n' +
+        '• color / mobile — 颜色 / 手机号\n' +
+        '不知道扩展 ID 先调 kingdee_list_extensions。',
       parameters: {
         type: 'object',
         properties: {
           extId: { type: 'string', description: '扩展 FID (GUID)。' },
           type: {
             type: 'string',
-            enum: ['text'],
-            description: '字段类型。目前只支持 "text" (单行文本)。'
+            enum: [...FIELD_TYPES],
+            description: '字段类型。'
           },
           key: {
             type: 'string',
@@ -332,29 +343,43 @@ function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
             type: 'string',
             description: '中文显示标签, 例 "客户备注"。用户在表单上看到的就是这个。'
           },
-          name: {
-            type: 'string',
-            description: '(可选) 内部名称, 默认 = caption。'
-          },
-          propertyName: {
-            type: 'string',
-            description: '(可选) PropertyName, 默认 = key。代码里绑定用。'
-          },
-          fieldName: {
-            type: 'string',
-            description: '(可选) DB 列名, 默认 = key 的大写。'
-          },
-          containerKey: {
-            type: 'string',
-            description: '(可选) 放在哪个布局容器, 默认 "FTAB_P0" (主页签)。'
-          },
+          name: { type: 'string', description: '(可选) 内部名称, 默认 = caption。' },
+          propertyName: { type: 'string', description: '(可选) PropertyName, 默认 = key。代码里绑定用。' },
+          fieldName: { type: 'string', description: '(可选) DB 列名, 默认 = key 的大写。' },
+          containerKey: { type: 'string', description: '(可选) 放在哪个布局容器, 默认 "FTAB_P0" (主页签)。' },
           top: {
             type: 'number',
             description: '(可选) 字段 Top 像素, 默认 10 (左上角)。用户必须在 BOS Designer 中手动拖到合适位置;只有真知道目标坐标才指定。'
           },
-          left: {
-            type: 'number',
-            description: '(可选) 字段 Left 像素, 默认 10 (左上角)。'
+          left: { type: 'number', description: '(可选) 字段 Left 像素, 默认 10 (左上角)。' },
+          width: { type: 'number', description: '(可选) 控件宽度像素, 默认 300。' },
+          labelWidth: { type: 'number', description: '(可选) 标签宽度像素, 默认 100。' },
+          comboItems: {
+            type: 'array',
+            description: '(combo / mul_combo 必填) 下拉项列表。例 [{"value":"H","caption":"高"},...]。',
+            items: {
+              type: 'object',
+              properties: {
+                value: { type: 'string', description: '存值' },
+                caption: { type: 'string', description: '显示文字' }
+              },
+              required: ['value', 'caption']
+            }
+          },
+          refBaseDataObjectKey: {
+            type: 'string',
+            description:
+              '(base_data 必填) 关联基础资料对象的 **GUID** (`<LookUpObjectID>` 内容)。先调 `kingdee_describe_basedata` 把 "BD_Customer" 之类的 key 翻成 GUID。'
+          },
+          sourceField: {
+            type: 'string',
+            description:
+              '(base_property / reference_property 必填) 同单据上的源 BaseDataField Key, 例 "FCustId"。值随源字段变化时自动带出。'
+          },
+          srcDisplayFieldName: {
+            type: 'string',
+            description:
+              '(base_property 必填) 要从源基础资料带出的属性列名, 例 "FName" (客户名称) / "FAddress" (默认地址)。'
           }
         },
         required: ['extId', 'type', 'key', 'caption']
@@ -363,11 +388,13 @@ function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
     async execute(args) {
       await ensureReady(c);
       const pool = await c.getPool();
-      const type = String(args.type);
-      if (type !== 'text') {
-        throw new Error(`field type "${type}" 还没实现, 目前只支持 "text"。`);
+      const type = String(args.type) as BosFieldType;
+      if (!FIELD_TYPES.includes(type)) {
+        throw new Error(
+          `不支持的字段类型 "${type}"。可选: ${FIELD_TYPES.join(' / ')}。`
+        );
       }
-      const r = await addFieldToExtension(pool, projectId, String(args.extId), 'text', {
+      const spec: FieldSpec = {
         key: String(args.key),
         caption: String(args.caption),
         name: args.name !== undefined ? String(args.name) : undefined,
@@ -375,13 +402,28 @@ function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
         fieldName: args.fieldName !== undefined ? String(args.fieldName) : undefined,
         containerKey: args.containerKey !== undefined ? String(args.containerKey) : undefined,
         top: args.top !== undefined ? Number(args.top) : undefined,
-        left: args.left !== undefined ? Number(args.left) : undefined
-      });
+        left: args.left !== undefined ? Number(args.left) : undefined,
+        width: args.width !== undefined ? Number(args.width) : undefined,
+        labelWidth: args.labelWidth !== undefined ? Number(args.labelWidth) : undefined,
+        comboItems: Array.isArray(args.comboItems)
+          ? (args.comboItems as Array<{ value: unknown; caption: unknown }>).map((it) => ({
+              value: String(it.value),
+              caption: String(it.caption)
+            }))
+          : undefined,
+        refBaseDataObjectKey:
+          args.refBaseDataObjectKey !== undefined ? String(args.refBaseDataObjectKey) : undefined,
+        sourceField: args.sourceField !== undefined ? String(args.sourceField) : undefined,
+        srcDisplayFieldName:
+          args.srcDisplayFieldName !== undefined ? String(args.srcDisplayFieldName) : undefined
+      };
+      const r = await addFieldToExtension(pool, projectId, String(args.extId), type, spec);
       return JSON.stringify(
         {
           ok: true,
           extId: args.extId,
           fieldKey: args.key,
+          fieldType: type,
           backupFile: r.backupFile,
           reminder:
             '字段已写入 DB。去 BOS Designer 中刷新扩展(工具栏刷新按钮)就能看到新字段。**字段默认落在容器左上角,会和原厂字段视觉重叠 —— 这是预期的,需在 BOS Designer 中手动拖到合适位置。**如用 SVN 同步共享给团队, 记得点一次"同步"。'
