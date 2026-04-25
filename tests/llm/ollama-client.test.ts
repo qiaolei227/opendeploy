@@ -60,7 +60,7 @@ describe('Ollama client', () => {
     ]);
   });
 
-  it('handles missing eval_count gracefully (defaults to 0)', async () => {
+  it('does NOT emit standalone usage event when eval_count is missing (avoids clobbering delta estimate with 0)', async () => {
     const fetch = mockFetchNdJson([
       '{"message":{"content":"Hi"}}',
       '{"done":true}'
@@ -71,8 +71,8 @@ describe('Ollama client', () => {
       providerId: 'ollama', messages: [{ id: '1', role: 'user', content: 'hi', createdAt: '' }]
     })) events.push(e);
 
-    expect(events.find((e: any) => e.type === 'usage')).toEqual({ type: 'usage', outputTokens: 0 });
-    expect(events.at(-1)).toMatchObject({ type: 'done', finishReason: 'stop' });
+    expect(events.find((e: any) => e.type === 'usage')).toBeUndefined();
+    expect(events.at(-1)).toMatchObject({ type: 'done', finishReason: 'stop', usage: { outputTokens: 0 } });
   });
 
   it('emits error event on non-200 response', async () => {

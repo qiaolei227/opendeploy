@@ -156,4 +156,16 @@ describe('chat-store text batching', () => {
     expect(later.pendingTokens).toBe(23);
     expect(later.tokensExact).toBe(true);
   });
+
+  it('ignores usage event with outputTokens=0 (defends against e.g. Ollama with no eval_count)', async () => {
+    await sendAndCaptureStream();
+    emit({ type: 'delta', content: 'a' });
+    emit({ type: 'delta', content: 'b' });
+    emit({ type: 'delta', content: 'c' }); // pendingTokens = 3, tokensExact = undefined
+    emit({ type: 'usage', outputTokens: 0 });
+    const after = useChatStore.getState().messages.at(-1)!;
+    // Should NOT clobber the delta estimate, NOT mark exact
+    expect(after.pendingTokens).toBe(3);
+    expect(after.tokensExact).toBeFalsy();
+  });
 });

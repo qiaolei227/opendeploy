@@ -61,7 +61,11 @@ export function createOllamaClient(opts: OllamaOpts): LlmClient {
           }
           if (obj.done) {
             const outputTokens = obj.eval_count ?? 0;
-            yield { type: 'usage', outputTokens };
+            // Skip standalone usage emit when eval_count is missing/zero — the chat-store
+            // would otherwise replace its delta-based estimate with 0 and stamp it as exact.
+            if (typeof obj.eval_count === 'number' && obj.eval_count > 0) {
+              yield { type: 'usage', outputTokens };
+            }
             yield {
               type: 'done',
               finishReason: 'stop',

@@ -160,12 +160,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
         }
       } else if (ev.type === 'usage') {
+        // Ignore meaningless usage (e.g. Ollama emitting 0 when eval_count is missing) —
+        // otherwise the delta-based estimate gets clobbered with 0 and stamped exact.
+        if (typeof ev.outputTokens !== 'number' || ev.outputTokens <= 0) return;
         const msgs = [...get().messages];
         const last = msgs[msgs.length - 1];
         if (last && last.role === 'assistant') {
           msgs[msgs.length - 1] = {
             ...last,
-            pendingTokens: ev.outputTokens ?? last.pendingTokens,
+            pendingTokens: ev.outputTokens,
             tokensExact: true
           };
           set({ messages: msgs });
