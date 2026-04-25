@@ -48,7 +48,8 @@ category: bos-features
 | 扩展对象机制(FKERNELXML delta、8 张表写入) | `references/extension-model` |
 | **已实证的坑(FUSERID 作废 / FTABLEID / 缓存 / 写白名单)** | `references/known-pitfalls` |
 | 扩展字段的 schema 和落位 | `references/custom-fields` |
-| 业务规则 / 公式 ⚠️ 含训练数据幻觉,优先看 capability-catalog 第 4 节 | `references/business-rules` |
+| **🟢 业务规则 / 公式 — IronPython 反编译实证(Plan 5.12 validator 依据)** | `references/business-rules-corrected` |
+| 业务规则 / 公式 ⚠️ 旧版含训练数据幻觉,已被上方文件取代 | `references/business-rules` |
 | 转换规则 / 下推配置 | `references/convert-rules` |
 | 审批流 + Python 条件表达式 | `references/approval-workflow` |
 | 插件类型全谱 | `references/plugin-types` |
