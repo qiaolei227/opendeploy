@@ -389,13 +389,14 @@ describe('parseFieldsFromKernelXml', () => {
 });
 
 describe('insertTextFieldIntoKernelXml default placement', () => {
-  it('places new field with high Top/ZOrder so it does not overlap top-left', () => {
+  it('defaults to top-left (Top=10 / Left=10) — user always drags in BOS Designer', () => {
     const xml = insertTextFieldIntoKernelXml(
       buildExtensionKernelXml(EXT, []),
       { spec: { key: 'F_DEMO', caption: '演示字段' } }
     );
-    expect(xml).toContain('<Top>9000</Top>');
-    expect(xml).toContain('<ZOrderIndex>9999</ZOrderIndex>');
+    expect(xml).toContain('<Top>10</Top>');
+    expect(xml).toContain('<Left>10</Left>');
+    expect(xml).toContain('<ZOrderIndex>99</ZOrderIndex>');
   });
 
   it('respects explicit top/left from spec', () => {

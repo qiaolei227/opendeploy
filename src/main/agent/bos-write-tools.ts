@@ -350,11 +350,11 @@ function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
           },
           top: {
             type: 'number',
-            description: '(可选) 字段 Top 像素, 默认 9000 (容器底部, 不和现有字段重叠)。'
+            description: '(可选) 字段 Top 像素, 默认 10 (左上角)。用户必须在 BOS Designer 中手动拖到合适位置;只有真知道目标坐标才指定。'
           },
           left: {
             type: 'number',
-            description: '(可选) 字段 Left 像素, 默认 10。'
+            description: '(可选) 字段 Left 像素, 默认 10 (左上角)。'
           }
         },
         required: ['extId', 'type', 'key', 'caption']
@@ -384,7 +384,7 @@ function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
           fieldKey: args.key,
           backupFile: r.backupFile,
           reminder:
-            '字段已写入 DB。去 BOS Designer 中刷新扩展(工具栏刷新按钮)就能看到新字段。**字段默认落在容器底部(Top=9000),需在 BOS Designer 拖动到合适位置。**如用 SVN 同步共享给团队, 记得点一次"同步"。'
+            '字段已写入 DB。去 BOS Designer 中刷新扩展(工具栏刷新按钮)就能看到新字段。**字段默认落在容器左上角,会和原厂字段视觉重叠 —— 这是预期的,需在 BOS Designer 中手动拖到合适位置。**如用 SVN 同步共享给团队, 记得点一次"同步"。'
         },
         null,
         2

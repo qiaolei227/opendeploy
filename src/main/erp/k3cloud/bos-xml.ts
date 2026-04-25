@@ -237,9 +237,10 @@ export interface TextFieldSpec {
   width?: number;
   /** 标签宽度 px, 默认 100. */
   labelWidth?: number;
-  /** 字段在容器中的 Top 像素位置,默认 9000(底部),避免和现有字段重叠。*/
+  /** 字段在容器中的 Top 像素位置,默认 10(左上角)。用户在 BOS Designer 中拖到合适位置;
+   * agent 真知道目标坐标时通过此参数显式指定。*/
   top?: number;
-  /** 字段在容器中的 Left 像素位置,默认 10。*/
+  /** 字段在容器中的 Left 像素位置,默认 10(左上角)。*/
   left?: number;
 }
 
@@ -256,10 +257,11 @@ function defaultIdGenerator(): string {
 }
 
 function defaultNumericGenerator() {
-  // 加字段的 位次 在客户 Designer 打开后会被自动重整,这里只要给个不和
-  // 常见字段 (0-1000) 撞的大值。zOrderIndex 9999 让新字段在堆叠顺序上压
-  // 在最上层(配合 Top=9000 默认放在容器底部)避免和现有字段视觉重叠。
-  return { listTabIndex: 9999, zOrderIndex: 9999, tabindex: 9999 };
+  // listTabIndex / tabindex 是顺序号,给个不和常见字段 (0-1000) 撞的大值
+  // 即可,Designer 打开后会自动重整。zOrderIndex 走 BOS Designer 默认值
+  // 99,意味着新字段视觉上"叠"在原厂字段同层,用户 F5 后立刻能看到这是
+  // 个待处理的新东西,然后手动拖到合适位置。
+  return { listTabIndex: 9999, zOrderIndex: 99, tabindex: 9999 };
 }
 
 function renderTextFieldNode(spec: TextFieldSpec, id: string, listTabIndex: number): string {
@@ -288,7 +290,7 @@ function renderTextFieldAppearanceNode(
   const container = spec.containerKey ?? 'FTAB_P0';
   const width = spec.width ?? 300;
   const labelWidth = spec.labelWidth ?? 100;
-  const top = spec.top ?? 9000;
+  const top = spec.top ?? 10;
   const left = spec.left ?? 10;
   return (
     '<TextFieldAppearance ElementType="1" ElementStyle="1">' +
