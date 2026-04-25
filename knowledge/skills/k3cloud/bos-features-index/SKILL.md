@@ -26,6 +26,7 @@ category: bos-features
 | **业务规则 / 公式** | 字段间自动计算(`F金额 = F数量 * F单价`) | ❌ 手工 | `references/business-rules` |
 | **转换规则** | 单据下推映射(销售订单 → 发货通知单) | ❌ 手工 | `references/convert-rules` |
 | **审批流** | 多级审批、条件路由、Python 表达式判断 | ❌ 手工 | `references/approval-workflow` |
+| **操作/按钮** | 工具栏自定义按钮(FormOperation + BarButtonItem),绑定 Python 插件响应 | ⏳ 计划中 — Plan 5.12.6: `kingdee_add_operation` / `_list_operations` / `_delete_operation` | `references/operations-decompiled` |
 | **插件类型** | 6 种插件类型(表单 / 列表 / 操作 / 转换 / 打印 / 报表) | ✅ 仅表单插件(FormPlugins)| `references/plugin-types` |
 | **套打模板** | 自定义打印布局 | ❌ 手工 | (未覆盖) |
 | **权限方案** | 按角色 / 组织控制字段可见性 / 可编辑 | ❌ 手工 | (未覆盖) |
@@ -48,9 +49,13 @@ category: bos-features
 | 扩展对象机制(FKERNELXML delta、8 张表写入) | `references/extension-model` |
 | **已实证的坑(FUSERID 作废 / FTABLEID / 缓存 / 写白名单)** | `references/known-pitfalls` |
 | 扩展字段的 schema 和落位 | `references/custom-fields` |
-| **🟢 业务规则 / 公式 — IronPython 反编译实证(Plan 5.12 validator 依据)** | `references/business-rules-corrected` |
+| **🟢 Entity 模型(Head/Entry/SubEntry) — 反编译+DB 实证(Plan 5.12.2 依据)** | `references/entities-decompiled` |
+| **🟢 操作/按钮 — FormOperation 属性模型 + BarButtonItem + OperationId 目录(Plan 5.12.6 依据)** | `references/operations-decompiled` |
+| **🟢 业务规则 / 公式 — IronPython 反编译实证(Plan 5.12.3 validator 依据)** | `references/business-rules-corrected` |
+| **🟢 转换规则 — T_META_CONVERTRULE 表 + 10 ConvertPolicy 子类(Plan 5.12.4 只读依据)** | `references/convert-rules-decompiled` |
+| **🟢 反写规则 — T_BF_WRITEBACKRULE 表 + Add/Lessen/Cover 三种动作(Plan 5.12.5 依据)** | `references/writeback-rules-decompiled` |
 | 业务规则 / 公式 ⚠️ 旧版含训练数据幻觉,已被上方文件取代 | `references/business-rules` |
-| 转换规则 / 下推配置 | `references/convert-rules` |
+| 转换规则 / 下推配置 ⚠️ 旧版骨架,已被上方实证文件取代 | `references/convert-rules` |
 | 审批流 + Python 条件表达式 | `references/approval-workflow` |
 | 插件类型全谱 | `references/plugin-types` |
 | 套打模板(骨架) | `references/print-templates` |
