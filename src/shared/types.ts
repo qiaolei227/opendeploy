@@ -45,6 +45,8 @@ export interface LlmChatRequest {
   conversationId?: string;
   providerId: string;
   apiKey?: string;
+  /** Model id override. 缺省时 client 端用 PROVIDER_CONFIGS[providerId].defaultModel. */
+  model?: string;
   userMessage: string;
 }
 

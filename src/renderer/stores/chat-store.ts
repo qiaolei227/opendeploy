@@ -8,6 +8,8 @@ import {
   reconstructBlocksFromLegacy,
   type MessageBlock
 } from '@shared/blocks';
+import { resolveActiveModel, PROVIDER_BY_ID } from '@renderer/data/providers';
+import { useSettingsStore } from './settings-store';
 
 export type { MessageBlock } from '@shared/blocks';
 
@@ -191,9 +193,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
 
     try {
+      // Resolve model id from settings. Ollama uses free-form ollamaModelInput,
+      // every other provider uses modelByProvider[providerId] → recommended fallback.
+      const settings = useSettingsStore.getState().settings;
+      let modelId: string | undefined;
+      if (providerId === 'ollama') {
+        const provider = PROVIDER_BY_ID['ollama'];
+        modelId = settings.ollamaModelInput?.trim() || provider?.modelInputDefault;
+      } else {
+        modelId = resolveActiveModel(providerId, settings.modelByProvider)?.id;
+      }
+
       const { requestId } = await window.opendeploy.llmSendMessage({
         conversationId: get().conversationId ?? undefined,
-        providerId, apiKey, userMessage: text
+        providerId,
+        apiKey,
+        model: modelId,
+        userMessage: text
       });
       set({ currentRequestId: requestId, conversationId: get().conversationId ?? requestId });
     } catch (err) {

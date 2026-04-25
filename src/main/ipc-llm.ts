@@ -130,6 +130,7 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
           initialMessages: history,
           providerId: req.providerId,
           apiKey: req.apiKey,
+          model: req.model,
           systemPrompt,
           signal: abortController.signal,
           onEvent: (e) => {
