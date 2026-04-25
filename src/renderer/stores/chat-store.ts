@@ -10,6 +10,7 @@ import {
 } from '@shared/blocks';
 import { resolveActiveModel, PROVIDER_BY_ID } from '@renderer/data/providers';
 import { useSettingsStore } from './settings-store';
+import { useProjectsStore } from './projects-store';
 
 export type { MessageBlock } from '@shared/blocks';
 
@@ -235,6 +236,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   loadConversation: async (id) => {
     const conv = await window.opendeploy.conversationsLoad(id);
+
+    // Auto-switch active project to whatever this conversation was started under,
+    // so agent tools (kingdee_*) and StatusBar reflect the right ERP context.
+    // Skipped silently when: legacy conversation has no projectId, target project
+    // was deleted (not in projects[]), or it's already active.
+    if (conv.projectId) {
+      const projects = useProjectsStore.getState();
+      const exists = projects.projects.some((p) => p.id === conv.projectId);
+      if (exists && projects.connectionState.projectId !== conv.projectId) {
+        await projects.setActive(conv.projectId);
+      }
+    }
 
     // Build tool_call_id → tool name map across every assistant message,
     // and tool_call_id → result content map across every `tool` role message.

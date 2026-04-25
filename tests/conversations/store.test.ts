@@ -30,6 +30,22 @@ describe('conversation store', () => {
     expect(loaded.messages[0].content).toBe('hello');
   });
 
+  it('round-trips projectId through frontmatter', async () => {
+    const id = await saveConversation({
+      title: 'project-bound',
+      projectId: 'p_abc123',
+      messages: []
+    });
+    const loaded = await loadConversation(id);
+    expect(loaded.projectId).toBe('p_abc123');
+  });
+
+  it('omits projectId field when not provided (legacy compat)', async () => {
+    const id = await saveConversation({ title: 'no-project', messages: [] });
+    const loaded = await loadConversation(id);
+    expect(loaded.projectId).toBeUndefined();
+  });
+
   it('lists saved conversations with titles and timestamps', async () => {
     await saveConversation({ title: 'first', messages: [] });
     await new Promise(r => setTimeout(r, 5));

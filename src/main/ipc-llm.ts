@@ -175,7 +175,12 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
           const project = await getProject(projectId).catch(() => null);
           if (project) title = `[${project.name}] ${titleBody}`;
         }
-        await saveConversation({ id: convId, title, messages: finalMessages });
+        await saveConversation({
+          id: convId,
+          title,
+          messages: finalMessages,
+          ...(projectId ? { projectId } : {})
+        });
 
         emit({ type: 'done' });
       } catch (err) {

@@ -14,6 +14,13 @@ export interface Conversation {
   id: string;
   title: string;
   savedAt: string;
+  /**
+   * Project this conversation was started under (active project at first save).
+   * Lets the renderer auto-switch active project on conversation reactivate
+   * so agent tools / status bar reflect the right ERP context. Absent on
+   * conversations saved before this field was added — caller must handle that.
+   */
+  projectId?: string;
   messages: Message[];
 }
 
@@ -157,6 +164,7 @@ function parseConversation(content: string): Conversation {
     id: frontmatter.id ?? '',
     title: frontmatter.title ?? '',
     savedAt: frontmatter.savedAt ?? '',
+    ...(frontmatter.projectId ? { projectId: frontmatter.projectId } : {}),
     messages
   };
 }
@@ -164,6 +172,7 @@ function parseConversation(content: string): Conversation {
 export async function saveConversation(params: {
   id?: string;
   title: string;
+  projectId?: string;
   messages: Message[];
 }): Promise<string> {
   const dir = getConversationsDir();
@@ -177,6 +186,7 @@ export async function saveConversation(params: {
     `title: ${params.title}`,
     `savedAt: ${now.toISOString()}`,
     `messageCount: ${params.messages.length}`,
+    ...(params.projectId ? [`projectId: ${params.projectId}`] : []),
     '---',
     '',
     ...params.messages.map(formatMessage)

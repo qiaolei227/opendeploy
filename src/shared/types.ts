@@ -90,6 +90,8 @@ export interface IpcApi {
   conversationsLoad: (id: string) => Promise<{
     id: string;
     title: string;
+    /** Project this conversation was started under. Absent on legacy files. */
+    projectId?: string;
     messages: Array<{
       id: string;
       role: string;
