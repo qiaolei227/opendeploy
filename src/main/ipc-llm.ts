@@ -2,6 +2,9 @@ import { ipcMain, type BrowserWindow } from 'electron';
 import type { LlmChatRequest } from '@shared/types';
 import { createLlmClient } from './llm/factory';
 import { runAgentLoop } from './agent/loop';
+import { createLogger } from './logger';
+
+const logger = createLogger('ipc-llm');
 import { ToolRegistry } from './agent/tools';
 import { BUILTIN_TOOLS } from './agent/builtin-tools';
 import { buildSkillsContext } from './agent/skills-integration';
@@ -127,10 +130,15 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
           initialMessages: history,
           providerId: req.providerId,
           apiKey: req.apiKey,
+          model: req.model,
           systemPrompt,
           signal: abortController.signal,
           onEvent: (e) => {
             if (e.type === 'delta') emit({ type: 'delta', content: e.content });
+            else if (e.type === 'reasoning_delta')
+              emit({ type: 'reasoning_delta', content: e.content });
+            else if (e.type === 'reasoning_signature')
+              emit({ type: 'reasoning_signature', signature: e.signature });
             else if (e.type === 'tool_call') emit({
               type: 'tool_call',
               toolCallId: e.toolCall.id,
@@ -141,6 +149,10 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
               type: 'tool_result',
               toolCallId: e.toolCallId,
               content: e.content
+            });
+            else if (e.type === 'usage') emit({
+              type: 'usage',
+              outputTokens: e.outputTokens
             });
           }
         });
@@ -163,7 +175,12 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
           const project = await getProject(projectId).catch(() => null);
           if (project) title = `[${project.name}] ${titleBody}`;
         }
-        await saveConversation({ id: convId, title, messages: finalMessages });
+        await saveConversation({
+          id: convId,
+          title,
+          messages: finalMessages,
+          ...(projectId ? { projectId } : {})
+        });
 
         emit({ type: 'done' });
       } catch (err) {
@@ -173,6 +190,12 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
         if (abortController.signal.aborted) {
           emit({ type: 'done' });
         } else {
+          // Log to app.log before surfacing — user wants "go check the log
+          // file to see what happened" when agent errors out.
+          void logger.error(
+            `agent loop crashed for provider=${req.providerId}`,
+            err instanceof Error ? err : new Error(String(err))
+          );
           emit({ type: 'error', error: err instanceof Error ? err.message : String(err) });
         }
       } finally {

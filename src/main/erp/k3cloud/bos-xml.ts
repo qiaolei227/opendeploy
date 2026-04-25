@@ -26,6 +26,7 @@
  * and only ever skim from the DB.
  */
 
+import { randomUUID } from 'node:crypto';
 import type { PluginMeta } from '@shared/erp-types';
 
 export function xmlEscape(s: string): string {
@@ -215,4 +216,271 @@ export function removePluginFromKernelXml(xml: string, className: string): strin
   const idMatch = xml.match(/<Id>([^<]+)<\/Id>/);
   if (!idMatch) throw new Error('kernel XML is missing the extension <Id>');
   return buildExtensionKernelXml(idMatch[1], next);
+}
+
+// ─── Field insertion ──────────────────────────────────────────────────
+
+export interface TextFieldSpec {
+  /** 表单 Key, 如 'F_TEST01'. BOS Designer 显示/绑定控件的唯一标识. */
+  key: string;
+  /** 显示标签 (label), 如 '客户编号'. */
+  caption: string;
+  /** 内部名称 (BOS Designer 的"名称"栏), 默认 = caption. */
+  name?: string;
+  /** PropertyName, 默认 = key. */
+  propertyName?: string;
+  /** DB 列名 FieldName, 默认 = key 的大写. */
+  fieldName?: string;
+  /** 布局容器 Key, 默认 'FTAB_P0' (主页签). */
+  containerKey?: string;
+  /** 控件宽度 px, 默认 300. */
+  width?: number;
+  /** 标签宽度 px, 默认 100. */
+  labelWidth?: number;
+  /** 字段在容器中的 Top 像素位置,默认 10(左上角)。用户在 BOS Designer 中拖到合适位置;
+   * agent 真知道目标坐标时通过此参数显式指定。*/
+  top?: number;
+  /** 字段在容器中的 Left 像素位置,默认 10(左上角)。*/
+  left?: number;
+}
+
+export interface InsertTextFieldOptions {
+  spec: TextFieldSpec;
+  /** 测试注入: 32-char GUID (无 dash) 生成器. 默认用 randomUUID stripped. */
+  idGenerator?: () => string;
+  /** 测试注入: 位次相关数值生成器. 生产环境默认值较大避开 Designer 0-1000 常用区间. */
+  numericGenerator?: () => { listTabIndex: number; zOrderIndex: number; tabindex: number };
+}
+
+function defaultIdGenerator(): string {
+  return randomUUID().replace(/-/g, '');
+}
+
+function defaultNumericGenerator() {
+  // listTabIndex / tabindex 是顺序号,给个不和常见字段 (0-1000) 撞的大值
+  // 即可,Designer 打开后会自动重整。zOrderIndex 走 BOS Designer 默认值
+  // 99,意味着新字段视觉上"叠"在原厂字段同层,用户 F5 后立刻能看到这是
+  // 个待处理的新东西,然后手动拖到合适位置。
+  return { listTabIndex: 9999, zOrderIndex: 99, tabindex: 9999 };
+}
+
+function renderTextFieldNode(spec: TextFieldSpec, id: string, listTabIndex: number): string {
+  const name = spec.name ?? spec.caption;
+  const propertyName = spec.propertyName ?? spec.key;
+  const fieldName = spec.fieldName ?? spec.key.toUpperCase();
+  return (
+    '<TextField ElementType="1" ElementStyle="0">' +
+    '<ConditionType>0</ConditionType>' +
+    `<PropertyName>${xmlEscape(propertyName)}</PropertyName>` +
+    `<FieldName>${xmlEscape(fieldName)}</FieldName>` +
+    `<ListTabIndex>${listTabIndex}</ListTabIndex>` +
+    `<Name>${xmlEscape(name)}</Name>` +
+    `<Id>${xmlEscape(id)}</Id>` +
+    `<Key>${xmlEscape(spec.key)}</Key>` +
+    '</TextField>'
+  );
+}
+
+function renderTextFieldAppearanceNode(
+  spec: TextFieldSpec,
+  id: string,
+  zOrderIndex: number,
+  tabindex: number
+): string {
+  const container = spec.containerKey ?? 'FTAB_P0';
+  const width = spec.width ?? 300;
+  const labelWidth = spec.labelWidth ?? 100;
+  const top = spec.top ?? 10;
+  const left = spec.left ?? 10;
+  return (
+    '<TextFieldAppearance ElementType="1" ElementStyle="1">' +
+    '<EmptyText action="setnull"/>' +
+    `<Key>${xmlEscape(spec.key)}</Key>` +
+    '<ListDefaultWidth>100</ListDefaultWidth>' +
+    `<Container>${xmlEscape(container)}</Container>` +
+    `<ZOrderIndex>${zOrderIndex}</ZOrderIndex>` +
+    `<Tabindex>${tabindex}</Tabindex>` +
+    `<Left>${left}</Left>` +
+    `<Top>${top}</Top>` +
+    `<LabelWidth>${labelWidth}</LabelWidth>` +
+    `<Width>${width}</Width>` +
+    '<Visible>1023</Visible>' +
+    '<VisibleExt>100</VisibleExt>' +
+    `<Caption>${xmlEscape(spec.caption)}</Caption>` +
+    `<Id>${xmlEscape(id)}</Id>` +
+    '</TextFieldAppearance>'
+  );
+}
+
+/**
+ * 往扩展的 FKERNELXML 里插入一个文本字段:
+ *   - 新的 <TextField> 作为 Elements 下 Form 的兄弟节点
+ *   - 新的 <TextFieldAppearance> 作为 LayoutInfos/LayoutInfo/Appearances 的子节点
+ *
+ * 扩展首次加字段时 <LayoutInfos> 整块不存在 —— 此函数会创建。
+ * 已有时追加进 Appearances, 不重建 (避免冲掉其他字段的 Appearance).
+ */
+export function insertTextFieldIntoKernelXml(
+  xml: string,
+  options: InsertTextFieldOptions
+): string {
+  const { spec } = options;
+  if (!spec.key || spec.key.trim() === '') {
+    throw new Error('TextFieldSpec.key must not be empty');
+  }
+  const formCloseIdx = xml.indexOf('</Form>');
+  if (formCloseIdx < 0) throw new Error('kernel XML is not an extension (no </Form>)');
+
+  const idGen = options.idGenerator ?? defaultIdGenerator;
+  const numGen = options.numericGenerator ?? defaultNumericGenerator;
+  const nums = numGen();
+
+  const textFieldId = idGen();
+  const appearanceId = idGen();
+
+  const textFieldXml = renderTextFieldNode(spec, textFieldId, nums.listTabIndex);
+  const appearanceXml = renderTextFieldAppearanceNode(
+    spec,
+    appearanceId,
+    nums.zOrderIndex,
+    nums.tabindex
+  );
+
+  // Step 1: 插 TextField 到 </Form> 之后
+  const afterFormClose = formCloseIdx + '</Form>'.length;
+  let out = xml.slice(0, afterFormClose) + textFieldXml + xml.slice(afterFormClose);
+
+  // Step 2: 处理 LayoutInfos
+  const appearancesCloseIdx = out.indexOf('</Appearances>');
+  if (appearancesCloseIdx >= 0) {
+    // 已有 LayoutInfos + Appearances, 追加 TextFieldAppearance
+    out =
+      out.slice(0, appearancesCloseIdx) + appearanceXml + out.slice(appearancesCloseIdx);
+  } else {
+    // 没有 LayoutInfos, 创建整块 (含一个 LayoutInfo 新 oid)
+    const layoutOid = randomUUID(); // 保留 dash, 和实测 XML 一致
+    const layoutInfosBlock =
+      '<LayoutInfos>' +
+      `<LayoutInfo action="edit" oid="${layoutOid}">` +
+      '<Appearances>' +
+      appearanceXml +
+      '</Appearances>' +
+      '</LayoutInfo>' +
+      '</LayoutInfos>';
+    const metadataCloseIdx = out.indexOf('</FormMetadata>');
+    if (metadataCloseIdx < 0) throw new Error('kernel XML has no </FormMetadata> close tag');
+    out = out.slice(0, metadataCloseIdx) + layoutInfosBlock + out.slice(metadataCloseIdx);
+  }
+
+  return out;
+}
+
+// ─── Field reading ────────────────────────────────────────────────────
+
+export interface ExtensionFieldMeta {
+  /** 表单 Key, 如 'F_DEMO' (BOS Designer 中的"字段标识")。*/
+  key: string;
+  /** v0.1 只解析 TextField → 'text';后续支持其他类型时此处分支。*/
+  type: 'text';
+  /** 显示标签;优先取 Appearance 的 Caption,次取 TextField 的 Name。*/
+  caption: string;
+  propertyName: string;
+  fieldName: string;
+  /** 布局容器 Key (如 'FTAB_P0'), Appearance 缺失时 undefined。*/
+  container: string | undefined;
+}
+
+/**
+ * 解析扩展 FKERNELXML 里的扩展字段定义(目前只识别 <TextField>)。
+ * 流程:① 遍历 Elements 直接子级的 <TextField> 收 base info(按 key 入 map);
+ * ② 在 LayoutInfos/Appearances/TextFieldAppearance 里按 Key 配对捞 Caption / Container,
+ *    并以 Appearance 出现顺序作为最终输出顺序——这是 BOS Designer 里用户感知的字段顺序;
+ *    `insertTextFieldIntoKernelXml` 把新 TextField 插在 `</Form>` 之后, 文档里 TextField
+ *    顺序与插入顺序相反, 但 Appearance 是追加进 `</Appearances>` 之前, 顺序正向。
+ * ③ 没有 Appearance 的 TextField 兜底按文档出现顺序追加, 保证 parser 不丢字段。
+ */
+export function parseFieldsFromKernelXml(xml: string): ExtensionFieldMeta[] {
+  if (!xml) return [];
+
+  // Step 1: 取 Appearance 的 Key → {caption, container} 映射(保留出现顺序)
+  const appearanceByKey = new Map<string, { caption?: string; container?: string }>();
+  collectAppearances(xml, appearanceByKey);
+
+  // Step 2: 收所有顶层 <TextField> 的 base info, 按 key → meta(无 caption/container)入 map
+  type Base = { propertyName: string; fieldName: string; name: string };
+  const baseByKey = new Map<string, Base>();
+  const baseOrder: string[] = []; // 文档出现顺序, 兜底用
+  type Frame = { tag: string; bodyStart: number; isTextField: boolean };
+  const stack: Frame[] = [];
+  for (const tk of iterateTagTokens(xml)) {
+    if (tk.isSelfClose) continue;
+    if (!tk.isClose) {
+      stack.push({ tag: tk.tag, bodyStart: tk.end, isTextField: tk.tag === 'TextField' });
+      continue;
+    }
+    const frame = stack.pop();
+    if (!frame || !frame.isTextField) continue;
+    // 字段定义的 <TextField> 是 <Elements> 的直接子。任何嵌得更深(LayoutInfos /
+    // Appearances / 未来可能的 wrapper 标签)的同名节点都不是字段定义本身。
+    const parent = stack[stack.length - 1];
+    if (!parent || parent.tag !== 'Elements') continue;
+    const body = xml.substring(frame.bodyStart, tk.start);
+    const key = findLastTopLevelChildText(body, 'Key');
+    if (!key || baseByKey.has(key)) continue;
+    baseByKey.set(key, {
+      propertyName: findLastTopLevelChildText(body, 'PropertyName') ?? key,
+      fieldName: findLastTopLevelChildText(body, 'FieldName') ?? key.toUpperCase(),
+      name: findLastTopLevelChildText(body, 'Name') ?? key
+    });
+    baseOrder.push(key);
+  }
+
+  // Step 3: 优先按 Appearance 顺序输出, 没 Appearance 的按 TextField 文档顺序兜底
+  const fields: ExtensionFieldMeta[] = [];
+  const emitted = new Set<string>();
+  const emit = (key: string) => {
+    const base = baseByKey.get(key);
+    if (!base || emitted.has(key)) return;
+    emitted.add(key);
+    const app = appearanceByKey.get(key);
+    fields.push({
+      key,
+      type: 'text',
+      caption: app?.caption ?? base.name,
+      propertyName: base.propertyName,
+      fieldName: base.fieldName,
+      container: app?.container
+    });
+  };
+  for (const key of appearanceByKey.keys()) emit(key);
+  for (const key of baseOrder) emit(key);
+  return fields;
+}
+
+function collectAppearances(
+  xml: string,
+  out: Map<string, { caption?: string; container?: string }>
+): void {
+  type Frame = { tag: string; bodyStart: number; isTextFieldAppearance: boolean };
+  const stack: Frame[] = [];
+  for (const tk of iterateTagTokens(xml)) {
+    if (tk.isSelfClose) continue;
+    if (!tk.isClose) {
+      stack.push({
+        tag: tk.tag,
+        bodyStart: tk.end,
+        isTextFieldAppearance: tk.tag === 'TextFieldAppearance'
+      });
+      continue;
+    }
+    const frame = stack.pop();
+    if (!frame || !frame.isTextFieldAppearance) continue;
+    const body = xml.substring(frame.bodyStart, tk.start);
+    const key = findLastTopLevelChildText(body, 'Key');
+    if (!key) continue;
+    out.set(key, {
+      caption: findLastTopLevelChildText(body, 'Caption'),
+      container: findLastTopLevelChildText(body, 'Container')
+    });
+  }
 }

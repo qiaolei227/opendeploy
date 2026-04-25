@@ -50,7 +50,8 @@ export type BosWriteOperation =
   | 'create-extension'
   | 'register-plugin'
   | 'unregister-plugin'
-  | 'delete-extension';
+  | 'delete-extension'
+  | 'add-field';
 
 export interface ExtensionSnapshot {
   /** ISO timestamp of when the snapshot was taken. */

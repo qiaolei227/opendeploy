@@ -18,6 +18,14 @@ export interface AppSettings {
   theme: Theme;
   llmProvider?: string;
   apiKeys?: Record<string, string>;
+  /**
+   * 用户在每个 LLM 厂商下选择的具体模型 id (e.g. {deepseek: 'deepseek-v4-pro'}).
+   * 缺省时通过 resolveActiveModel 回退到该 provider 的 recommended 模型.
+   * Ollama 走 ollamaModelInput 而不是这里 (因为 Ollama 是自由文本).
+   */
+  modelByProvider?: Record<string, string>;
+  /** Ollama 自定义模型名 (用户在 Settings 输入框填的). 缺省走 PROVIDERS.find(ollama).modelInputDefault. */
+  ollamaModelInput?: string;
   /** User-configured knowledge sources (github / gitee / local). Defaults to empty. */
   knowledgeSources?: KnowledgeSource[];
   /** Projects configured by the user. Each owns its own ERP connection config. */
@@ -37,13 +45,25 @@ export interface LlmChatRequest {
   conversationId?: string;
   providerId: string;
   apiKey?: string;
+  /** Model id override. 缺省时 client 端用 PROVIDER_CONFIGS[providerId].defaultModel. */
+  model?: string;
   userMessage: string;
 }
 
 export interface LlmStreamEvent {
   requestId: string;
-  type: 'delta' | 'tool_call' | 'tool_result' | 'done' | 'error';
+  type:
+    | 'delta'
+    | 'reasoning_delta'
+    | 'reasoning_signature'
+    | 'tool_call'
+    | 'tool_result'
+    | 'usage'
+    | 'done'
+    | 'error';
   content?: string;
+  /** Present on `reasoning_signature` — Anthropic thinking block signature. */
+  signature?: string;
   /**
    * Identifies which tool call an event belongs to. REQUIRED on `tool_call`
    * (so the renderer can register a slot) and on `tool_result` (so the
@@ -53,6 +73,8 @@ export interface LlmStreamEvent {
   toolCallId?: string;
   toolCallName?: string;
   toolCallArgs?: string;
+  /** Present on `usage` events — provider-reported cumulative output tokens. */
+  outputTokens?: number;
   error?: string;
 }
 
@@ -68,6 +90,8 @@ export interface IpcApi {
   conversationsLoad: (id: string) => Promise<{
     id: string;
     title: string;
+    /** Project this conversation was started under. Absent on legacy files. */
+    projectId?: string;
     messages: Array<{
       id: string;
       role: string;

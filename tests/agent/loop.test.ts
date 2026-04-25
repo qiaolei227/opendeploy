@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { runAgentLoop, type AgentLoopEvent } from '../../src/main/agent/loop';
 import type { LlmClient } from '../../src/main/llm/types';
 import type { Message, StreamEvent } from '../../src/shared/llm-types';
@@ -159,5 +162,118 @@ describe('runAgentLoop', () => {
         maxIterations: 2
       })
     ).rejects.toThrow(/max iterations/i);
+  });
+
+  it('accumulates reasoning_delta into assistant message.reasoningContent and emits events', async () => {
+    const client = fakeClient([[
+      { type: 'reasoning_delta', content: '用户要加字段,' },
+      { type: 'reasoning_delta', content: '先列扩展。' },
+      { type: 'delta', content: '先看看扩展' },
+      { type: 'done', finishReason: 'stop' }
+    ]]);
+    const events: AgentLoopEvent[] = [];
+    const finalMessages = await runAgentLoop({
+      client,
+      tools: new ToolRegistry(),
+      initialMessages: [{ id: 'u1', role: 'user', content: 'hi', createdAt: '' }],
+      providerId: 'test',
+      apiKey: 'k',
+      onEvent: (e) => events.push(e)
+    });
+    const assistant = finalMessages[finalMessages.length - 1];
+    expect(assistant.role).toBe('assistant');
+    expect(assistant.reasoningContent).toBe('用户要加字段,先列扩展。');
+    expect(assistant.content).toBe('先看看扩展');
+    const reasoningEvents = events.filter((e) => e.type === 'reasoning_delta');
+    expect(reasoningEvents).toHaveLength(2);
+  });
+
+  it('captures reasoning_signature into assistant message.reasoningSignature', async () => {
+    const client = fakeClient([[
+      { type: 'reasoning_delta', content: 'thinking...' },
+      { type: 'reasoning_signature', signature: 'sig-xyz' },
+      { type: 'delta', content: 'done' },
+      { type: 'done', finishReason: 'stop' }
+    ]]);
+    const finalMessages = await runAgentLoop({
+      client,
+      tools: new ToolRegistry(),
+      initialMessages: [{ id: 'u1', role: 'user', content: 'hi', createdAt: '' }],
+      providerId: 'test',
+      apiKey: 'k'
+    });
+    const assistant = finalMessages[finalMessages.length - 1];
+    expect(assistant.reasoningContent).toBe('thinking...');
+    expect(assistant.reasoningSignature).toBe('sig-xyz');
+  });
+});
+
+describe('runAgentLoop error logging', () => {
+  let tmp: string;
+  let prevHome: string | undefined;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'opendeploy-loop-log-'));
+    prevHome = process.env.OPENDEPLOY_HOME;
+    process.env.OPENDEPLOY_HOME = tmp;
+  });
+
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env.OPENDEPLOY_HOME;
+    else process.env.OPENDEPLOY_HOME = prevHome;
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('writes stream errors to app.log with provider + iteration + full error body', async () => {
+    const client = fakeClient([[
+      {
+        type: 'error',
+        error: 'HTTP 400: {"error":{"message":"The `reasoning_content` in the thinking mode must be passed back to the API."}}'
+      }
+    ]]);
+    await runAgentLoop({
+      client,
+      tools: new ToolRegistry(),
+      initialMessages: [
+        { id: 'u', role: 'user', content: 'add a field', createdAt: '' }
+      ],
+      providerId: 'deepseek',
+      apiKey: 'k'
+    });
+    // tiny grace window for the async append — logger.error resolves but the
+    // assertion runs right after; in practice the write lands before the next
+    // microtask but we play safe.
+    await new Promise((r) => setTimeout(r, 50));
+    const logPath = join(tmp, 'logs', 'app.log');
+    const content = readFileSync(logPath, 'utf-8');
+    expect(content).toMatch(/ERROR/);
+    expect(content).toMatch(/agent-loop/);
+    expect(content).toMatch(/deepseek/);
+    expect(content).toMatch(/iteration 0/);
+    expect(content).toMatch(/HTTP 400/);
+    expect(content).toMatch(/reasoning_content/);
+  });
+
+  it('does not write anything to app.log for successful runs', async () => {
+    const client = fakeClient([[
+      { type: 'delta', content: 'ok' },
+      { type: 'done', finishReason: 'stop' }
+    ]]);
+    await runAgentLoop({
+      client,
+      tools: new ToolRegistry(),
+      initialMessages: [{ id: 'u', role: 'user', content: 'hi', createdAt: '' }],
+      providerId: 'test',
+      apiKey: 'k'
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const logPath = join(tmp, 'logs', 'app.log');
+    let exists = true;
+    try {
+      readFileSync(logPath, 'utf-8');
+    } catch {
+      exists = false;
+    }
+    expect(exists).toBe(false);
   });
 });

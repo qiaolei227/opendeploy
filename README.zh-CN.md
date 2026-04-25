@@ -40,11 +40,6 @@ v0.1 Alpha 会提供现成安装包。
 - 目标: 金蝶云星空 V9 私有部署版
 - 10 个 skill / 57 份 markdown / 10638 行行业知识
 
-## 姐妹项目
-
-[**开匠 OpenForge**](https://github.com/qiaolei227/openforge) —— 低代码应用开发平台。
-两者组成「工匠系列 (Open Stack)」: 开匠**造**应用,开达**交**实施。
-
 ## 开源协议
 
 MIT —— 详见 [LICENSE](./LICENSE)

@@ -14,6 +14,13 @@ export interface Conversation {
   id: string;
   title: string;
   savedAt: string;
+  /**
+   * Project this conversation was started under (active project at first save).
+   * Lets the renderer auto-switch active project on conversation reactivate
+   * so agent tools / status bar reflect the right ERP context. Absent on
+   * conversations saved before this field was added — caller must handle that.
+   */
+  projectId?: string;
   messages: Message[];
 }
 
@@ -37,6 +44,25 @@ function formatMessage(m: Message): string {
   // collapses to).
   if (m.blocks && m.blocks.length > 0) {
     body.push('', '```message-blocks', JSON.stringify(m.blocks, null, 2), '```');
+  }
+  // Extended thinking — reasoningContent (all thinking-capable providers)
+  // and reasoningSignature (Anthropic only). Stored so resumed conversations
+  // can replay the thinking chain on the next turn, satisfying DeepSeek V4 /
+  // Claude's multi-turn contract without losing state on app restart.
+  if (m.reasoningContent || m.reasoningSignature) {
+    body.push(
+      '',
+      '```reasoning',
+      JSON.stringify(
+        {
+          content: m.reasoningContent,
+          signature: m.reasoningSignature
+        },
+        null,
+        2
+      ),
+      '```'
+    );
   }
   return body.join('\n');
 }
@@ -95,11 +121,29 @@ function parseConversation(content: string): Conversation {
       }
     }
 
-    // Strip fences in reverse append order so `$` anchors work for both:
-    // formatMessage pushes tool-calls first then message-blocks, so blocks
-    // is at end — remove it first; tool-calls then becomes the new tail.
+    // Pull the ```reasoning JSON``` fence (thinking models' chain-of-thought).
+    const reasoningMatch = body.match(/```reasoning\s*\n([\s\S]*?)\n```/);
+    let reasoningContent: string | undefined;
+    let reasoningSignature: string | undefined;
+    if (reasoningMatch) {
+      try {
+        const parsed = JSON.parse(reasoningMatch[1]) as {
+          content?: string;
+          signature?: string;
+        };
+        if (parsed.content) reasoningContent = parsed.content;
+        if (parsed.signature) reasoningSignature = parsed.signature;
+      } catch {
+        // Malformed — drop silently, conversation is still usable.
+      }
+    }
+
+    // Strip fences in reverse append order so `$` anchors work correctly.
+    // formatMessage append order: tool-calls → message-blocks → reasoning,
+    // so reasoning is at the tail and must be removed first.
     body = body
       .replace(/^_\(tool_call_id:[^)]+\)_\s*$/m, '')
+      .replace(/```reasoning[\s\S]*?```\s*$/, '')
       .replace(/```message-blocks[\s\S]*?```\s*$/, '')
       .replace(/```tool-calls[\s\S]*?```\s*$/, '')
       .trim();
@@ -111,13 +155,16 @@ function parseConversation(content: string): Conversation {
       createdAt,
       ...(toolCallId ? { toolCallId } : {}),
       ...(toolCalls ? { toolCalls } : {}),
-      ...(blocks ? { blocks } : {})
+      ...(blocks ? { blocks } : {}),
+      ...(reasoningContent ? { reasoningContent } : {}),
+      ...(reasoningSignature ? { reasoningSignature } : {})
     });
   }
   return {
     id: frontmatter.id ?? '',
     title: frontmatter.title ?? '',
     savedAt: frontmatter.savedAt ?? '',
+    ...(frontmatter.projectId ? { projectId: frontmatter.projectId } : {}),
     messages
   };
 }
@@ -125,6 +172,7 @@ function parseConversation(content: string): Conversation {
 export async function saveConversation(params: {
   id?: string;
   title: string;
+  projectId?: string;
   messages: Message[];
 }): Promise<string> {
   const dir = getConversationsDir();
@@ -138,6 +186,7 @@ export async function saveConversation(params: {
     `title: ${params.title}`,
     `savedAt: ${now.toISOString()}`,
     `messageCount: ${params.messages.length}`,
+    ...(params.projectId ? [`projectId: ${params.projectId}`] : []),
     '---',
     '',
     ...params.messages.map(formatMessage)

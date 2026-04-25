@@ -15,8 +15,10 @@ import { getActiveConnector, getConnectionState } from '../erp/active';
 import type { ToolHandler } from './tools';
 import type { K3CloudConnector } from '../erp/k3cloud/connector';
 import {
+  addFieldToExtension,
   createExtensionWithPythonPlugin,
   deleteExtension,
+  listExtensionFields,
   listExtensions,
   listFormPlugins,
   probeBosEnvironment,
@@ -45,11 +47,13 @@ export function buildBosWriteTools(
   return [
     listExtensionsTool(c),
     listFormPluginsTool(c),
+    listExtensionFieldsTool(c),
     probeBosEnvironmentTool(c),
     createExtensionTool(c, pid),
     registerPluginTool(c, pid),
     unregisterPluginTool(c, pid),
-    deleteExtensionTool(c, pid)
+    deleteExtensionTool(c, pid),
+    addFieldTool(c, pid)
   ];
 }
 
@@ -130,6 +134,30 @@ function listFormPluginsTool(c: K3CloudConnector): ToolHandler {
   };
 }
 
+function listExtensionFieldsTool(c: K3CloudConnector): ToolHandler {
+  return {
+    parallelSafe: true,
+    definition: {
+      name: 'kingdee_get_extension_fields',
+      description:
+        '列出某扩展上已有的扩展字段 (parse FKERNELXML 中的 TextField 节点)。注意:这只看扩展字段,不看父对象的原厂字段——查原厂字段用 kingdee_get_fields。新加扩展字段后必用这个反查,不要用 kingdee_get_fields 验证扩展字段(那是查原厂的)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展 GUID。' }
+        },
+        required: ['extId']
+      }
+    },
+    async execute(args) {
+      const extId = String(args.extId);
+      const pool = await c.getPool();
+      const fields = await listExtensionFields(pool, extId);
+      return JSON.stringify({ count: fields.length, fields }, null, 2);
+    }
+  };
+}
+
 // ─── Write tools ──────────────────────────────────────────────────────
 
 async function ensureReady(c: K3CloudConnector): Promise<void> {
@@ -179,7 +207,7 @@ function createExtensionTool(c: K3CloudConnector, projectId: string): ToolHandle
           extId: r.extId,
           backupFile: r.backupFile,
           reminder:
-            '请在 BOS Designer 按 F5 刷新扩展列表;新建销售订单时客户端可能需重登一次才能加载新插件。如需共享给团队,去 BOS Designer 点一次"同步"(SVN)。'
+            '请在 BOS Designer 中刷新扩展列表(工具栏刷新按钮);新建销售订单时客户端可能需重登一次才能加载新插件。如需共享给团队,去 BOS Designer 点一次"同步"(SVN)。'
         },
         null,
         2
@@ -220,7 +248,7 @@ function registerPluginTool(c: K3CloudConnector, projectId: string): ToolHandler
           ok: true,
           backupFile: r.backupFile,
           reminder:
-            '请在 BOS Designer 按 F5 刷新,客户端可能需重登一次。团队协作用 SVN 的话去 BOS 点一次"同步"。'
+            '请在 BOS Designer 中刷新扩展(工具栏刷新按钮),客户端可能需重登一次。团队协作用 SVN 的话去 BOS 点一次"同步"。'
         },
         null,
         2
@@ -276,6 +304,91 @@ function deleteExtensionTool(c: K3CloudConnector, projectId: string): ToolHandle
       const pool = await c.getPool();
       const r = await deleteExtension(pool, projectId, String(args.extId));
       return JSON.stringify({ ok: true, backupFile: r.backupFile }, null, 2);
+    }
+  };
+}
+
+function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_add_field',
+      description:
+        '给已有扩展加一个业务字段 (写 T_META_OBJECTTYPE.FKERNELXML)。客户在 BOS Designer 中刷新扩展后就能看到。v0.1 只支持 type="text" (文本单行); 后续会扩展 number/date/decimal/combobox/basedata_ref 等,届时同一工具按 type 分支,agent 侧接口不变。不知道扩展 ID 先调 kingdee_list_extensions。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展 FID (GUID)。' },
+          type: {
+            type: 'string',
+            enum: ['text'],
+            description: '字段类型。目前只支持 "text" (单行文本)。'
+          },
+          key: {
+            type: 'string',
+            description:
+              '字段 Key, 例 "F_CUSTOM_TEXT"。BOS 约定 F_ 开头, 仅字母/数字/下划线。这是表单绑定和 BOS Designer 显示的唯一标识。'
+          },
+          caption: {
+            type: 'string',
+            description: '中文显示标签, 例 "客户备注"。用户在表单上看到的就是这个。'
+          },
+          name: {
+            type: 'string',
+            description: '(可选) 内部名称, 默认 = caption。'
+          },
+          propertyName: {
+            type: 'string',
+            description: '(可选) PropertyName, 默认 = key。代码里绑定用。'
+          },
+          fieldName: {
+            type: 'string',
+            description: '(可选) DB 列名, 默认 = key 的大写。'
+          },
+          containerKey: {
+            type: 'string',
+            description: '(可选) 放在哪个布局容器, 默认 "FTAB_P0" (主页签)。'
+          },
+          top: {
+            type: 'number',
+            description: '(可选) 字段 Top 像素, 默认 10 (左上角)。用户必须在 BOS Designer 中手动拖到合适位置;只有真知道目标坐标才指定。'
+          },
+          left: {
+            type: 'number',
+            description: '(可选) 字段 Left 像素, 默认 10 (左上角)。'
+          }
+        },
+        required: ['extId', 'type', 'key', 'caption']
+      }
+    },
+    async execute(args) {
+      await ensureReady(c);
+      const pool = await c.getPool();
+      const type = String(args.type);
+      if (type !== 'text') {
+        throw new Error(`field type "${type}" 还没实现, 目前只支持 "text"。`);
+      }
+      const r = await addFieldToExtension(pool, projectId, String(args.extId), 'text', {
+        key: String(args.key),
+        caption: String(args.caption),
+        name: args.name !== undefined ? String(args.name) : undefined,
+        propertyName: args.propertyName !== undefined ? String(args.propertyName) : undefined,
+        fieldName: args.fieldName !== undefined ? String(args.fieldName) : undefined,
+        containerKey: args.containerKey !== undefined ? String(args.containerKey) : undefined,
+        top: args.top !== undefined ? Number(args.top) : undefined,
+        left: args.left !== undefined ? Number(args.left) : undefined
+      });
+      return JSON.stringify(
+        {
+          ok: true,
+          extId: args.extId,
+          fieldKey: args.key,
+          backupFile: r.backupFile,
+          reminder:
+            '字段已写入 DB。去 BOS Designer 中刷新扩展(工具栏刷新按钮)就能看到新字段。**字段默认落在容器左上角,会和原厂字段视觉重叠 —— 这是预期的,需在 BOS Designer 中手动拖到合适位置。**如用 SVN 同步共享给团队, 记得点一次"同步"。'
+        },
+        null,
+        2
+      );
     }
   };
 }

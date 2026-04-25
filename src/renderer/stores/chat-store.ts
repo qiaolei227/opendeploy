@@ -8,6 +8,9 @@ import {
   reconstructBlocksFromLegacy,
   type MessageBlock
 } from '@shared/blocks';
+import { resolveActiveModel, PROVIDER_BY_ID } from '@renderer/data/providers';
+import { useSettingsStore } from './settings-store';
+import { useProjectsStore } from './projects-store';
 
 export type { MessageBlock } from '@shared/blocks';
 
@@ -15,7 +18,14 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'tool';
   content: string;
-  toolCalls?: Array<{ id: string; name: string; args: string; result?: string }>;
+  toolCalls?: Array<{
+    id: string;
+    name: string;
+    args: string;
+    result?: string;
+    /** ms since epoch — set when tool_call event arrives, drives elapsed time UI. */
+    startedAt?: number;
+  }>;
   /**
    * Ordered stream of text and tool_use blocks as they arrived. When present,
    * the renderer iterates this instead of rendering content + toolCalls
@@ -25,6 +35,15 @@ export interface ChatMessage {
    */
   blocks?: MessageBlock[];
   isStreaming?: boolean;
+  /** 文字 delta 累计缓冲 — 在 tool_call / done 时 flush 成 blocks 里的 text block。
+   *  Streaming 期间 UI 不渲染这段文字本身,只用 pendingTokens 显示进度。 */
+  pendingText?: string;
+  /** Streaming 期间累计的 output token 估算/精确数。delta 事件按 +1 估算;
+   *  usage 事件到达时替换为 provider 给的精确值。 */
+  pendingTokens?: number;
+  /** True 表示 pendingTokens 来自 provider 的 usage event (精确), false / 缺失
+   *  表示按 delta 事件估算 (UI 加 `~` 前缀)。 */
+  tokensExact?: boolean;
   createdAt: string;
 }
 
@@ -42,6 +61,29 @@ interface ChatState {
 }
 
 const makeChatId = () => makeId('c');
+
+/**
+ * Commit a streaming message's pendingText into its blocks/content as a
+ * single text block, then clear the pending fields. Called on tool_call /
+ * done boundaries. Returns the original message unchanged (identity) when
+ * there's nothing to flush.
+ *
+ * NOTE: error / abort paths do NOT currently flush — pendingText is
+ * discarded along with the streaming state. Acceptable for v0.1 since the
+ * partial mid-stream text was never user-visible (UI shows token counter,
+ * not the buffer). Revisit if we ever start surfacing partial responses.
+ */
+export function flushPendingText(msg: ChatMessage): ChatMessage {
+  if (!msg.pendingText) return msg;
+  return {
+    ...msg,
+    content: msg.content + msg.pendingText,
+    blocks: appendTextDelta(msg.blocks ?? [], msg.pendingText),
+    pendingText: undefined,
+    pendingTokens: undefined,
+    tokensExact: undefined
+  };
+}
 
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
@@ -72,8 +114,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (last && last.role === 'assistant') {
           msgs[msgs.length - 1] = {
             ...last,
-            content: last.content + ev.content,
-            blocks: appendTextDelta(last.blocks ?? [], ev.content)
+            pendingText: (last.pendingText ?? '') + ev.content,
+            // tokensExact frozen → don't tick estimate; provider's usage value wins
+            ...(last.tokensExact ? {} : { pendingTokens: (last.pendingTokens ?? 0) + 1 })
           };
           set({ messages: msgs });
         }
@@ -81,19 +124,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const msgs = [...get().messages];
         const last = msgs[msgs.length - 1];
         if (last && last.role === 'assistant') {
+          const flushed = flushPendingText(last);
           const callId = ev.toolCallId ?? '?';
-          const tcs = [
-            ...(last.toolCalls ?? []),
-            {
-              id: callId,
-              name: ev.toolCallName ?? '?',
-              args: ev.toolCallArgs ?? ''
-            }
-          ];
           msgs[msgs.length - 1] = {
-            ...last,
-            toolCalls: tcs,
-            blocks: appendToolUse(last.blocks ?? [], callId)
+            ...flushed,
+            toolCalls: [
+              ...(flushed.toolCalls ?? []),
+              {
+                id: callId,
+                name: ev.toolCallName ?? '?',
+                args: ev.toolCallArgs ?? '',
+                startedAt: Date.now()
+              }
+            ],
+            blocks: appendToolUse(flushed.blocks ?? [], callId)
           };
           set({ messages: msgs });
         }
@@ -115,10 +159,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
             useArtifactsStore.getState().addFromToolResult(matched.name, ev.content ?? '');
           }
         }
+      } else if (ev.type === 'usage') {
+        // Ignore meaningless usage (e.g. Ollama emitting 0 when eval_count is missing) —
+        // otherwise the delta-based estimate gets clobbered with 0 and stamped exact.
+        if (typeof ev.outputTokens !== 'number' || ev.outputTokens <= 0) return;
+        const msgs = [...get().messages];
+        const last = msgs[msgs.length - 1];
+        if (last && last.role === 'assistant') {
+          msgs[msgs.length - 1] = {
+            ...last,
+            pendingTokens: ev.outputTokens,
+            tokensExact: true
+          };
+          set({ messages: msgs });
+        }
       } else if (ev.type === 'done') {
         const msgs = [...get().messages];
         const last = msgs[msgs.length - 1];
-        if (last) msgs[msgs.length - 1] = { ...last, isStreaming: false };
+        if (last) {
+          // flushPendingText 短路掉无 pendingText 的消息(只调工具的 turn),
+          // 但 pendingTokens / tokensExact 可能因 usage 事件先到而残留 ——
+          // done 时无条件清掉避免数据残留(纯卫生,UI 不显示也无害)。
+          const flushed = flushPendingText(last);
+          msgs[msgs.length - 1] = {
+            ...flushed,
+            isStreaming: false,
+            pendingTokens: undefined,
+            tokensExact: undefined
+          };
+        }
         set({ messages: msgs, isStreaming: false, currentRequestId: null });
         unsubscribe();
       } else if (ev.type === 'error') {
@@ -128,9 +197,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
 
     try {
+      // Resolve model id from settings. Ollama uses free-form ollamaModelInput,
+      // every other provider uses modelByProvider[providerId] → recommended fallback.
+      const settings = useSettingsStore.getState().settings;
+      let modelId: string | undefined;
+      if (providerId === 'ollama') {
+        const provider = PROVIDER_BY_ID['ollama'];
+        modelId = settings.ollamaModelInput?.trim() || provider?.modelInputDefault;
+      } else {
+        modelId = resolveActiveModel(providerId, settings.modelByProvider)?.id;
+      }
+
       const { requestId } = await window.opendeploy.llmSendMessage({
         conversationId: get().conversationId ?? undefined,
-        providerId, apiKey, userMessage: text
+        providerId,
+        apiKey,
+        model: modelId,
+        userMessage: text
       });
       set({ currentRequestId: requestId, conversationId: get().conversationId ?? requestId });
     } catch (err) {
@@ -156,6 +239,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   loadConversation: async (id) => {
     const conv = await window.opendeploy.conversationsLoad(id);
+
+    // Auto-switch active project to whatever this conversation was started under,
+    // so agent tools (kingdee_*) and StatusBar reflect the right ERP context.
+    // Skipped silently when: legacy conversation has no projectId, target project
+    // was deleted (not in projects[]), or it's already active.
+    if (conv.projectId) {
+      const projects = useProjectsStore.getState();
+      const exists = projects.projects.some((p) => p.id === conv.projectId);
+      if (exists && projects.connectionState.projectId !== conv.projectId) {
+        await projects.setActive(conv.projectId);
+      }
+    }
 
     // Build tool_call_id → tool name map across every assistant message,
     // and tool_call_id → result content map across every `tool` role message.

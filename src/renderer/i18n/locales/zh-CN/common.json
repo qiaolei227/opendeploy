@@ -67,8 +67,17 @@
     "apiKeyPlaceholder": "粘贴你的 API Key…",
     "ollamaNoKey": "Ollama 本地运行，无需 API Key。",
     "recommended": "推荐 · 国内直连",
-    "latency": "延迟",
-    "cost": "成本",
+    "model": "模型",
+    "modelHint": "同一厂商下不同模型的上下文窗口、价格、能力可能差很多",
+    "modelOllamaPlaceholder": "例: qwen2.5-coder, llama3.1, deepseek-r1",
+    "modelOllamaHint": "Ollama 模型名 = 你本机 `ollama list` 里的名字",
+    "contextLabel": "上下文",
+    "maxOutputLabel": "最大输出",
+    "priceLabel": "参考价",
+    "recommendedShort": "推荐",
+    "modelCount_one": "{{count}} 个模型",
+    "modelCount_other": "{{count}} 个模型",
+    "customModel": "自定义",
     "regions": {
       "CN": "国内",
       "Overseas": "海外",
@@ -209,6 +218,10 @@
     "hideToolResult": "收起工具结果",
     "toolStatusRunning": "调用中…",
     "toolStatusOk": "完成 ✓",
-    "thinking": "思考中…"
+    "thinking": "思考中…",
+    "toolRunning": "执行 {{name}} 中…",
+    "generating": "思考中… (~{{tokens}} tokens)",
+    "generatingExact": "思考中… ({{tokens}} tokens)",
+    "toolRunningSeconds": "执行 {{name}} 中… ({{seconds}}s)"
   }
 }

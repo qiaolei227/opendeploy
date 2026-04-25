@@ -223,13 +223,15 @@ import { resolveProjectConfig } from '../../../scripts/bos-recon/config';
 
 describe('resolveProjectConfig', () => {
   it('reads project config from a settings.json shape', () => {
+    // 与 src/shared/erp-types.ts `Project.connection: K3CloudConnectionConfig` 对齐:
+    //   顶层是 `connection` (不是 `k3cloud`), 字段名是 `server` (不是 `host`)。
     const fakeSettings = {
       projects: [
         {
           id: 'proj-uat',
           erpProvider: 'k3cloud',
-          k3cloud: {
-            host: 'localhost',
+          connection: {
+            server: 'localhost',
             port: 1433,
             database: 'AIS20260101',
             user: 'sa',
@@ -250,7 +252,9 @@ describe('resolveProjectConfig', () => {
   });
 
   it('throws when projectId not found', () => {
-    const fakeSettings = { projects: [{ id: 'proj-a', erpProvider: 'k3cloud', k3cloud: {} }] };
+    const fakeSettings = {
+      projects: [{ id: 'proj-a', erpProvider: 'k3cloud', connection: {} }]
+    };
     expect(() => resolveProjectConfig(fakeSettings, 'missing')).toThrow(
       /project "missing" not found/
     );
@@ -258,7 +262,7 @@ describe('resolveProjectConfig', () => {
 
   it('throws when project is not a k3cloud project', () => {
     const fakeSettings = {
-      projects: [{ id: 'proj-a', erpProvider: 'sap', sap: {} }]
+      projects: [{ id: 'proj-a', erpProvider: 'sap' }]
     };
     expect(() => resolveProjectConfig(fakeSettings, 'proj-a')).toThrow(
       /erpProvider "sap" not supported/
@@ -300,8 +304,14 @@ export interface ReconMssqlConfig {
   options?: sql.config['options'];
 }
 
-interface RawK3CloudConnection {
-  host?: string;
+/**
+ * 对齐 src/shared/erp-types.ts 的 `K3CloudConnectionConfig` 形状 ——
+ * 顶层 key 是 `connection`(不是 `k3cloud`), 字段名是 `server`(不是 `host`)。
+ * 所有字段在这里都声明为 optional 做防御式解析, 但产品正常写入的 settings.json
+ * server/database/user/password 都有值; 默认只在理论上兜底。
+ */
+interface RawConnection {
+  server?: string;
   port?: number;
   database?: string;
   user?: string;
@@ -313,7 +323,7 @@ interface RawK3CloudConnection {
 interface RawProject {
   id: string;
   erpProvider?: string;
-  k3cloud?: RawK3CloudConnection;
+  connection?: RawConnection;
 }
 
 interface RawSettings {
@@ -329,16 +339,16 @@ export function resolveProjectConfig(
   if (p.erpProvider !== 'k3cloud') {
     throw new Error(`erpProvider "${p.erpProvider}" not supported by bos-recon`);
   }
-  const k = p.k3cloud ?? {};
+  const c = p.connection ?? {};
   return {
-    server: k.host ?? 'localhost',
-    port: k.port ?? 1433,
-    database: k.database ?? '',
-    user: k.user ?? '',
-    password: k.password ?? '',
+    server: c.server ?? 'localhost',
+    port: c.port ?? 1433,
+    database: c.database ?? '',
+    user: c.user ?? '',
+    password: c.password ?? '',
     options: {
-      encrypt: k.encrypt ?? true,
-      trustServerCertificate: k.trustServerCertificate ?? true
+      encrypt: c.encrypt ?? true,
+      trustServerCertificate: c.trustServerCertificate ?? true
     }
   };
 }
@@ -387,7 +397,8 @@ import {
   buildDropSessionSQL,
   buildCreateSessionSQL,
   buildStartSessionSQL,
-  buildStopSessionSQL
+  buildStopSessionSQL,
+  buildReadXelFileSQL
 } from '../../../scripts/bos-recon/xe-session';
 
 describe('xe-session SQL builders', () => {
@@ -408,7 +419,20 @@ describe('xe-session SQL builders', () => {
     expect(sql).toMatch(/sqlserver\.sql_text/);
     expect(sql).toMatch(/sqlserver\.client_app_name/);
     expect(sql).toMatch(/event_file/);
-    expect(sql).toMatch(/C:\\\\traces\\\\add-text-field\.xel/);
+    // T-SQL 字面量无反斜杠转义 —— Windows 路径原样插入。
+    expect(sql).toMatch(/C:\\traces\\add-text-field\.xel/);
+  });
+
+  it('buildReadXelFileSQL emits SELECT from fn_xe_file_target_read_file', () => {
+    const sql = buildReadXelFileSQL('C:\\traces\\add-text-field.xel');
+    expect(sql).toMatch(/SELECT CAST\(event_data AS xml\) AS event_xml/);
+    expect(sql).toMatch(/sys\.fn_xe_file_target_read_file/);
+    expect(sql).toMatch(/N'C:\\traces\\add-text-field\.xel'/);
+    expect(sql).toMatch(/NULL, NULL, NULL/);
+  });
+
+  it('buildReadXelFileSQL rejects path with single quote', () => {
+    expect(() => buildReadXelFileSQL("C:\\evil'; xp_cmdshell--")).toThrow(/invalid/i);
   });
 
   it('buildCreateSessionSQL does NOT add client_app_name filter in Phase 1', () => {
@@ -543,7 +567,7 @@ export function buildReadXelFileSQL(xelPath: string): string {
 pnpm vitest run tests/scripts/bos-recon/xe-session.test.ts
 ```
 
-Expected: `6 passed`
+Expected: `8 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -678,14 +702,30 @@ function xmlUnescape(s: string): string {
     .replace(/&amp;/g, '&');
 }
 
-/** 从 XML 里抽 <data name="X"><value>...</value></data> 或 <action name="X">... 同理。 */
+/**
+ * 从 XML 里抽 <data name="X">...<value>...</value>...</data> 或 <action> 同理。
+ *
+ * SQL Server 的 `CAST(event_data AS xml)` 对强类型列(duration=uint64 等)会
+ * 在 <value> 前面序列化 <type name="..."/> 描述符:
+ *   <data name="duration">
+ *     <type name="uint64" package="package0"/>
+ *     <value>4567</value>
+ *   </data>
+ * 所以匹配用 `[\s\S]*?` 懒匹配跳过任意中间子元素, 而不是只允许 `\s*`。
+ */
 function extractField(xml: string, tag: 'data' | 'action', name: string): string | null {
   const re = new RegExp(
-    `<${tag}\\s+name="${name}"[^>]*>\\s*<value>([\\s\\S]*?)<\\/value>`,
+    `<${tag}\\s+name="${name}"[^>]*>[\\s\\S]*?<value>([\\s\\S]*?)<\\/value>`,
     'i'
   );
   const m = xml.match(re);
   return m ? xmlUnescape(m[1]) : null;
+}
+
+/** 第一个非空字符串, 全都 null/空则返 ''。?? 不会在空字符串时 fallback, 这个函数会。 */
+function firstNonEmpty(...xs: (string | null)[]): string {
+  for (const x of xs) if (x !== null && x.trim() !== '') return x;
+  return '';
 }
 
 export function parseXelEventXml(eventXml: string): XeEvent | null {
@@ -696,12 +736,13 @@ export function parseXelEventXml(eventXml: string): XeEvent | null {
   const timestamp = tsMatch ? tsMatch[1] : '';
 
   // statement 可能在 data (sp_statement_completed) 或 batch_text (sql_batch_completed)。
-  // action=sql_text 有时覆盖完整语句。优先 action,fallback data。
-  const stmt =
-    extractField(eventXml, 'action', 'sql_text') ??
-    extractField(eventXml, 'data', 'statement') ??
-    extractField(eventXml, 'data', 'batch_text') ??
-    '';
+  // action=sql_text 有时覆盖完整语句。优先 action, fallback data 顺序;
+  // firstNonEmpty 保证空字符串也会穿透到下一个候选(?? 只在 null 时穿透)。
+  const stmt = firstNonEmpty(
+    extractField(eventXml, 'action', 'sql_text'),
+    extractField(eventXml, 'data', 'statement'),
+    extractField(eventXml, 'data', 'batch_text')
+  );
 
   const durationText = extractField(eventXml, 'data', 'duration');
   const duration = durationText ? Number(durationText) : 0;
@@ -734,7 +775,7 @@ export function normalizeEvents(events: XeEvent[]): XeEvent[] {
 pnpm vitest run tests/scripts/bos-recon/xe-parse.test.ts
 ```
 
-Expected: `5 passed`
+Expected: `7 passed` (5 原始 + 2 回归: `<type>` 子元素 + sql_text 空串 fallback)
 
 - [ ] **Step 5: Commit**
 
@@ -864,12 +905,38 @@ function isSafeIdentifier(name: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name);
 }
 
+/**
+ * 已知扩展表的"链接列"硬覆盖映射 —— mirror src/main/erp/k3cloud/bos-backup.ts 的 KEY_COLUMN。
+ * 有些表同时有 FID (行 PK) 和 FOBJECTTYPEID (指向扩展的外键),
+ * 纯启发式会挑 FID → 0 行 → 误归 emptyTables。override 保证挑对列。
+ */
+export const KNOWN_EXTENSION_LINK: Record<string, string> = {
+  T_META_OBJECTTYPE: 'FID',
+  T_META_OBJECTTYPE_L: 'FID',
+  T_META_OBJECTTYPE_E: 'FID',
+  T_META_OBJECTTYPENAMEEX: 'FENTRYID',
+  T_META_OBJECTTYPENAMEEX_L: 'FENTRYID',
+  T_META_OBJECTFUNCINTERFACE: 'FID',
+  T_META_OBJECTTYPEREF: 'FOBJECTTYPEID',
+  T_META_TRACKERBILLTABLE: 'FOBJECTTYPEID'
+};
+
 export function pickMatchingKeyColumn(columns: string[]): string | null {
   const set = new Set(columns.map((c) => c.toUpperCase()));
   for (const candidate of CANDIDATE_KEY_COLUMNS) {
     if (set.has(candidate)) return candidate;
   }
   return null;
+}
+
+/** 优先用已知映射, fallback 启发式; 还要验证 override 列真存在。 */
+export function pickKeyForTable(tableName: string, columns: string[]): string | null {
+  const override = KNOWN_EXTENSION_LINK[tableName];
+  if (override) {
+    const upperCols = new Set(columns.map((c) => c.toUpperCase()));
+    if (upperCols.has(override)) return override;
+  }
+  return pickMatchingKeyColumn(columns);
 }
 
 export function buildSnapshotSelectSQL(tableName: string, keyColumn: string): string {
@@ -924,7 +991,7 @@ export async function snapshotAllMeta(
       .input('t', sql.VarChar(128), tableName)
       .query<{ name: string }>(LIST_COLS_SQL);
     const columns = colsRes.recordset.map((r) => r.name);
-    const keyColumn = pickMatchingKeyColumn(columns);
+    const keyColumn = pickKeyForTable(tableName, columns);
 
     if (keyColumn === null) {
       unmatchedTables.push(tableName);
@@ -971,7 +1038,7 @@ export async function writeSnapshotJson(
 pnpm vitest run tests/scripts/bos-recon/snapshot-all.test.ts
 ```
 
-Expected: `9 passed` (4 groups, counts: 4+3+1+1 = 9)
+Expected: `14 passed` (原 8 + pickKeyForTable 5 + KNOWN_EXTENSION_LINK 覆盖 1)
 
 - [ ] **Step 5: Commit**
 
@@ -1224,11 +1291,21 @@ export interface ReportInput {
   unexplained: string[];
 }
 
+/**
+ * Markdown 表格单元格要躲两类字符:
+ *   1. `|` —— 结构字符, 转义成 `\|`
+ *   2. 换行 (\n / \r\n) —— markdown 表格是行基的, 裸换行会把一个 cell 拆成多行
+ *      破坏表格结构。FKERNELXML 等多行字段会踩到, 用 <br> 替换
+ */
+function escapeTableCell(s: string): string {
+  return s.replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
+}
+
 export function formatRowAsTable(row: Record<string, unknown>): string {
   const lines = ['| column | value |', '| --- | --- |'];
   for (const [k, v] of Object.entries(row)) {
-    const safeVal = typeof v === 'string' ? v.replace(/\|/g, '\\|') : JSON.stringify(v);
-    lines.push(`| ${k} | ${safeVal} |`);
+    const raw = typeof v === 'string' ? v : JSON.stringify(v);
+    lines.push(`| ${k} | ${escapeTableCell(raw)} |`);
   }
   return lines.join('\n');
 }
@@ -1307,7 +1384,7 @@ export function renderReportMarkdown(input: ReportInput): string {
 pnpm vitest run tests/scripts/bos-recon/diff.test.ts
 ```
 
-Expected: `9 passed`
+Expected: `12 passed` (原 8 + newline 转义 1 + pipe 转义 1 + unidentifiableCount 2)
 
 - [ ] **Step 5: Commit**
 

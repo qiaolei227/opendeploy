@@ -473,6 +473,32 @@ body.theme-dark .turn-av.user { background: oklch(0.35 0.02 250); color: oklch(0
 .turn-body code { font-family: var(--font-mono); font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); padding: 1px 5px; border-radius: 3px; }
 .turn-body strong { font-weight: 600; }
 
+/* Markdown table — 顾问演示场景常用 "项 / 内容" 两列对照表 */
+.md table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+  table-layout: auto;
+}
+.md thead th {
+  text-align: left;
+  font-weight: 600;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 10px;
+}
+.md tbody td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.md tbody tr:last-child td { border-bottom: none; }
+.md table code {
+  /* 表格里行内 code 不要继承 .turn-body 的 13px,缩小一档免得撑列 */
+  font-size: 11.5px;
+}
+
 /* Tool block */
 .tool {
   margin: 10px 0;
@@ -1305,7 +1331,6 @@ body.theme-dark .nm { color: oklch(0.80 0.13 25); }
 .prov-dot.kimi { background: #111; }
 .prov-dot.doubao { background: #1664ff; }
 .prov-dot.minimax { background: #f15a24; }
-.prov-dot.baichuan { background: #c4161c; }
 .prov-dot.hunyuan { background: #0052d9; }
 .prov-dot.ollama { background: #111; }
 

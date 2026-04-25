@@ -10,6 +10,8 @@ interface SettingsState {
   setTheme: (theme: Theme) => Promise<void>;
   setLlmProvider: (provider: string) => Promise<void>;
   setApiKey: (provider: string, key: string) => Promise<void>;
+  setModel: (provider: string, modelId: string) => Promise<void>;
+  setOllamaModelInput: (value: string) => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -43,6 +45,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const current = get().settings;
     const apiKeys = { ...(current.apiKeys ?? {}), [provider]: key };
     const next = { ...current, apiKeys };
+    await window.opendeploy.saveSettings(next);
+    set({ settings: next });
+  },
+
+  setModel: async (provider, modelId) => {
+    const current = get().settings;
+    const modelByProvider = { ...(current.modelByProvider ?? {}), [provider]: modelId };
+    const next = { ...current, modelByProvider };
+    await window.opendeploy.saveSettings(next);
+    set({ settings: next });
+  },
+
+  setOllamaModelInput: async (value) => {
+    const next = { ...get().settings, ollamaModelInput: value };
     await window.opendeploy.saveSettings(next);
     set({ settings: next });
   }

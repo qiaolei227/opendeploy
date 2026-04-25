@@ -40,11 +40,6 @@ Under active development, on the eve of v0.1 Alpha.
 - Target: Kingdee Cloud Cosmic V9 on-premise
 - 10 skills / 57 markdown files / 10,638 lines of industry knowledge
 
-## Sibling project
-
-[**开匠 OpenForge**](https://github.com/qiaolei227/openforge) — low-code app builder.
-Together they form "Open Stack (工匠系列)": OpenForge **forges** apps, OpenDeploy **ships** implementations.
-
 ## License
 
 MIT — see [LICENSE](./LICENSE)
