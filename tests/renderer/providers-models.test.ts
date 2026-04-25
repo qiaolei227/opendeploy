@@ -52,4 +52,9 @@ describe('providers + models', () => {
     const m = resolveActiveModel('ollama', {});
     expect(m).toBeNull();
   });
+
+  it('resolveActiveModel returns null for unknown providerId', () => {
+    const m = resolveActiveModel('does-not-exist', { 'does-not-exist': 'whatever' });
+    expect(m).toBeNull();
+  });
 });

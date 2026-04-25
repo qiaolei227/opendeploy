@@ -27,7 +27,9 @@ export interface LlmModel {
 
 export interface LlmProvider {
   id: string;
+  /** Design token name used to select the brand color dot (`prov-dot ${dot}`). */
   dot: string;
+  /** Single-character fallback glyph shown inside the brand dot. */
   letter: string;
   label: string;
   /** Provider-level short name (e.g. 'DeepSeek'). 模型 short 由 LlmModel.label 承担. */
@@ -109,7 +111,8 @@ export const PROVIDERS: LlmProvider[] = [
     label: 'MiniMax', short: 'MiniMax', sub: '海螺 AI · 长输出',
     region: 'CN',
     models: [
-      { id: 'MiniMax-M2.7', label: 'MiniMax M2.7', contextWindow: 196_608, maxOutput: 8_192, pricing: '¥2.1 / 8.4', hint: '192K · 主力', recommended: true }
+      // id is `MiniMax-M2.7` (mixed case) — that's MiniMax's canonical API string, do not lowercase.
+      { id: 'MiniMax-M2.7', label: 'MiniMax M2.7', contextWindow: 196_608, maxOutput: 8_192, pricing: '¥2.1 / 8.4', hint: '196K · 主力', recommended: true }
     ]
   },
   {
