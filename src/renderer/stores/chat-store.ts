@@ -15,7 +15,14 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'tool';
   content: string;
-  toolCalls?: Array<{ id: string; name: string; args: string; result?: string }>;
+  toolCalls?: Array<{
+    id: string;
+    name: string;
+    args: string;
+    result?: string;
+    /** ms since epoch — set when tool_call event arrives, drives elapsed time UI. */
+    startedAt?: number;
+  }>;
   /**
    * Ordered stream of text and tool_use blocks as they arrived. When present,
    * the renderer iterates this instead of rendering content + toolCalls
@@ -25,6 +32,15 @@ export interface ChatMessage {
    */
   blocks?: MessageBlock[];
   isStreaming?: boolean;
+  /** 文字 delta 累计缓冲 — 在 tool_call / done 时 flush 成 blocks 里的 text block。
+   *  Streaming 期间 UI 不渲染这段文字本身,只用 pendingTokens 显示进度。 */
+  pendingText?: string;
+  /** Streaming 期间累计的 output token 估算/精确数。delta 事件按 +1 估算;
+   *  usage 事件到达时替换为 provider 给的精确值。 */
+  pendingTokens?: number;
+  /** True 表示 pendingTokens 来自 provider 的 usage event (精确), false / 缺失
+   *  表示按 delta 事件估算 (UI 加 `~` 前缀)。 */
+  tokensExact?: boolean;
   createdAt: string;
 }
 
@@ -42,6 +58,24 @@ interface ChatState {
 }
 
 const makeChatId = () => makeId('c');
+
+/**
+ * Commit a streaming message's pendingText into its blocks/content as a
+ * single text block, then clear the pending fields. Called on tool_call /
+ * done boundaries and on stream abort. Returns the original message
+ * unchanged (identity) when there's nothing to flush.
+ */
+export function flushPendingText(msg: ChatMessage): ChatMessage {
+  if (!msg.pendingText) return msg;
+  return {
+    ...msg,
+    content: msg.content + msg.pendingText,
+    blocks: appendTextDelta(msg.blocks ?? [], msg.pendingText),
+    pendingText: undefined,
+    pendingTokens: undefined,
+    tokensExact: undefined
+  };
+}
 
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
@@ -72,8 +106,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (last && last.role === 'assistant') {
           msgs[msgs.length - 1] = {
             ...last,
-            content: last.content + ev.content,
-            blocks: appendTextDelta(last.blocks ?? [], ev.content)
+            pendingText: (last.pendingText ?? '') + ev.content,
+            // tokensExact frozen → don't tick estimate; provider's usage value wins
+            ...(last.tokensExact ? {} : { pendingTokens: (last.pendingTokens ?? 0) + 1 })
           };
           set({ messages: msgs });
         }
@@ -81,19 +116,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const msgs = [...get().messages];
         const last = msgs[msgs.length - 1];
         if (last && last.role === 'assistant') {
+          const flushed = flushPendingText(last);
           const callId = ev.toolCallId ?? '?';
-          const tcs = [
-            ...(last.toolCalls ?? []),
-            {
-              id: callId,
-              name: ev.toolCallName ?? '?',
-              args: ev.toolCallArgs ?? ''
-            }
-          ];
           msgs[msgs.length - 1] = {
-            ...last,
-            toolCalls: tcs,
-            blocks: appendToolUse(last.blocks ?? [], callId)
+            ...flushed,
+            toolCalls: [
+              ...(flushed.toolCalls ?? []),
+              {
+                id: callId,
+                name: ev.toolCallName ?? '?',
+                args: ev.toolCallArgs ?? '',
+                startedAt: Date.now()
+              }
+            ],
+            blocks: appendToolUse(flushed.blocks ?? [], callId)
           };
           set({ messages: msgs });
         }
@@ -115,10 +151,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
             useArtifactsStore.getState().addFromToolResult(matched.name, ev.content ?? '');
           }
         }
+      } else if (ev.type === 'usage') {
+        const msgs = [...get().messages];
+        const last = msgs[msgs.length - 1];
+        if (last && last.role === 'assistant') {
+          msgs[msgs.length - 1] = {
+            ...last,
+            pendingTokens: ev.outputTokens ?? last.pendingTokens,
+            tokensExact: true
+          };
+          set({ messages: msgs });
+        }
       } else if (ev.type === 'done') {
         const msgs = [...get().messages];
         const last = msgs[msgs.length - 1];
-        if (last) msgs[msgs.length - 1] = { ...last, isStreaming: false };
+        if (last) {
+          const flushed = flushPendingText(last);
+          msgs[msgs.length - 1] = { ...flushed, isStreaming: false };
+        }
         set({ messages: msgs, isStreaming: false, currentRequestId: null });
         unsubscribe();
       } else if (ev.type === 'error') {
