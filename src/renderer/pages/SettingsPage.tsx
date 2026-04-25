@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { i18n } from '@renderer/i18n';
 import { useSettingsStore } from '@renderer/stores/settings-store';
-import { PROVIDERS, type LlmProvider } from '@renderer/data/providers';
+import { PROVIDERS, PROVIDER_BY_ID, resolveActiveModel, type LlmProvider, type LlmModel } from '@renderer/data/providers';
 import type { Language, Theme } from '@shared/types';
 
 const LANGUAGES: { value: Language; labelKey: string }[] = [
@@ -159,14 +159,42 @@ function LlmSection() {
   const settings = useSettingsStore((s) => s.settings);
   const setLlmProvider = useSettingsStore((s) => s.setLlmProvider);
   const setApiKey = useSettingsStore((s) => s.setApiKey);
+  const setModel = useSettingsStore((s) => s.setModel);
+  const setOllamaModelInput = useSettingsStore((s) => s.setOllamaModelInput);
 
   const initialProviderId = settings.llmProvider ?? 'deepseek';
   const [selectedProviderId, setSelectedProviderId] =
     useState<string>(initialProviderId);
+  const provider: LlmProvider | undefined = PROVIDER_BY_ID[selectedProviderId];
+
   const [apiKeyInput, setApiKeyInput] = useState<string>(
     settings.apiKeys?.[initialProviderId] ?? ''
   );
   const [saved, setSaved] = useState(false);
+
+  const [selectedModelId, setSelectedModelId] = useState<string>(
+    () => resolveActiveModel(selectedProviderId, settings.modelByProvider)?.id ?? ''
+  );
+  const selectedModel: LlmModel | undefined =
+    provider?.models.find((m) => m.id === selectedModelId);
+
+  const [ollamaInput, setOllamaInput] = useState<string>(
+    () => settings.ollamaModelInput ?? PROVIDER_BY_ID['ollama']?.modelInputDefault ?? ''
+  );
+
+  // Re-resolve when provider changes (selectedProviderId mutates as user clicks cards)
+  useEffect(() => {
+    const m = resolveActiveModel(selectedProviderId, settings.modelByProvider);
+    setSelectedModelId(m?.id ?? '');
+  }, [selectedProviderId, settings.modelByProvider]);
+
+  const handleModelChange = async (id: string): Promise<void> => {
+    setSelectedModelId(id);
+    await setModel(selectedProviderId, id);
+  };
+  const handleOllamaInputBlur = async (): Promise<void> => {
+    if (ollamaInput.trim()) await setOllamaModelInput(ollamaInput.trim());
+  };
 
   const handleProviderSelect = async (provider: LlmProvider): Promise<void> => {
     setSelectedProviderId(provider.id);
@@ -226,11 +254,9 @@ function LlmSection() {
                 <div className="prov-sub">{p.sub}</div>
                 <div className="prov-row">
                   <span>
-                    {t('settings.latency')} {p.lat}
-                  </span>
-                  <span>·</span>
-                  <span>
-                    {t('settings.cost')} {p.cost}
+                    {p.id === 'ollama'
+                      ? t('settings.customModel')
+                      : t('settings.modelCount', { count: p.models.length })}
                   </span>
                   <span
                     className={`chip${p.region === 'Local' ? ' good' : p.region === 'CN' ? ' accent' : ''}`}
@@ -244,6 +270,58 @@ function LlmSection() {
           })}
         </div>
       </section>
+
+      {!isOllama && provider && provider.models.length > 0 && (
+        <section style={{ marginBottom: 24 }}>
+          <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>{t('settings.model')}</h3>
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>{t('settings.modelHint')}</p>
+          <div className="setting-row" style={{ borderBottom: 'none', alignItems: 'flex-start' }}>
+            <div>
+              <div className="lbl">{provider.label}</div>
+            </div>
+            <div className="ctl" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <select
+                value={selectedModelId}
+                onChange={(e) => { void handleModelChange(e.target.value); }}
+                style={{ minWidth: 280, padding: '6px 8px' }}
+              >
+                {provider.models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}{m.recommended ? ` (${t('settings.recommendedShort')})` : ''} — {m.hint}
+                  </option>
+                ))}
+              </select>
+              {selectedModel && (
+                <div className="muted" style={{ fontSize: 12, lineHeight: 1.6 }}>
+                  {t('settings.contextLabel')}: {(selectedModel.contextWindow / 1000).toFixed(0)}K ·{' '}
+                  {t('settings.maxOutputLabel')}: {(selectedModel.maxOutput / 1000).toFixed(1)}K ·{' '}
+                  {t('settings.priceLabel')}: {selectedModel.pricing}
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {isOllama && (
+        <section style={{ marginBottom: 24 }}>
+          <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>{t('settings.model')}</h3>
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>{t('settings.modelOllamaHint')}</p>
+          <div className="setting-row" style={{ borderBottom: 'none' }}>
+            <div><div className="lbl">{t('settings.model')}</div></div>
+            <div className="ctl">
+              <input
+                type="text"
+                value={ollamaInput}
+                onChange={(e) => setOllamaInput(e.target.value)}
+                onBlur={() => { void handleOllamaInputBlur(); }}
+                placeholder={t('settings.modelOllamaPlaceholder')}
+                style={{ minWidth: 280 }}
+              />
+            </div>
+          </div>
+        </section>
+      )}
 
       <section>
         <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>{t('settings.apiKeySection')}</h3>
