@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next';
 import { Icons } from '@renderer/components/icons';
-import { PROVIDER_BY_ID } from '@renderer/data/providers';
+import { PROVIDER_BY_ID, resolveActiveModel } from '@renderer/data/providers';
 import { useChatStore } from '@renderer/stores/chat-store';
 import { useProjectsStore } from '@renderer/stores/projects-store';
+import { useSettingsStore } from '@renderer/stores/settings-store';
 
 export interface StatusBarProps {
   /** Currently selected LLM provider id (e.g. 'deepseek'). `undefined` means not configured. */
@@ -38,8 +39,25 @@ export function StatusBar({
 
   const activeProject = projects.find((p) => p.id === connectionState.projectId);
 
+  const settings = useSettingsStore((s) => s.settings);
   const provider = llmProviderId ? PROVIDER_BY_ID[llmProviderId] : undefined;
-  const providerLabel = provider ? provider.short : t('status.llmNotConfigured');
+
+  let providerLabel: string;
+  let maxTokens: number;
+  if (!provider) {
+    providerLabel = t('status.llmNotConfigured');
+    maxTokens = 0;
+  } else if (provider.id === 'ollama') {
+    // Ollama context size is per-model and unknowable from the data file (custom models).
+    // Use a conservative default that matches what the previous flat field used.
+    const customName = settings.ollamaModelInput?.trim() || provider.modelInputDefault || 'ollama';
+    providerLabel = `${provider.short} · ${customName}`;
+    maxTokens = 32_000;
+  } else {
+    const activeModel = resolveActiveModel(provider.id, settings.modelByProvider);
+    providerLabel = activeModel ? `${provider.short} · ${activeModel.label}` : provider.short;
+    maxTokens = activeModel?.contextWindow ?? 0;
+  }
 
   const usedTokens = messages.reduce((sum, m) => {
     let n = estimateTokens(m.content);
@@ -50,7 +68,6 @@ export function StatusBar({
     }
     return sum + n;
   }, 0);
-  const maxTokens = provider?.contextWindow ?? 0;
   const pct = maxTokens > 0 ? Math.min(100, (usedTokens / maxTokens) * 100) : 0;
   const fillClass = pct >= 85 ? 'hot' : pct >= 50 ? 'warm' : '';
 
