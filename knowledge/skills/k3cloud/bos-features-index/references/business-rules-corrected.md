@@ -23,22 +23,41 @@ BOS 业务规则有**两个层次**:
 
 2. **实体级 EntityServiceRule** — 挂在 `Entity` 上 (`CollectionProperty EntityServiceRules: List<EntityServiceRule>`, line 54192)。有条件表达式 (`PreCondition`)、条件成立时服务列表 (`WhenTrueBusinessServices`)、条件不成立时服务列表 (`WhenFalseBusinessServices`)。这是 BOS Designer → 单据头/体属性 → "实体服务规则" tab 配置的内容。
 
-### 1.2 RaiseEventType 位标志 (🟢 反编译 line 10831–10838)
+### 1.2 RaiseEventType 位标志 (🟢 反编译 line 10831–10838 + 🟢 客户环境 XML 实证 2026-04-26)
 
-`RaiseEventType` 是一个位标志枚举，用于指定服务在哪些事件时触发。在 `FormBusinessService` 的 `RaiseEventType` 属性 getter 中通过 `ApplyRaiseMode` 组合:
+`RaiseEventType` 是一个位标志枚举，用于在内存中标记服务在哪些事件时触发:
 
-| 位值 | 含义 | C# 枚举值 |
+| 位值 | C# 枚举名 | XML 子元素名 |
 |---|---|---|
-| `1` | 字段值变化 (`RaiseValueChanged`) | `(RaiseEventType)1` |
-| `2` | 初始化/新增数据时 (`RaiseInitialized`) | `(RaiseEventType)2` |
-| `4` | 行被添加 (`RaiseItemAdded`) | `(RaiseEventType)4` |
-| `8` | 行被重置 (`RaiseItemReset`) | `(RaiseEventType)8` |
-| `16` | 行被删除 (`RaiseItemRemoved`) | `(RaiseEventType)16` |
-| `32` | 集合重置 (`RaiseReset`) | `(RaiseEventType)32` |
-| `64` | 选中行变化 (`RaiseSelectRowChanged`) | `(RaiseEventType)64` |
-| `256` | 选中行扩展变化 (`RaiseSelectRowExtChanged`) | `(RaiseEventType)256` |
+| `1` | `RaiseValueChanged` | `<RaiseValueChanged>` |
+| `2` | `RaiseInitialized` | `<RaiseInitialized>` |
+| `4` | `RaiseItemAdded` | `<RaiseItemAdded>` |
+| `8` | `RaiseItemReset` | `<RaiseItemReset>` |
+| `16` | `RaiseItemRemoved` | `<RaiseItemRemoved>` |
+| `32` | `RaiseReset` | `<RaiseReset>` |
+| `64` | `RaiseSelectRowChanged` | `<RaiseSelectRowChanged>` |
+| `256` | `RaiseSelectRowExtChanged` | `<RaiseSelectRowExtChanged>` |
 
-> 🟢 **来源**: line 10831–10838 `ApplyRaiseMode` 调用序列中的硬编码 `(RaiseEventType)N` 值。
+**🟢 XML 序列化形态实证**:
+- **每个事件是独立的子元素**, **不是单一整数位掩码**
+- 元素值是字符串 `EnableRaise` 或 `DisableRaise`
+- **只在覆盖默认时序列化** — 默认值（推测 `EnableRaise`）的事件根本不出现在 XML 里
+- 实证片段（用户字段级 UpdateActions 中禁用了 3 个事件）:
+
+```xml
+<FormBusinessService>
+  <Parameters>[" FExchangeRate = 0"]</Parameters>
+  <ActionId>2</ActionId>
+  <RaiseValueChanged>DisableRaise</RaiseValueChanged>
+  <RaiseItemReset>DisableRaise</RaiseItemReset>
+  <RaiseReset>DisableRaise</RaiseReset>
+  <Id>...</Id>
+</FormBusinessService>
+```
+
+> 🟢 **来源**:
+> - 位值: 反编译 line 10831–10838 `ApplyRaiseMode` 硬编码常量
+> - XML 形态: 客户 dev 环境实证（扩展 FID `a4ad49d2-61c2-4000-9650-20e27c701675`，2026-04-26 配置）
 
 ### 1.3 BOSRule / EntityRule 执行流 (🟢 反编译 line 185763)
 
@@ -215,91 +234,108 @@ GetFieldValue("FQty") * GetFieldValue("FPrice")
 
 ---
 
-## 4. FKERNELXML 序列化形态
+## 4. FKERNELXML 序列化形态 (🟢 客户 dev 环境实证 2026-04-26)
 
-### 4.1 架构层次
+> **实证扩展**: FID `a4ad49d2-61c2-4000-9650-20e27c701675`（dev SAL_SaleOrder 扩展，含 1 条实体规则 + 1 条字段 UpdateActions）。
+> **导出工具**: `pnpm dlx tsx scripts/extract-business-rule-xml.ts <fid>`
 
-BOS 元数据通过 `[SimpleProperty]` / `[CollectionProperty]` / `[ComplexProperty]` 注解驱动 JSON/XML 序列化 (BOS 自研序列化框架，非标准 XmlSerializer)。
+### 4.1 序列化框架行为速记
 
-**业务规则相关的序列化树** (🟡 基于属性注解推断 + capability-catalog.md 现有知识):
+BOS 用自研序列化框架（非 .NET XmlSerializer），通过 `[SimpleProperty]` / `[CollectionProperty]` / `[ComplexProperty]` 注解驱动。**关键约定（实证）**:
 
-```
-FormMetadata
-└─ BusinessInfo      [ComplexProperty, line 225750]
-   └─ Entrys/HeadEntity/EntryEntity
-      └─ EntityServiceRules  [CollectionProperty, line 54192]
-         └─ EntityServiceRule
-            ├─ Id              [SimpleProperty]
-            ├─ Description     [SimpleProperty LocaleValue]
-            ├─ IsEnabled       [SimpleProperty DefaultValue=true]
-            ├─ PreCondition    [SimpleProperty] ← IronPython 条件表达式文本
-            ├─ Seq             [SimpleProperty DefaultValue=0]
-            ├─ WhenTrueBusinessServices  [CollectionProperty]
-            │  └─ FormBusinessService
-            │     ├─ ActionId     [SimpleProperty]
-            │     ├─ ClassName    [SimpleProperty] ← 服务类全名
-            │     ├─ Parameters   [SimpleProperty]
-            │     ├─ IsEnabled    [SimpleProperty DefaultValue=true]
-            │     ├─ Name         [SimpleProperty]
-            │     └─ Seq          [SimpleProperty]
-            └─ WhenFalseBusinessServices  [CollectionProperty]
-               └─ FormBusinessService (同上)
+1. **DefaultValue 的属性会跳过序列化** — `IsEnabled=true` 默认值，从不出现在 XML 里
+2. **空集合不序列化** — `WhenFalseBusinessServices` 空时整个节点不存在，不是 `<WhenFalseBusinessServices/>` 空元素
+3. **`Description`、`PreConditionDesc` 是直接文本节点** — 不是 LocaleValue 嵌套结构（中文直接写在文本里）
+4. **`ClassName` / `Name` 不出现在 XML** — `FormBusinessService` 由 `ActionId` 唯一标识 service 类型，`ClassName` 是运行时 lookup 出来的，不持久化
+5. **每个 `Raise<EventName>` 是独立子元素** — 仅当用户覆盖默认值时序列化
 
-   Field
-   └─ UpdateActions  [CollectionProperty, line 12110]
-      └─ FormBusinessService (同上结构)
-```
-
-### 4.2 FKERNELXML 中的业务规则 XML 示例 (🟡)
-
-> ⚠️ 以下 XML 形态基于 C# 序列化注解推断，XML tag 名与 C# 属性名对应（BOS 序列化框架约定），但**未在真实 FKERNELXML 中直接验证**。如需确认，在客户环境导出有业务规则的扩展的 FKERNELXML 后比对。
+### 4.2 实体级业务规则 XML（实证形态 🟢）
 
 ```xml
-<!-- 在 FKERNELXML 的 BusinessInfo > Entrys > EntryEntity 节点内 -->
+<!-- 在 FKERNELXML 的 Entity 节点内 -->
 <EntityServiceRules>
   <EntityServiceRule>
-    <Id>a1b2c3d4-1234-5678-abcd-000000000001</Id>
-    <Description>
-      <Value lang="zh-CN">金额 = 数量 × 单价</Value>
-    </Description>
-    <IsEnabled>true</IsEnabled>
-    <!-- IronPython 前置条件; 空 = 永真 -->
-    <PreCondition></PreCondition>
-    <Seq>0</Seq>
+    <Id>802ab974-ac16-485d-921e-bcc617036060</Id>
+    <Description>测试-永真规则</Description>
+    <PreCondition>OperationStatus() == 'Add'</PreCondition>
+    <PreConditionDesc>OperationStatus() == 'Add'描述</PreConditionDesc>
+    <Seq>12</Seq>
     <WhenTrueBusinessServices>
       <FormBusinessService>
-        <!-- ActionId=2 = Calculate (反编译 line 11406: ACTION_Calculate=2) -->
+        <Parameters>[" FBillAllAmount = 100"]</Parameters>
         <ActionId>2</ActionId>
-        <!-- 服务类全名; 计算公式服务的类名需客户环境实证 -->
-        <ClassName>Kingdee.BOS.Core.DynamicForm.Business.CalculateFormService</ClassName>
-        <!-- Parameters: JSON 数组, 含目标字段 key 和公式表达式 -->
-        <Parameters>[{"TargetField":"FAmount","Expression":"FQty * FPrice"}]</Parameters>
-        <IsEnabled>true</IsEnabled>
-        <Seq>0</Seq>
+        <Description>计算定义公式的值并填写到指定列</Description>
+        <Id>2ecb49b7-9405-4184-aa10-91fb7e957976</Id>
       </FormBusinessService>
     </WhenTrueBusinessServices>
-    <WhenFalseBusinessServices/>
+    <!-- WhenFalseBusinessServices 节点不存在(默认空集合不序列化) -->
+    <!-- IsEnabled 节点不存在(默认 true 不序列化) -->
   </EntityServiceRule>
 </EntityServiceRules>
 ```
 
-> 🟡 `ClassName` 字段的具体类名需在 BOS Designer 配置完后 SELECT FKERNELXML 获取真实值。`ACTION_Calculate=2` 已反编译确认 (line 11406)。`ACTION_TakeBaseData=22` 已确认 (line 11413)。`ACTION_CallBillFunction=23` 已确认 (line 10618)。
+**节点字段含义**（实证）:
 
-### 4.3 字段 UpdateActions XML 示例 (🟡)
+| 节点 | 含义 | 如何生成 |
+|---|---|---|
+| `<Id>` | GUID，规则唯一标识 | 写工具用 `crypto.randomUUID()` |
+| `<Description>` | 中文描述（直接文本，不是 LocaleValue）| 用户输入的规则名 |
+| `<PreCondition>` | IronPython 条件表达式文本（空字符串 = 永真）| LLM 输出 |
+| `<PreConditionDesc>` | PreCondition 的中文描述（BOS Designer 自动填）| 写工具可填空，BOS 自己加 |
+| `<Seq>` | 同 entity 多条规则的执行顺序 | 工具按 N+1 自增 |
+| `<WhenTrueBusinessServices>` | 条件成立时执行的服务列表 | 必填 |
+| `<WhenFalseBusinessServices>` | 条件不成立时执行的服务列表（空时不序列化）| 可选 |
+
+### 4.3 FormBusinessService 节点（实证形态 🟢）
 
 ```xml
-<!-- 在 Field 节点内 -->
+<FormBusinessService>
+  <!-- Parameters: JSON 数组,每条字符串 = 1 个 IronPython 赋值语句 -->
+  <Parameters>[" FBillAllAmount = 100"]</Parameters>
+  <!-- ActionId=2 = Calculate (反编译 line 11406) -->
+  <ActionId>2</ActionId>
+  <!-- BOS Designer 自动加的中文描述 -->
+  <Description>计算定义公式的值并填写到指定列</Description>
+  <Id>2ecb49b7-9405-4184-aa10-91fb7e957976</Id>
+</FormBusinessService>
+```
+
+**🟢 `<Parameters>` 真实形态**: JSON 数组，每个元素是一个 IronPython 赋值字符串
+
+```
+Parameters JSON: [" FBillAllAmount = 100"]
+                 ─┬─ ─────────────────────
+                  │  └─ 赋值表达式 (前面的空格无关紧要,BOS Designer 写时随手加)
+                  └─ JSON 数组,可放多条赋值
+
+多条动作示例 (LLM 应该这样生成):
+Parameters JSON: ["F金额 = F数量 * F单价", "F税额 = F金额 * 0.13"]
+```
+
+> ⚠️ **重要纠正**: subagent 之前推断的 `[{"TargetField":"FAmount","Expression":"FQty * FPrice"}]` 对象数组形式 **不是真的**。真实是赋值字符串数组——BOS 在运行时直接把字符串喂 IronPython 引擎执行，左侧自动是赋值目标，右侧是表达式。
+
+### 4.4 字段级 UpdateActions XML（实证形态 🟢）
+
+```xml
+<!-- 在 Field 节点内 (字段属性"值更新事件"配置) -->
 <UpdateActions>
   <FormBusinessService>
+    <Parameters>[" FExchangeRate = 0"]</Parameters>
     <ActionId>2</ActionId>
-    <ClassName>...</ClassName>
-    <Parameters>[{"TargetField":"FSelf","Expression":"FQty * FPrice"}]</Parameters>
-    <IsEnabled>true</IsEnabled>
-    <!-- RaiseValueChanged=1, RaiseInitialized=2 -->
-    <!-- 具体 RaiseEventType 值如何存入 XML 待实证 -->
+    <Description>计算定义公式的值并填写到指定列</Description>
+    <!-- 用户在 BOS Designer 里禁用了这 3 个事件; 其他 5 个事件保持默认(EnableRaise) -->
+    <RaiseValueChanged>DisableRaise</RaiseValueChanged>
+    <RaiseItemReset>DisableRaise</RaiseItemReset>
+    <RaiseReset>DisableRaise</RaiseReset>
+    <Id>7e19f9ad-d0c2-4d59-903f-1c97cb6220fb</Id>
   </FormBusinessService>
 </UpdateActions>
 ```
+
+**🟢 与 EntityServiceRule 的关键差异**:
+1. UpdateActions 没有 `<PreCondition>` — 字段值更新事件不需要前置条件（事件本身就是触发条件）
+2. UpdateActions 没有 `<WhenTrue/False>` 分支 — 直接列服务
+3. **`<Raise{Event}>` 子元素存在**: 每个事件独立元素，值 `EnableRaise` / `DisableRaise`，仅当覆盖默认时存在
 
 ---
 
@@ -329,7 +365,7 @@ FormMetadata
 
 `kingdee_add_business_rule` 工具的 validate-and-retry loop 验证依据:
 
-### 函数白名单 (可在 PreCondition 和 Expression 中调用)
+### 函数白名单 (可在 PreCondition 和 action 赋值表达式中调用)
 
 ```
 GetFlexDetailValue  GetPKValue  GetAcronym  BillTypeParam
@@ -338,23 +374,56 @@ Avg  Count  IsDraw  IsPush
 GetCurrOrg  GetUser  GetFieldValue  GetDate  GetTime
 ```
 
-### 字段引用模式 (合法的字段引用形式)
+### LLM 输出约定（基于实证 XML 形态）
+
+LLM 在 `kingdee_add_business_rule` 工具的 input 里给两个东西:
+
+**实体级规则**:
+```typescript
+{
+  description: "测试-永真规则",          // 中文规则名
+  preCondition: "OperationStatus() == 'Add'",  // 空字符串 = 永真
+  whenTrueActions: [                    // 条件成立的赋值列表
+    "F金额 = F数量 * F单价",
+    "F税额 = F金额 * 0.13"
+  ],
+  whenFalseActions: []                  // 可选,默认空
+}
+```
+
+工具拼装出的 XML:
+- `<EntityServiceRule>` 包含 `<Id>` (生成) + `<Description>` + `<PreCondition>` + `<Seq>` (递增)
+- `<WhenTrueBusinessServices>` 含 1 个 `<FormBusinessService>`
+  - `<Parameters>` = `JSON.stringify(whenTrueActions)` 即 `["F金额 = F数量 * F单价", "F税额 = F金额 * 0.13"]`
+  - `<ActionId>2</ActionId>` (Calculate)
+  - `<Id>` (生成)
+
+**字段级 UpdateActions**:
+```typescript
+{
+  fieldKey: "F单价",
+  actions: ["F金额 = F数量 * F单价"],
+  disabledEvents: ["RaiseValueChanged"]  // 可选,只列要禁用的事件
+}
+```
+
+### 字段引用模式 (合法的赋值左右两边形态)
 
 ```regex
-# 直接字段 key (以 F 开头,含字母数字下划线)
-\bF[A-Za-z][A-Za-z0-9_]*\b
+# 直接字段 key (以 F 开头,含字母数字下划线/汉字)
+\bF[一-龥A-Za-z0-9_]+\b
 
 # 点分隔基础资料属性
-\bF[A-Za-z][A-Za-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*\b
+\bF[一-龥A-Za-z0-9_]+\.F?[A-Za-z][A-Za-z0-9_]*\b
 
 # GetFieldValue 函数调用
-GetFieldValue\(\s*["']F\w+["']\s*\)
+GetFieldValue\(\s*["']F[一-龥A-Za-z0-9_]+["']\s*\)
 ```
 
 ### 禁止模式 (应触发 LLM retry)
 
 ```
-# SQL 风格函数
+# SQL 风格函数 (训练数据幻觉常见)
 \bIIF\(  \bCONCAT\(  \bDATEADD\(  \bISNULL\(  \bDATEDIFF\(
 \bLEN\(  \bROUND\(  \bSUBSTR\(  \bUPPER\(  \bLOWER\(
 
@@ -367,41 +436,49 @@ GetFieldValue\(\s*["']F\w+["']\s*\)
 
 ### 类型限制
 
-- `PreCondition` 必须是 **布尔表达式** (返回 `True`/`False`); 例如 `FQty > 0 and FPrice > 0`
-- 计算公式 (`Expression` for ActionId=2) 必须是**值表达式** (返回要赋值的结果); 例如 `FQty * FPrice`
-- `EntityServiceRule.PreCondition` 为空字符串 = 永真 (所有行都触发)
+- `preCondition` 必须是 **布尔表达式** (返回 `True`/`False`); 例如 `FQty > 0 and FPrice > 0`
+- `whenTrueActions` 每条必须是 **赋值语句** `<TargetField> = <Expression>`; 单纯的值表达式（如 `FQty * FPrice` 不带等号）会失败
+- 空 `preCondition`（空字符串）= 永真，所有行都触发
 
 ---
 
 ## 实证级别汇总
 
-### 🟢 反编译方法体直接确认
+### 🟢 已实证（反编译 + 客户 dev 环境 XML 双重验证）
+
+**反编译实证（`Kingdee.BOS.Core.dll` V9）**:
 
 - `IronPython 2.7.12` 版本 (DLL 文件头 `FileVersion: 2.7.12.1000`)
-- `PythonUtil.GetScriptEngine()` 使用 `Python.CreateEngine()` 池化 + `ConcurrentDictionary<int, ScriptEngine>` (line 272291)
-- `PythonPlugIn` 的初始化流程: `basePyCode.Execute(scope)` → `pyCode.Execute(scope)` → `scope.SetVariable("xxx", this)` (line 205310–205320)
+- `PythonUtil.GetScriptEngine()` 池化 (line 272291)
+- `PythonPlugIn` 初始化流程: `basePyCode.Execute(scope)` → `pyCode.Execute(scope)` → `scope.SetVariable("xxx", this)` (line 205310–205320)
 - 全部 16 个 FuncDefine/Function 类存在 + `GetFuncDefine()` 返回 delegate 签名 (各类 GetFuncDefine override)
-- `EntityServiceRule` 属性: `Id` `Description` `IsEnabled` `PreCondition` `Seq` `WhenTrueBusinessServices` `WhenFalseBusinessServices` (line 227060–227130)
-- `Entity.EntityServiceRules: List<EntityServiceRule>` 以 `[CollectionProperty]` 修饰 (line 54192)
-- `Field.UpdateActions: List<FormBusinessService>` 以 `[CollectionProperty]` 修饰 (line 12110)
+- `EntityServiceRule` C# 属性: `Id` `Description` `IsEnabled` `PreCondition` `Seq` `WhenTrueBusinessServices` `WhenFalseBusinessServices` (line 227060–227130)
 - `RaiseEventType` 8 个位值 (line 10831–10838)
 - `FormBusinessService.ACTION_Calculate=2`, `ACTION_TakeBaseData=22`, `ACTION_CallBillFunction=23` (line 11406, 11413, 10618)
-- `DataChangedEventArgs` 属性 (`Field` `NewValue` `OldValue` `Row`) (line 284642)
-- `AfterDeleteRowEventArgs` 属性 (`EntityKey` `Row` `DataEntity`) (line 210531)
-- `BOSExpression` 构造: `new BOSExpression(condition, (ExpressionKind)1, null, false)` (line 241622)
+- `DataChangedEventArgs` 属性 (line 284642)
+- `AfterDeleteRowEventArgs` 属性 (line 210531)
 
-### 🟡 类名/接口推断，未直读执行路径
+**客户 dev 环境 FKERNELXML 实证（2026-04-26，扩展 FID `a4ad49d2-61c2-4000-9650-20e27c701675`）**:
 
-- XML tag 名与 C# 属性名的对应关系 (BOS 序列化框架是自研的，tag 可能有别名)
-- `FormBusinessService.ClassName` 的具体值 (如计算公式服务的全名; 受 obfuscation 影响)
-- `GetDate`/`GetTime` 函数在表达式引擎中注册的字符串 key (line 194839 受 obfuscation)
-- Python 标准库模块 (`math`, `datetime`) 是否可 import
-- 条件表达式 (`PreCondition`) 的具体字段引用模式
+- `<EntityServiceRules>` 容器 + `<EntityServiceRule>` 节点形态（见 4.2）
+- `<Description>` 是直接文本节点（**不是** LocaleValue 嵌套）
+- `<IsEnabled>` 不序列化（DefaultValue=true 跳过）
+- `<WhenFalseBusinessServices>` 空集合不序列化（**不是** 空元素 `<...>`）
+- **`<ClassName>` 不序列化** — 由 `<ActionId>` 唯一标识 service 类型，`ClassName` 是运行时 lookup 值，不持久化（subagent 之前推断 ClassName 在 XML 里是错的）
+- `<PreConditionDesc>` 子元素存在（PreCondition 的中文描述，BOS Designer 自动填）
+- `<Parameters>` 是 **JSON 数组 of 赋值字符串** — `[" F金额 = F数量 * F单价"]`，**不是** `{TargetField,Expression}` 对象数组（subagent 之前推断错）
+- `<UpdateActions>` 在 Field 节点内的形态（见 4.4）
+- `<Raise{Event}>` **每个事件独立子元素**，值 `EnableRaise` / `DisableRaise`，仅覆盖默认时序列化（**不是** 单一整数位掩码）
 
-### 🔴 需客户环境实证
+### 🟡 类名/接口推断（部分确认）
 
-- 完整的 FKERNELXML XML 结构验证 (需导出有规则的扩展)
-- `FormBusinessService.ClassName` 具体类名列表 (需从真实配置中 SELECT)
-- `Parameters` JSON 结构 (需从真实 BOS Designer 配置后的 DB 读取)
-- `RaiseEventType` 在 XML 中的存储格式 (int? 还是名称字符串?)
-- IronPython 沙箱的 `import` 白名单/黑名单
+- `GetDate`/`GetTime` 函数在表达式引擎中注册的字符串 key（class name 找到了，但 string key 受 obfuscation 影响）
+- Python 标准库模块 (`math`, `datetime`, `decimal`) 是否可 `import`
+- 条件表达式 (`PreCondition`) 中的字段引用模式（已实证 `OperationStatus() == 'Add'` 模式工作；其他模式如 `F字段 > 100` 推断有效但未单独跑过）
+- `<Raise{Event}>` 默认值是 `EnableRaise` 还是 `DisableRaise`（推测前者，未验证）
+
+### 🔴 需后续实证
+
+- ActionId=22 (TakeBaseData) 和 ActionId=23 (CallBillFunction) 的 Parameters JSON schema（计算公式服务 ActionId=2 已实证赋值字符串数组形态）
+- IronPython 沙箱 `import` 白名单（`import System` 实证可用，但其他模块未试）
+- 多条规则在同一 entity 上的 `<Seq>` 排序行为（用户当前 `Seq=12` 可能是 BOS 内部分配的位置标识）
