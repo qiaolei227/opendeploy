@@ -39,7 +39,9 @@ export function StatusBar({
 
   const activeProject = projects.find((p) => p.id === connectionState.projectId);
 
-  const settings = useSettingsStore((s) => s.settings);
+  // Narrow selectors so unrelated settings writes (theme/language/api keys) don't re-render us.
+  const modelByProvider = useSettingsStore((s) => s.settings.modelByProvider);
+  const ollamaModelInput = useSettingsStore((s) => s.settings.ollamaModelInput);
   const provider = llmProviderId ? PROVIDER_BY_ID[llmProviderId] : undefined;
 
   let providerLabel: string;
@@ -48,13 +50,13 @@ export function StatusBar({
     providerLabel = t('status.llmNotConfigured');
     maxTokens = 0;
   } else if (provider.id === 'ollama') {
-    // Ollama context size is per-model and unknowable from the data file (custom models).
-    // Use a conservative default that matches what the previous flat field used.
-    const customName = settings.ollamaModelInput?.trim() || provider.modelInputDefault || 'ollama';
+    // Ollama context is per-model and unknowable without querying the server.
+    // 32K is a conservative floor that avoids a zeroed-out progress bar for typical local models.
+    const customName = ollamaModelInput?.trim() || provider.modelInputDefault || 'ollama';
     providerLabel = `${provider.short} · ${customName}`;
     maxTokens = 32_000;
   } else {
-    const activeModel = resolveActiveModel(provider.id, settings.modelByProvider);
+    const activeModel = resolveActiveModel(provider.id, modelByProvider);
     providerLabel = activeModel ? `${provider.short} · ${activeModel.label}` : provider.short;
     maxTokens = activeModel?.contextWindow ?? 0;
   }
