@@ -48,6 +48,7 @@ export interface LlmStreamEvent {
     | 'reasoning_signature'
     | 'tool_call'
     | 'tool_result'
+    | 'usage'
     | 'done'
     | 'error';
   content?: string;
@@ -62,6 +63,8 @@ export interface LlmStreamEvent {
   toolCallId?: string;
   toolCallName?: string;
   toolCallArgs?: string;
+  /** Present on `usage` events — provider-reported cumulative output tokens. */
+  outputTokens?: number;
   error?: string;
 }
 

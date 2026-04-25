@@ -71,6 +71,7 @@ export type StreamEvent =
   | { type: 'reasoning_delta'; content: string }
   | { type: 'reasoning_signature'; signature: string }
   | { type: 'tool_call'; toolCall: ToolCall }
+  | { type: 'usage'; outputTokens: number }
   | { type: 'done'; finishReason: 'stop' | 'tool_calls' | 'length' | 'error'; usage?: TokenUsage }
   | { type: 'error'; error: string };
 

@@ -23,6 +23,7 @@ export type AgentLoopEvent =
   | { type: 'tool_call'; toolCall: ToolCall }
   | { type: 'tool_result'; toolCallId: string; content: string; isError: boolean }
   | { type: 'iteration_start'; iteration: number }
+  | { type: 'usage'; outputTokens: number }
   | { type: 'error'; error: string }
   | { type: 'done' };
 
@@ -101,6 +102,8 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
         toolCalls.push(ev.toolCall);
         blocks = appendToolUse(blocks, ev.toolCall.id);
         emit({ type: 'tool_call', toolCall: ev.toolCall });
+      } else if (ev.type === 'usage') {
+        emit({ type: 'usage', outputTokens: ev.outputTokens });
       } else if (ev.type === 'done') {
         finishReason = ev.finishReason;
       } else if (ev.type === 'error') {

@@ -149,6 +149,10 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
               toolCallId: e.toolCallId,
               content: e.content
             });
+            else if (e.type === 'usage') emit({
+              type: 'usage',
+              outputTokens: e.outputTokens
+            });
           }
         });
 
