@@ -15,6 +15,7 @@ build/
 .idea/
 *.swp
 *.swo
+.claude/
 
 # OS
 .DS_Store
