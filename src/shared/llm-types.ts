@@ -71,6 +71,12 @@ export type StreamEvent =
   | { type: 'reasoning_delta'; content: string }
   | { type: 'reasoning_signature'; signature: string }
   | { type: 'tool_call'; toolCall: ToolCall }
+  /**
+   * Cumulative (monotonically increasing) output token count, fired
+   * mid-stream by Anthropic (`message_delta.usage`) or once at end by
+   * OpenAI / Ollama. The terminal `done.usage` still carries full
+   * TokenUsage including input/total — this event is the live UI signal.
+   */
   | { type: 'usage'; outputTokens: number }
   | { type: 'done'; finishReason: 'stop' | 'tool_calls' | 'length' | 'error'; usage?: TokenUsage }
   | { type: 'error'; error: string };
