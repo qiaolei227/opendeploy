@@ -66,6 +66,11 @@ export interface FieldTypeSpec {
   /** Full BOS C# class name. Identical to xmlTag for now; kept separate so
    *  future variants (e.g., a CheckBox sub-type of TextField) can deviate. */
   csClass: string;
+  /** `ElementType="N"` numeric attribute emitted in the field-side XML node.
+   *  Implants reverse-engineered from real SAL_SaleOrder FKERNELXML
+   *  (see memory `bos_field_xml_realities.md`). Default 1 for as-yet-unsampled
+   *  types. */
+  elementType: number;
   /** Spec field names that the caller MUST supply beyond {key, caption}.
    *  Tool-layer validates; XML renderer can assume these are present. */
   requiredExtraProps: readonly string[];
@@ -74,22 +79,22 @@ export interface FieldTypeSpec {
 }
 
 const FIELD_TYPE_SPECS: Record<FieldType, FieldTypeSpec> = {
-  text:               { xmlTag: 'TextField',              csClass: 'TextField',              requiredExtraProps: [] },
-  large_text:         { xmlTag: 'LargeRichTextField',     csClass: 'LargeRichTextField',     requiredExtraProps: [] },
-  int:                { xmlTag: 'IntegerField',           csClass: 'IntegerField',           requiredExtraProps: [] },
-  decimal:            { xmlTag: 'DecimalField',           csClass: 'DecimalField',           requiredExtraProps: [] },
-  amount:             { xmlTag: 'AmountField',            csClass: 'AmountField',            requiredExtraProps: [] },
-  qty:                { xmlTag: 'QtyField',               csClass: 'QtyField',               requiredExtraProps: [] },
-  date:               { xmlTag: 'DateTimeField',          csClass: 'DateTimeField',          requiredExtraProps: [], dateOnly: true },
-  datetime:           { xmlTag: 'DateTimeField',          csClass: 'DateTimeField',          requiredExtraProps: [], dateOnly: false },
-  checkbox:           { xmlTag: 'CheckBoxField',          csClass: 'CheckBoxField',          requiredExtraProps: [] },
-  combo:              { xmlTag: 'ComboField',             csClass: 'ComboField',             requiredExtraProps: ['comboItems'] },
-  mul_combo:          { xmlTag: 'MulComboField',          csClass: 'MulComboField',          requiredExtraProps: ['comboItems'] },
-  base_data:          { xmlTag: 'BaseDataField',          csClass: 'BaseDataField',          requiredExtraProps: ['refBaseDataObjectKey'] },
-  base_property:      { xmlTag: 'BasePropertyField',      csClass: 'BasePropertyField',      requiredExtraProps: ['sourceField', 'srcDisplayFieldName'] },
-  reference_property: { xmlTag: 'ReferencePropertyField', csClass: 'ReferencePropertyField', requiredExtraProps: ['sourceField'] },
-  color:              { xmlTag: 'ColorField',             csClass: 'ColorField',             requiredExtraProps: [] },
-  mobile:             { xmlTag: 'MobileField',            csClass: 'MobileField',            requiredExtraProps: [] }
+  text:               { xmlTag: 'TextField',              csClass: 'TextField',              elementType: 1,   requiredExtraProps: [] },
+  large_text:         { xmlTag: 'LargeRichTextField',     csClass: 'LargeRichTextField',     elementType: 1,   requiredExtraProps: [] },
+  int:                { xmlTag: 'IntegerField',           csClass: 'IntegerField',           elementType: 3,   requiredExtraProps: [] },
+  decimal:            { xmlTag: 'DecimalField',           csClass: 'DecimalField',           elementType: 2,   requiredExtraProps: [] },
+  amount:             { xmlTag: 'AmountField',            csClass: 'AmountField',            elementType: 21,  requiredExtraProps: [] },
+  qty:                { xmlTag: 'QtyField',               csClass: 'QtyField',               elementType: 22,  requiredExtraProps: [] },
+  date:               { xmlTag: 'DateTimeField',          csClass: 'DateTimeField',          elementType: 5,   requiredExtraProps: [], dateOnly: true },
+  datetime:           { xmlTag: 'DateTimeField',          csClass: 'DateTimeField',          elementType: 5,   requiredExtraProps: [], dateOnly: false },
+  checkbox:           { xmlTag: 'CheckBoxField',          csClass: 'CheckBoxField',          elementType: 8,   requiredExtraProps: [] },
+  combo:              { xmlTag: 'ComboField',             csClass: 'ComboField',             elementType: 9,   requiredExtraProps: ['comboItems'] },
+  mul_combo:          { xmlTag: 'MulComboField',          csClass: 'MulComboField',          elementType: 9,   requiredExtraProps: ['comboItems'] },
+  base_data:          { xmlTag: 'BaseDataField',          csClass: 'BaseDataField',          elementType: 13,  requiredExtraProps: ['refBaseDataObjectKey'] },
+  base_property:      { xmlTag: 'BasePropertyField',      csClass: 'BasePropertyField',      elementType: 14,  requiredExtraProps: ['sourceField', 'srcDisplayFieldName'] },
+  reference_property: { xmlTag: 'ReferencePropertyField', csClass: 'ReferencePropertyField', elementType: 250, requiredExtraProps: ['sourceField'] },
+  color:              { xmlTag: 'ColorField',             csClass: 'ColorField',             elementType: 1,   requiredExtraProps: [] },
+  mobile:             { xmlTag: 'MobileField',            csClass: 'MobileField',            elementType: 1,   requiredExtraProps: [] }
 };
 
 export function getFieldTypeSpec(type: FieldType): FieldTypeSpec {
@@ -383,10 +388,18 @@ function defaultNumericGenerator() {
 }
 
 /** Per-type body extras inserted between the universal field body and the
- *  closing tag (e.g. `<EditFormat>`, `<ComboItems>`, `<RefBaseDataObjectType>`). */
+ *  closing tag. Reverse-engineered from real SAL_SaleOrder FKERNELXML
+ *  (see memory `bos_field_xml_realities.md`):
+ *  - date emits `<EditFormat>` (datetime does not)
+ *  - combo/mul_combo wrap items in `<ComboItems><ComboItem>…</ComboItem>…`
+ *  - base_data emits `<LookUpObjectID>{guid}</LookUpObjectID>` — the agent
+ *    passes a GUID via `spec.refBaseDataObjectKey` (tool layer translates
+ *    user-friendly keys like "BD_Customer" to GUIDs before getting here)
+ *  - base_property emits `<ControlFieldKey>` (NOT `<SourceField>`!) +
+ *    `<SrcDisplayFieldName>` + `<SrcBaseDataDisplayType action="setnull"/>`
+ *  - reference_property emits `<ControlFieldKey>` per the same convention */
 function renderFieldExtras(type: FieldType, spec: FieldSpec): string {
   const typeSpec = getFieldTypeSpec(type);
-  // date vs datetime: only `date` emits the date-only edit format.
   if (typeSpec.dateOnly) {
     return '<EditFormat>yyyy-MM-dd</EditFormat>';
   }
@@ -404,16 +417,17 @@ function renderFieldExtras(type: FieldType, spec: FieldSpec): string {
     return `<ComboItems>${itemsXml}</ComboItems>`;
   }
   if (type === 'base_data') {
-    return `<RefBaseDataObjectType>${xmlEscape(spec.refBaseDataObjectKey ?? '')}</RefBaseDataObjectType>`;
+    return `<LookUpObjectID>${xmlEscape(spec.refBaseDataObjectKey ?? '')}</LookUpObjectID>`;
   }
   if (type === 'base_property') {
     return (
-      `<SourceField>${xmlEscape(spec.sourceField ?? '')}</SourceField>` +
-      `<SrcDisplayFieldName>${xmlEscape(spec.srcDisplayFieldName ?? '')}</SrcDisplayFieldName>`
+      `<ControlFieldKey>${xmlEscape(spec.sourceField ?? '')}</ControlFieldKey>` +
+      `<SrcDisplayFieldName>${xmlEscape(spec.srcDisplayFieldName ?? '')}</SrcDisplayFieldName>` +
+      '<SrcBaseDataDisplayType action="setnull"/>'
     );
   }
   if (type === 'reference_property') {
-    return `<SourceField>${xmlEscape(spec.sourceField ?? '')}</SourceField>`;
+    return `<ControlFieldKey>${xmlEscape(spec.sourceField ?? '')}</ControlFieldKey>`;
   }
   return '';
 }
@@ -424,13 +438,15 @@ function renderFieldNode(
   id: string,
   listTabIndex: number
 ): string {
-  const tag = getFieldTypeSpec(type).xmlTag;
+  const typeSpec = getFieldTypeSpec(type);
+  const tag = typeSpec.xmlTag;
+  const elementType = typeSpec.elementType;
   const name = spec.name ?? spec.caption;
   const propertyName = spec.propertyName ?? spec.key;
   const fieldName = spec.fieldName ?? spec.key.toUpperCase();
   const extras = renderFieldExtras(type, spec);
   return (
-    `<${tag} ElementType="1" ElementStyle="0">` +
+    `<${tag} ElementType="${elementType}" ElementStyle="0">` +
     '<ConditionType>0</ConditionType>' +
     `<PropertyName>${xmlEscape(propertyName)}</PropertyName>` +
     `<FieldName>${xmlEscape(fieldName)}</FieldName>` +

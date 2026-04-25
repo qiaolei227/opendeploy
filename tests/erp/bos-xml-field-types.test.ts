@@ -113,29 +113,36 @@ describe('Field type registry', () => {
 });
 
 describe('insertFieldIntoKernelXml — simple types', () => {
-  // 11 类 "TextField-shape" 字段(只是 tag 名换),共享同一份 render 模板
-  const SIMPLE_CASES: Array<[FieldType, RegExp, RegExp]> = [
-    ['text',       /<TextField[ >]/,            /<TextFieldAppearance[ >]/],
-    ['large_text', /<LargeRichTextField[ >]/,   /<LargeRichTextFieldAppearance[ >]/],
-    ['int',        /<IntegerField[ >]/,         /<IntegerFieldAppearance[ >]/],
-    ['decimal',    /<DecimalField[ >]/,         /<DecimalFieldAppearance[ >]/],
-    ['amount',     /<AmountField[ >]/,          /<AmountFieldAppearance[ >]/],
-    ['qty',        /<QtyField[ >]/,             /<QtyFieldAppearance[ >]/],
-    ['date',       /<DateTimeField[ >]/,        /<DateTimeFieldAppearance[ >]/],
-    ['datetime',   /<DateTimeField[ >]/,        /<DateTimeFieldAppearance[ >]/],
-    ['checkbox',   /<CheckBoxField[ >]/,        /<CheckBoxFieldAppearance[ >]/],
-    ['color',      /<ColorField[ >]/,           /<ColorFieldAppearance[ >]/],
-    ['mobile',     /<MobileField[ >]/,          /<MobileFieldAppearance[ >]/]
+  // 11 类 "TextField-shape" 字段(只是 tag 名换),共享同一份 render 模板。
+  // 每行: [type, xmlTag, ElementType 数值]。
+  // ElementType 是 BOS XML schema 关键属性,不同类型必须不同 — 基于
+  // SAL_SaleOrder 真 FKERNELXML 实证(见 memory `bos_field_xml_realities.md`)。
+  const SIMPLE_CASES: Array<[FieldType, string, number]> = [
+    ['text',       'TextField',           1],
+    ['large_text', 'LargeRichTextField',  1],
+    ['int',        'IntegerField',        3],
+    ['decimal',    'DecimalField',        2],
+    ['amount',     'AmountField',         21],
+    ['qty',        'QtyField',            22],
+    ['date',       'DateTimeField',       5],
+    ['datetime',   'DateTimeField',       5],
+    ['checkbox',   'CheckBoxField',       8],
+    ['color',      'ColorField',          1],
+    ['mobile',     'MobileField',         1]
   ];
 
-  it.each(SIMPLE_CASES)('%s emits matching field + appearance tags', (type, fieldRe, apRe) => {
+  it.each(SIMPLE_CASES)('%s emits matching field + appearance tags + correct ElementType', (type, tag, elementType) => {
     const out = insertFieldIntoKernelXml(BASE_XML, type, {
       spec: { key: 'F_TEST', caption: '测试' },
       idGenerator: FIXED_IDS(),
       numericGenerator: FIXED_NUMERICS
     });
-    expect(out).toMatch(fieldRe);
-    expect(out).toMatch(apRe);
+    expect(out).toMatch(new RegExp(`<${tag}[ >]`));
+    expect(out).toMatch(new RegExp(`<${tag}Appearance[ >]`));
+    // Field-side ElementType is type-specific. The appearance always uses
+    // ElementType="1" ElementStyle="1", so anchoring on the bare field tag
+    // (no "Appearance" suffix) keeps this assertion unambiguous.
+    expect(out).toMatch(new RegExp(`<${tag} ElementType="${elementType}" `));
   });
 
   it('shared body — Key/Caption/Container all serialize regardless of type', () => {
@@ -247,5 +254,109 @@ describe('insertFieldIntoKernelXml — combo / mul_combo', () => {
         numericGenerator: FIXED_NUMERICS
       })
     ).toThrow(/comboItems/);
+  });
+});
+
+describe('insertFieldIntoKernelXml — base_data', () => {
+  // GUID-shape fixture: SAL_SaleOrder 上 F客户 的 LookUpObjectID 实例。
+  // 工具层把 'BD_Customer' 翻译成 GUID 后,XML 层只看 GUID。
+  const FIXTURE_GUID = '407d24cb-57f7-46bf-afb6-a9ab458fd845';
+
+  it('emits BaseDataField tag + ElementType=13 + LookUpObjectID', () => {
+    const out = insertFieldIntoKernelXml(BASE_XML, 'base_data', {
+      spec: {
+        key: 'F_REFCUST',
+        caption: '关联客户',
+        refBaseDataObjectKey: FIXTURE_GUID
+      },
+      idGenerator: FIXED_IDS(),
+      numericGenerator: FIXED_NUMERICS
+    });
+    expect(out).toMatch(/<BaseDataField ElementType="13" /);
+    // Real BOS XML uses `<LookUpObjectID>{guid}</LookUpObjectID>`,
+    // NOT `<RefBaseDataObjectType>{key}` (the latter was a training-data
+    // hallucination — see memory `bos_field_xml_realities.md`).
+    expect(out).toContain(`<LookUpObjectID>${FIXTURE_GUID}</LookUpObjectID>`);
+    expect(out).toMatch(/<BaseDataFieldAppearance[ >]/);
+    expect(out).toContain('<Key>F_REFCUST</Key>');
+    expect(out).toContain('<Caption>关联客户</Caption>');
+  });
+
+  it('rejects base_data without refBaseDataObjectKey', () => {
+    expect(() =>
+      insertFieldIntoKernelXml(BASE_XML, 'base_data', {
+        spec: { key: 'F_R', caption: '客户' }, // no refBaseDataObjectKey
+        idGenerator: FIXED_IDS(),
+        numericGenerator: FIXED_NUMERICS
+      })
+    ).toThrow(/refBaseDataObjectKey/);
+  });
+});
+
+describe('insertFieldIntoKernelXml — base_property / reference_property', () => {
+  it('base_property emits ControlFieldKey + SrcDisplayFieldName + SrcBaseDataDisplayType', () => {
+    const out = insertFieldIntoKernelXml(BASE_XML, 'base_property', {
+      spec: {
+        key: 'F_CUSTNAME',
+        caption: '客户名称',
+        sourceField: 'FCustId',
+        srcDisplayFieldName: 'FName'
+      },
+      idGenerator: FIXED_IDS(),
+      numericGenerator: FIXED_NUMERICS
+    });
+    expect(out).toMatch(/<BasePropertyField ElementType="14" /);
+    // C# 类属性叫 SourceField, 但 BOS XML 序列化用 ControlFieldKey ——
+    // 这是真单据 (SAL_SaleOrder F结算方地址) XML 实证的命名,不能写
+    // <SourceField>。详见 memory bos_field_xml_realities.md。
+    expect(out).toContain('<ControlFieldKey>FCustId</ControlFieldKey>');
+    expect(out).toContain('<SrcDisplayFieldName>FName</SrcDisplayFieldName>');
+    expect(out).toContain('<SrcBaseDataDisplayType action="setnull"/>');
+    expect(out).not.toMatch(/<SourceField>/);
+  });
+
+  it('base_property rejects missing sourceField', () => {
+    expect(() =>
+      insertFieldIntoKernelXml(BASE_XML, 'base_property', {
+        spec: { key: 'F_X', caption: 'x', srcDisplayFieldName: 'FName' },
+        idGenerator: FIXED_IDS(),
+        numericGenerator: FIXED_NUMERICS
+      })
+    ).toThrow(/sourceField/);
+  });
+
+  it('base_property rejects missing srcDisplayFieldName', () => {
+    expect(() =>
+      insertFieldIntoKernelXml(BASE_XML, 'base_property', {
+        spec: { key: 'F_X', caption: 'x', sourceField: 'FCustId' },
+        idGenerator: FIXED_IDS(),
+        numericGenerator: FIXED_NUMERICS
+      })
+    ).toThrow(/srcDisplayFieldName/);
+  });
+
+  it('reference_property emits ReferencePropertyField tag + ElementType=250 + ControlFieldKey', () => {
+    const out = insertFieldIntoKernelXml(BASE_XML, 'reference_property', {
+      spec: {
+        key: 'F_REFADDR',
+        caption: '引用地址',
+        sourceField: 'FCustId'
+      },
+      idGenerator: FIXED_IDS(),
+      numericGenerator: FIXED_NUMERICS
+    });
+    expect(out).toMatch(/<ReferencePropertyField ElementType="250" /);
+    expect(out).toContain('<ControlFieldKey>FCustId</ControlFieldKey>');
+    expect(out).toMatch(/<ReferencePropertyFieldAppearance[ >]/);
+  });
+
+  it('reference_property rejects missing sourceField', () => {
+    expect(() =>
+      insertFieldIntoKernelXml(BASE_XML, 'reference_property', {
+        spec: { key: 'F_X', caption: 'x' }, // no sourceField
+        idGenerator: FIXED_IDS(),
+        numericGenerator: FIXED_NUMERICS
+      })
+    ).toThrow(/sourceField/);
   });
 });
