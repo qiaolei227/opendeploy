@@ -291,6 +291,45 @@ export function removePluginFromKernelXml(xml: string, className: string): strin
 
 // ─── Field insertion ──────────────────────────────────────────────────
 
+/**
+ * Universal field spec — covers all 16 BOS field types by carrying optional
+ * type-specific extras alongside the universal {key, caption}. Per-type
+ * required props are validated by `insertFieldIntoKernelXml` per the spec
+ * declared in `getFieldTypeSpec(type).requiredExtraProps`.
+ */
+export interface FieldSpec {
+  /** Universal field Key (e.g. F_CUSTOM_AMOUNT). */
+  key: string;
+  /** Universal Chinese label shown in BOS Designer / on the form. */
+  caption: string;
+  /** Internal Name, defaults to caption. */
+  name?: string;
+  /** PropertyName, defaults to key. */
+  propertyName?: string;
+  /** DB column FieldName, defaults to key.toUpperCase(). */
+  fieldName?: string;
+  /** Layout container Key, defaults to 'FTAB_P0' (main tab). */
+  containerKey?: string;
+  /** Width in pixels, default 300. */
+  width?: number;
+  /** Label width in pixels, default 100. */
+  labelWidth?: number;
+  /** Top pixel position, default 10 (left-upper corner). */
+  top?: number;
+  /** Left pixel position, default 10. */
+  left?: number;
+  // ─── Type-specific extras (validated per type) ─────────────────────
+  /** combo / mul_combo: dropdown items. */
+  comboItems?: ReadonlyArray<{ value: string; caption: string }>;
+  /** base_data: target base-data object key (e.g. 'BD_Customer'). */
+  refBaseDataObjectKey?: string;
+  /** base_property / reference_property: source BaseDataField key on same bill. */
+  sourceField?: string;
+  /** base_property: source base data property to display (e.g. 'FName'). */
+  srcDisplayFieldName?: string;
+}
+
+/** Back-compat alias. New code should use `FieldSpec`. */
 export interface TextFieldSpec {
   /** 表单 Key, 如 'F_TEST01'. BOS Designer 显示/绑定控件的唯一标识. */
   key: string;
@@ -323,6 +362,14 @@ export interface InsertTextFieldOptions {
   numericGenerator?: () => { listTabIndex: number; zOrderIndex: number; tabindex: number };
 }
 
+/** Universal options for `insertFieldIntoKernelXml`. Same shape as
+ *  `InsertTextFieldOptions` but the spec is the universal `FieldSpec`. */
+export interface InsertFieldOptions {
+  spec: FieldSpec;
+  idGenerator?: () => string;
+  numericGenerator?: () => { listTabIndex: number; zOrderIndex: number; tabindex: number };
+}
+
 function defaultIdGenerator(): string {
   return randomUUID().replace(/-/g, '');
 }
@@ -335,12 +382,55 @@ function defaultNumericGenerator() {
   return { listTabIndex: 9999, zOrderIndex: 99, tabindex: 9999 };
 }
 
-function renderTextFieldNode(spec: TextFieldSpec, id: string, listTabIndex: number): string {
+/** Per-type body extras inserted between the universal field body and the
+ *  closing tag (e.g. `<EditFormat>`, `<ComboItems>`, `<RefBaseDataObjectType>`). */
+function renderFieldExtras(type: FieldType, spec: FieldSpec): string {
+  const typeSpec = getFieldTypeSpec(type);
+  // date vs datetime: only `date` emits the date-only edit format.
+  if (typeSpec.dateOnly) {
+    return '<EditFormat>yyyy-MM-dd</EditFormat>';
+  }
+  if (type === 'combo' || type === 'mul_combo') {
+    const items = spec.comboItems ?? [];
+    const itemsXml = items
+      .map(
+        (it) =>
+          '<ComboItem>' +
+          `<Value>${xmlEscape(it.value)}</Value>` +
+          `<Caption>${xmlEscape(it.caption)}</Caption>` +
+          '</ComboItem>'
+      )
+      .join('');
+    return `<ComboItems>${itemsXml}</ComboItems>`;
+  }
+  if (type === 'base_data') {
+    return `<RefBaseDataObjectType>${xmlEscape(spec.refBaseDataObjectKey ?? '')}</RefBaseDataObjectType>`;
+  }
+  if (type === 'base_property') {
+    return (
+      `<SourceField>${xmlEscape(spec.sourceField ?? '')}</SourceField>` +
+      `<SrcDisplayFieldName>${xmlEscape(spec.srcDisplayFieldName ?? '')}</SrcDisplayFieldName>`
+    );
+  }
+  if (type === 'reference_property') {
+    return `<SourceField>${xmlEscape(spec.sourceField ?? '')}</SourceField>`;
+  }
+  return '';
+}
+
+function renderFieldNode(
+  type: FieldType,
+  spec: FieldSpec,
+  id: string,
+  listTabIndex: number
+): string {
+  const tag = getFieldTypeSpec(type).xmlTag;
   const name = spec.name ?? spec.caption;
   const propertyName = spec.propertyName ?? spec.key;
   const fieldName = spec.fieldName ?? spec.key.toUpperCase();
+  const extras = renderFieldExtras(type, spec);
   return (
-    '<TextField ElementType="1" ElementStyle="0">' +
+    `<${tag} ElementType="1" ElementStyle="0">` +
     '<ConditionType>0</ConditionType>' +
     `<PropertyName>${xmlEscape(propertyName)}</PropertyName>` +
     `<FieldName>${xmlEscape(fieldName)}</FieldName>` +
@@ -348,23 +438,26 @@ function renderTextFieldNode(spec: TextFieldSpec, id: string, listTabIndex: numb
     `<Name>${xmlEscape(name)}</Name>` +
     `<Id>${xmlEscape(id)}</Id>` +
     `<Key>${xmlEscape(spec.key)}</Key>` +
-    '</TextField>'
+    extras +
+    `</${tag}>`
   );
 }
 
-function renderTextFieldAppearanceNode(
-  spec: TextFieldSpec,
+function renderFieldAppearanceNode(
+  type: FieldType,
+  spec: FieldSpec,
   id: string,
   zOrderIndex: number,
   tabindex: number
 ): string {
+  const tag = `${getFieldTypeSpec(type).xmlTag}Appearance`;
   const container = spec.containerKey ?? 'FTAB_P0';
   const width = spec.width ?? 300;
   const labelWidth = spec.labelWidth ?? 100;
   const top = spec.top ?? 10;
   const left = spec.left ?? 10;
   return (
-    '<TextFieldAppearance ElementType="1" ElementStyle="1">' +
+    `<${tag} ElementType="1" ElementStyle="1">` +
     '<EmptyText action="setnull"/>' +
     `<Key>${xmlEscape(spec.key)}</Key>` +
     '<ListDefaultWidth>100</ListDefaultWidth>' +
@@ -379,26 +472,40 @@ function renderTextFieldAppearanceNode(
     '<VisibleExt>100</VisibleExt>' +
     `<Caption>${xmlEscape(spec.caption)}</Caption>` +
     `<Id>${xmlEscape(id)}</Id>` +
-    '</TextFieldAppearance>'
+    `</${tag}>`
   );
 }
 
+function validateRequiredExtras(type: FieldType, spec: FieldSpec): void {
+  for (const prop of getFieldTypeSpec(type).requiredExtraProps) {
+    const v = (spec as unknown as Record<string, unknown>)[prop];
+    if (v === undefined || v === null) {
+      throw new Error(`field type "${type}" requires spec.${prop}`);
+    }
+    if (prop === 'comboItems' && Array.isArray(v) && v.length === 0) {
+      throw new Error(`field type "${type}" requires non-empty spec.comboItems`);
+    }
+  }
+}
+
 /**
- * 往扩展的 FKERNELXML 里插入一个文本字段:
- *   - 新的 <TextField> 作为 Elements 下 Form 的兄弟节点
- *   - 新的 <TextFieldAppearance> 作为 LayoutInfos/LayoutInfo/Appearances 的子节点
+ * 往扩展的 FKERNELXML 里插入一个字段(任意 16 种类型):
+ *   - 新的 <{Tag}> 作为 Elements 下 Form 的兄弟节点
+ *   - 新的 <{Tag}Appearance> 作为 LayoutInfos/LayoutInfo/Appearances 的子节点
  *
  * 扩展首次加字段时 <LayoutInfos> 整块不存在 —— 此函数会创建。
  * 已有时追加进 Appearances, 不重建 (避免冲掉其他字段的 Appearance).
  */
-export function insertTextFieldIntoKernelXml(
+export function insertFieldIntoKernelXml(
   xml: string,
-  options: InsertTextFieldOptions
+  type: FieldType,
+  options: InsertFieldOptions
 ): string {
   const { spec } = options;
   if (!spec.key || spec.key.trim() === '') {
-    throw new Error('TextFieldSpec.key must not be empty');
+    throw new Error('FieldSpec.key must not be empty');
   }
+  validateRequiredExtras(type, spec);
   const formCloseIdx = xml.indexOf('</Form>');
   if (formCloseIdx < 0) throw new Error('kernel XML is not an extension (no </Form>)');
 
@@ -406,30 +513,27 @@ export function insertTextFieldIntoKernelXml(
   const numGen = options.numericGenerator ?? defaultNumericGenerator;
   const nums = numGen();
 
-  const textFieldId = idGen();
+  const fieldId = idGen();
   const appearanceId = idGen();
 
-  const textFieldXml = renderTextFieldNode(spec, textFieldId, nums.listTabIndex);
-  const appearanceXml = renderTextFieldAppearanceNode(
+  const fieldXml = renderFieldNode(type, spec, fieldId, nums.listTabIndex);
+  const appearanceXml = renderFieldAppearanceNode(
+    type,
     spec,
     appearanceId,
     nums.zOrderIndex,
     nums.tabindex
   );
 
-  // Step 1: 插 TextField 到 </Form> 之后
   const afterFormClose = formCloseIdx + '</Form>'.length;
-  let out = xml.slice(0, afterFormClose) + textFieldXml + xml.slice(afterFormClose);
+  let out = xml.slice(0, afterFormClose) + fieldXml + xml.slice(afterFormClose);
 
-  // Step 2: 处理 LayoutInfos
   const appearancesCloseIdx = out.indexOf('</Appearances>');
   if (appearancesCloseIdx >= 0) {
-    // 已有 LayoutInfos + Appearances, 追加 TextFieldAppearance
     out =
       out.slice(0, appearancesCloseIdx) + appearanceXml + out.slice(appearancesCloseIdx);
   } else {
-    // 没有 LayoutInfos, 创建整块 (含一个 LayoutInfo 新 oid)
-    const layoutOid = randomUUID(); // 保留 dash, 和实测 XML 一致
+    const layoutOid = randomUUID();
     const layoutInfosBlock =
       '<LayoutInfos>' +
       `<LayoutInfo action="edit" oid="${layoutOid}">` +
@@ -444,6 +548,15 @@ export function insertTextFieldIntoKernelXml(
   }
 
   return out;
+}
+
+/** Back-compat: delegates to `insertFieldIntoKernelXml(xml, 'text', options)`.
+ *  Old callers (`bos-writer.ts`, existing tests) keep working unchanged. */
+export function insertTextFieldIntoKernelXml(
+  xml: string,
+  options: InsertTextFieldOptions
+): string {
+  return insertFieldIntoKernelXml(xml, 'text', options);
 }
 
 // ─── Field reading ────────────────────────────────────────────────────
