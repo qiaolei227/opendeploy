@@ -171,8 +171,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const msgs = [...get().messages];
         const last = msgs[msgs.length - 1];
         if (last) {
+          // flushPendingText 短路掉无 pendingText 的消息(只调工具的 turn),
+          // 但 pendingTokens / tokensExact 可能因 usage 事件先到而残留 ——
+          // done 时无条件清掉避免数据残留(纯卫生,UI 不显示也无害)。
           const flushed = flushPendingText(last);
-          msgs[msgs.length - 1] = { ...flushed, isStreaming: false };
+          msgs[msgs.length - 1] = {
+            ...flushed,
+            isStreaming: false,
+            pendingTokens: undefined,
+            tokensExact: undefined
+          };
         }
         set({ messages: msgs, isStreaming: false, currentRequestId: null });
         unsubscribe();
