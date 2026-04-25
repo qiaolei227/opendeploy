@@ -119,7 +119,10 @@ export function createAnthropicClient(opts: AnthropicOpts): LlmClient {
           if (sr === 'tool_use') finishReason = 'tool_calls';
           else if (sr === 'max_tokens') finishReason = 'length';
           else finishReason = 'stop';
-          if (data.usage?.output_tokens) outputTokens = data.usage.output_tokens;
+          if (data.usage?.output_tokens) {
+            outputTokens = data.usage.output_tokens;
+            yield { type: 'usage', outputTokens };
+          }
         } else if (data.type === 'message_start') {
           inputTokens = data.message?.usage?.input_tokens ?? 0;
         } else if (data.type === 'message_stop') {

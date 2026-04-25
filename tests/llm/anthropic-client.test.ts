@@ -115,6 +115,33 @@ describe('Anthropic client', () => {
     expect(textBlock).toEqual({ type: 'text', text: '先列扩展' });
   });
 
+  it('emits usage event whenever message_delta carries cumulative output_tokens', async () => {
+    const fetch = mockFetchStream([
+      'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}\n\n',
+      'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":null},"usage":{"output_tokens":7}}\n\n',
+      'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":" there"}}\n\n',
+      'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":15}}\n\n',
+      'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+    ]);
+    const client = createAnthropicClient({ baseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet', fetchImpl: fetch });
+    const events: unknown[] = [];
+    for await (const e of client.stream({
+      providerId: 'claude', apiKey: 'sk-ant',
+      messages: [{ id: '1', role: 'user', content: 'hi', createdAt: '' }]
+    })) events.push(e);
+
+    // Expect 2 usage events with cumulative outputTokens, in order
+    const usageEvents = events.filter((e: any) => e.type === 'usage');
+    expect(usageEvents).toEqual([
+      { type: 'usage', outputTokens: 7 },
+      { type: 'usage', outputTokens: 15 }
+    ]);
+    // Done still carries total in usage (existing contract preserved)
+    const doneEvent = events.find((e: any) => e.type === 'done') as any;
+    expect(doneEvent).toBeDefined();
+    expect(doneEvent.usage.outputTokens).toBe(15);
+  });
+
   it('assistant message without reasoningContent keeps content as plain string (backward compat)', async () => {
     let capturedBody: unknown = null;
     const fetch = vi.fn(async (_url: string, init: RequestInit) => {
