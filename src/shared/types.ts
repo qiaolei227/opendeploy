@@ -18,6 +18,14 @@ export interface AppSettings {
   theme: Theme;
   llmProvider?: string;
   apiKeys?: Record<string, string>;
+  /**
+   * 用户在每个 LLM 厂商下选择的具体模型 id (e.g. {deepseek: 'deepseek-v4-pro'}).
+   * 缺省时通过 resolveActiveModel 回退到该 provider 的 recommended 模型.
+   * Ollama 走 ollamaModelInput 而不是这里 (因为 Ollama 是自由文本).
+   */
+  modelByProvider?: Record<string, string>;
+  /** Ollama 自定义模型名 (用户在 Settings 输入框填的). 缺省走 PROVIDERS.find(ollama).modelInputDefault. */
+  ollamaModelInput?: string;
   /** User-configured knowledge sources (github / gitee / local). Defaults to empty. */
   knowledgeSources?: KnowledgeSource[];
   /** Projects configured by the user. Each owns its own ERP connection config. */
