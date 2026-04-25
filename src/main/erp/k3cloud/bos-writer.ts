@@ -20,12 +20,14 @@ import { validateQuery } from '../validator';
 import {
   addPluginToKernelXml,
   buildExtensionKernelXml,
-  insertTextFieldIntoKernelXml,
+  getFieldTypeSpec,
+  insertFieldIntoKernelXml,
   parseFieldsFromKernelXml,
   parseFormPluginsFromKernelXml,
   removePluginFromKernelXml,
   type ExtensionFieldMeta,
-  type TextFieldSpec
+  type FieldSpec,
+  type FieldType as BosFieldType
 } from './bos-xml';
 import { snapshotExtension, writeBackupSnapshot } from './bos-backup';
 
@@ -285,26 +287,34 @@ export async function listExtensionFields(
 // ─── addFieldToExtension ───────────────────────────────────────────────
 
 /**
- * 往扩展里加一个业务字段。v0.1 只实现 `type='text'`, 后续 cycle 会增加
- * `number / date / decimal / combobox / basedata_ref` 等 (共用一个工具,
- * 按 type 分支)。实测 (add-text-field recon 2026-04-24): 加文本字段对 DB 的
- * 实际改动只有 T_META_OBJECTTYPE.FKERNELXML 的 XML delta, 其他看似变化的 3
- * 张表 (OBJECTTYPE_L / OBJECTTYPENAMEEX_L / OBJECTFUNCINTERFACE) 是 BOS
+ * 往扩展里加一个业务字段。Plan 5.12.1 起支持全部 16 类 BOS 字段类型
+ * (`bos-xml.ts` `FIELD_TYPES`)— 文本 / 大文本 / 整型 / 小数 / 金额 / 数量 /
+ * 日期 / 日期时间 / 复选框 / 下拉 / 多选下拉 / 基础资料引用 / 基础资料属性 /
+ * 引用属性 / 颜色 / 手机号。
+ *
+ * 实测 (add-text-field recon 2026-04-24): 加字段对 DB 的实际改动只有
+ * T_META_OBJECTTYPE.FKERNELXML 的 XML delta, 其他看似变化的 3 张表
+ * (OBJECTTYPE_L / OBJECTTYPENAMEEX_L / OBJECTFUNCINTERFACE) 是 BOS
  * Designer 打开扩展时自动把扩展名从 `opendeploy_auto_ext_<ts>` 同步到父对
  * 象中文名引起的, 与加字段本身无关 —— agent 不用管, Designer 自己修复。
  */
-export type FieldType = 'text'; // TODO: 'number' | 'date' | 'decimal' | 'combobox' | 'basedata_ref'
+export type FieldType = BosFieldType;
 
 export async function addFieldToExtension(
   pool: sql.ConnectionPool,
   projectId: string,
   extId: string,
   type: FieldType,
-  spec: TextFieldSpec
+  spec: FieldSpec
 ): Promise<{ backupFile: string }> {
-  if (type !== 'text') {
-    throw new Error(`field type "${type}" not yet supported — only 'text' is implemented`);
-  }
+  // Validate the type name up front so an unknown type fails before we touch
+  // the DB or write a backup file. Required-prop validation per type still
+  // happens inside insertFieldIntoKernelXml (after snapshot) since it needs
+  // the spec, not just the type — if the user e.g. forgets refBaseDataObjectKey
+  // for base_data, a backup gets written then the insert throws. Acceptable —
+  // the backup file then serves as evidence of the attempt.
+  getFieldTypeSpec(type);
+
   const snapshot = await snapshotExtension(pool, extId, 'add-field');
   const backupFile = await writeBackupSnapshot(projectId, snapshot);
 
@@ -313,7 +323,7 @@ export async function addFieldToExtension(
   const currentXml = typeof row.FKERNELXML === 'string' ? row.FKERNELXML : '';
   if (!currentXml) throw new Error(`extension ${extId} has no FKERNELXML to extend`);
 
-  const newXml = insertTextFieldIntoKernelXml(currentXml, { spec });
+  const newXml = insertFieldIntoKernelXml(currentXml, type, { spec });
   await updateKernelXml(pool, extId, newXml);
   return { backupFile };
 }

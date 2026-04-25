@@ -453,7 +453,10 @@ describe('addFieldToExtension', () => {
     expect(updates[0].inputs.id).toBe(EXT);
   });
 
-  it('不支持的 type 直接抛错, 不写 DB 不 backup', async () => {
+  it('未知 type 直接抛错, 不写 DB', async () => {
+    // Plan 5.12.1 起 16 类已经全部支持; 这里用 'number' 作为不在 FIELD_TYPES
+    // 中的字符串验证 unknown-type 兜底(整数实际叫 'int',金额叫 'amount'
+    // ——常见的 LLM 误名)。
     const updates: WritePoolOpts['updateCapture'] = [];
     const pool = makeWritePool({
       updateCapture: updates,
@@ -468,7 +471,7 @@ describe('addFieldToExtension', () => {
         key: 'F_X',
         caption: 'x'
       })
-    ).rejects.toThrow(/type.*not.*supported|unsupported/i);
+    ).rejects.toThrow(/unknown field type/i);
     expect(updates).toHaveLength(0);
   });
 
