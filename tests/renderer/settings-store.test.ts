@@ -50,5 +50,8 @@ describe('settings store — model selection', () => {
   it('setOllamaModelInput persists value', async () => {
     await useSettingsStore.getState().setOllamaModelInput('llama3.1:70b');
     expect(useSettingsStore.getState().settings.ollamaModelInput).toBe('llama3.1:70b');
+    expect(saveSettingsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ ollamaModelInput: 'llama3.1:70b' })
+    );
   });
 });
