@@ -29,6 +29,77 @@
 import { randomUUID } from 'node:crypto';
 import type { PluginMeta } from '@shared/erp-types';
 
+// ─── Field type registry ────────────────────────────────────────────────
+//
+// Plan 5.12.1 expanded `kingdee_add_field` from text-only to 16 BOS field
+// types. Type names are stable agent-facing identifiers; xmlTag / csClass
+// are the BOS truth — class name (= XML tag) reverse-engineered from
+// Kingdee.BOS.Core.dll (see capability-catalog.md section 1).
+//
+// `requiredExtraProps` lists the spec fields *beyond* the universal
+// {key, caption}. The tool layer validates these before dispatching.
+
+export const FIELD_TYPES = [
+  'text',
+  'large_text',
+  'int',
+  'decimal',
+  'amount',
+  'qty',
+  'date',
+  'datetime',
+  'checkbox',
+  'combo',
+  'mul_combo',
+  'base_data',
+  'base_property',
+  'reference_property',
+  'color',
+  'mobile'
+] as const;
+
+export type FieldType = (typeof FIELD_TYPES)[number];
+
+export interface FieldTypeSpec {
+  /** XML tag emitted into FKERNELXML. Same as the BOS C# class name. */
+  xmlTag: string;
+  /** Full BOS C# class name. Identical to xmlTag for now; kept separate so
+   *  future variants (e.g., a CheckBox sub-type of TextField) can deviate. */
+  csClass: string;
+  /** Spec field names that the caller MUST supply beyond {key, caption}.
+   *  Tool-layer validates; XML renderer can assume these are present. */
+  requiredExtraProps: readonly string[];
+  /** date vs datetime share the DateTimeField class — this flag distinguishes. */
+  dateOnly?: boolean;
+}
+
+const FIELD_TYPE_SPECS: Record<FieldType, FieldTypeSpec> = {
+  text:               { xmlTag: 'TextField',              csClass: 'TextField',              requiredExtraProps: [] },
+  large_text:         { xmlTag: 'LargeRichTextField',     csClass: 'LargeRichTextField',     requiredExtraProps: [] },
+  int:                { xmlTag: 'IntegerField',           csClass: 'IntegerField',           requiredExtraProps: [] },
+  decimal:            { xmlTag: 'DecimalField',           csClass: 'DecimalField',           requiredExtraProps: [] },
+  amount:             { xmlTag: 'AmountField',            csClass: 'AmountField',            requiredExtraProps: [] },
+  qty:                { xmlTag: 'QtyField',               csClass: 'QtyField',               requiredExtraProps: [] },
+  date:               { xmlTag: 'DateTimeField',          csClass: 'DateTimeField',          requiredExtraProps: [], dateOnly: true },
+  datetime:           { xmlTag: 'DateTimeField',          csClass: 'DateTimeField',          requiredExtraProps: [], dateOnly: false },
+  checkbox:           { xmlTag: 'CheckBoxField',          csClass: 'CheckBoxField',          requiredExtraProps: [] },
+  combo:              { xmlTag: 'ComboField',             csClass: 'ComboField',             requiredExtraProps: ['comboItems'] },
+  mul_combo:          { xmlTag: 'MulComboField',          csClass: 'MulComboField',          requiredExtraProps: ['comboItems'] },
+  base_data:          { xmlTag: 'BaseDataField',          csClass: 'BaseDataField',          requiredExtraProps: ['refBaseDataObjectKey'] },
+  base_property:      { xmlTag: 'BasePropertyField',      csClass: 'BasePropertyField',      requiredExtraProps: ['sourceField', 'srcDisplayFieldName'] },
+  reference_property: { xmlTag: 'ReferencePropertyField', csClass: 'ReferencePropertyField', requiredExtraProps: ['sourceField'] },
+  color:              { xmlTag: 'ColorField',             csClass: 'ColorField',             requiredExtraProps: [] },
+  mobile:             { xmlTag: 'MobileField',            csClass: 'MobileField',            requiredExtraProps: [] }
+};
+
+export function getFieldTypeSpec(type: FieldType): FieldTypeSpec {
+  const spec = FIELD_TYPE_SPECS[type];
+  if (!spec) throw new Error(`unknown field type: ${type}`);
+  return spec;
+}
+
+// ─── XML helpers ────────────────────────────────────────────────────────
+
 export function xmlEscape(s: string): string {
   return s
     .replace(/&/g, '&amp;')
