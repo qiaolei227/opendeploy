@@ -210,6 +210,9 @@
     "toolStatusRunning": "running…",
     "toolStatusOk": "done ✓",
     "thinking": "thinking…",
-    "toolRunning": "running {{name}}…"
+    "toolRunning": "running {{name}}…",
+    "generating": "thinking… (~{{tokens}} tokens)",
+    "generatingExact": "thinking… ({{tokens}} tokens)",
+    "toolRunningSeconds": "running {{name}}… ({{seconds}}s)"
   }
 }

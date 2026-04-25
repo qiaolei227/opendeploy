@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ChatMessage } from '@renderer/stores/chat-store';
 import { MarkdownBlock } from './MarkdownBlock';
@@ -10,30 +10,44 @@ interface MessageProps {
 
 type ToolCall = NonNullable<ChatMessage['toolCalls']>[number];
 
-export type PendingActivity = { kind: 'thinking' } | { kind: 'awaiting-tool'; toolName: string };
+export type PendingActivity =
+  | { kind: 'thinking' }
+  | { kind: 'generating'; tokens: number; exact: boolean }
+  | { kind: 'awaiting-tool'; toolName: string; startedAt: number };
 
 /**
- * Decide what (if anything) to show in the "still working" indicator at the
- * bottom of an assistant turn. The streaming-cursor `▍` already conveys
- * progress for text deltas, so we only surface a pending hint during gaps:
+ * What "still working" indicator to show at the bottom of an assistant turn.
+ * Returns null when nothing useful to surface (mid-text-block from a legacy
+ * streaming path, or message not streaming).
  *
- *   - pre-first-delta gap (no blocks yet) → "thinking…"
- *   - tool currently running (last block is tool_use without a result) →
- *     "running <tool>…"
- *   - tool just finished and we're waiting on the next LLM hop → "thinking…"
- *
- * Returns null when nothing should be shown (not streaming, or last block is
- * text mid-stream where the cursor takes over).
+ * Priority:
+ *   - pendingText present → 'generating' (live token counter)
+ *   - last block is a running tool_use → 'awaiting-tool' (live elapsed)
+ *   - otherwise streaming → 'thinking' (no number)
  */
 export function derivePendingActivity(message: ChatMessage): PendingActivity | null {
   if (!message.isStreaming) return null;
-  const blocks = message.blocks;
-  if (!blocks || blocks.length === 0) return { kind: 'thinking' };
+  // pendingText set → text segment actively being generated; show token counter.
+  if (message.pendingText !== undefined && message.pendingText.length > 0) {
+    return {
+      kind: 'generating',
+      tokens: message.pendingTokens ?? 0,
+      exact: message.tokensExact === true
+    };
+  }
+  const blocks = message.blocks ?? [];
+  if (blocks.length === 0) return { kind: 'thinking' };
   const last = blocks[blocks.length - 1];
-  if (last.type === 'text') return null;
-  // last is tool_use — is the matching call still running?
-  const call = message.toolCalls?.find((tc) => tc.id === last.callId);
-  if (call && !call.result) return { kind: 'awaiting-tool', toolName: call.name };
+  if (last.type === 'text') return null; // text already committed; no active work to advertise
+  // last block is a tool_use
+  const call = (message.toolCalls ?? []).find((c) => c.id === last.callId);
+  if (call && !call.result) {
+    return {
+      kind: 'awaiting-tool',
+      toolName: call.name,
+      startedAt: call.startedAt ?? Date.now()
+    };
+  }
   return { kind: 'thinking' };
 }
 
@@ -133,10 +147,32 @@ export function Message({ message }: MessageProps) {
   // (no hardcoded surname). zh "顾问" → "顾", en "You" → "Y".
   const avatar = message.role === 'user' ? name.charAt(0).toUpperCase() : 'AI';
   const time = new Date(message.createdAt).toLocaleTimeString('zh-CN', { hour12: false });
+  // 500ms ticker forces a re-render while streaming so the elapsed-seconds
+  // counter (awaiting-tool) and any other Date.now()-derived label stay
+  // current. State value itself is unused; the setter is the trigger.
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    if (!message.isStreaming) return;
+    const id = setInterval(() => forceTick((t) => t + 1), 500);
+    return () => clearInterval(id);
+  }, [message.isStreaming]);
   // Show a pending hint during the gaps where the streaming cursor isn't
   // visible (pre-first-delta, between hops, while a tool is running). The
   // cursor itself handles the live-text case so we don't double-up.
   const pending = derivePendingActivity(message);
+  const pendingLabel = pending && (() => {
+    if (pending.kind === 'thinking') return t('messages.thinking');
+    if (pending.kind === 'generating') {
+      return pending.exact
+        ? t('messages.generatingExact', { tokens: pending.tokens })
+        : t('messages.generating', { tokens: pending.tokens });
+    }
+    // awaiting-tool
+    const seconds = Math.max(0, Math.round((Date.now() - pending.startedAt) / 1000));
+    return seconds < 1
+      ? t('messages.toolRunning', { name: pending.toolName })
+      : t('messages.toolRunningSeconds', { name: pending.toolName, seconds });
+  })();
 
   return (
     <div className="turn">
@@ -147,13 +183,7 @@ export function Message({ message }: MessageProps) {
       </div>
       <div className="turn-body">
         {renderBody(message)}
-        {pending && (
-          <div className="turn-thinking">
-            {pending.kind === 'thinking'
-              ? t('messages.thinking')
-              : t('messages.toolRunning', { name: pending.toolName })}
-          </div>
-        )}
+        {pendingLabel && <div className="turn-thinking">{pendingLabel}</div>}
       </div>
     </div>
   );
