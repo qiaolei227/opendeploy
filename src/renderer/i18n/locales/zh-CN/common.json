@@ -75,10 +75,9 @@
     "maxOutputLabel": "最大输出",
     "priceLabel": "参考价",
     "recommendedShort": "推荐",
-    "modelCount": "{{count}} 个模型",
+    "modelCount_one": "{{count}} 个模型",
+    "modelCount_other": "{{count}} 个模型",
     "customModel": "自定义",
-    "latency": "延迟",
-    "cost": "成本",
     "regions": {
       "CN": "国内",
       "Overseas": "海外",

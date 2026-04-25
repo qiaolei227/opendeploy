@@ -75,10 +75,9 @@
     "maxOutputLabel": "Max output",
     "priceLabel": "Indicative price",
     "recommendedShort": "Recommended",
-    "modelCount": "{{count}} models",
+    "modelCount_one": "1 model",
+    "modelCount_other": "{{count}} models",
     "customModel": "Custom",
-    "latency": "Latency",
-    "cost": "Cost",
     "regions": {
       "CN": "Mainland",
       "Overseas": "Overseas",

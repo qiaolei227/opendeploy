@@ -193,7 +193,15 @@ function LlmSection() {
     await setModel(selectedProviderId, id);
   };
   const handleOllamaInputBlur = async (): Promise<void> => {
-    if (ollamaInput.trim()) await setOllamaModelInput(ollamaInput.trim());
+    const trimmed = ollamaInput.trim();
+    if (trimmed) {
+      await setOllamaModelInput(trimmed);
+      return;
+    }
+    // Empty input → snap back to default so user sees what will actually be sent.
+    const fallback = PROVIDER_BY_ID['ollama']?.modelInputDefault ?? '';
+    setOllamaInput(fallback);
+    await setOllamaModelInput(fallback);
   };
 
   const handleProviderSelect = async (provider: LlmProvider): Promise<void> => {
