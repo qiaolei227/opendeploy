@@ -62,8 +62,13 @@ const makeChatId = () => makeId('c');
 /**
  * Commit a streaming message's pendingText into its blocks/content as a
  * single text block, then clear the pending fields. Called on tool_call /
- * done boundaries and on stream abort. Returns the original message
- * unchanged (identity) when there's nothing to flush.
+ * done boundaries. Returns the original message unchanged (identity) when
+ * there's nothing to flush.
+ *
+ * NOTE: error / abort paths do NOT currently flush — pendingText is
+ * discarded along with the streaming state. Acceptable for v0.1 since the
+ * partial mid-stream text was never user-visible (UI shows token counter,
+ * not the buffer). Revisit if we ever start surfacing partial responses.
  */
 export function flushPendingText(msg: ChatMessage): ChatMessage {
   if (!msg.pendingText) return msg;
