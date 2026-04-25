@@ -409,15 +409,19 @@ LLM 在 `kingdee_add_business_rule` 工具的 input 里给两个东西:
 
 ### 字段引用模式 (合法的赋值左右两边形态)
 
+> 中文字符用 Unicode 属性 `\p{Script=Han}` 表示，纯 ASCII 可读 (匹配所有 CJK 汉字)。
+> TypeScript 实现: `new RegExp(pattern, 'u')` 启用 Unicode 模式 — 不带 `'u'` flag 此语法无效。
+> **不要用** `[一-龥]` 这种历史写法 — 端点 `龥` (U+9FA5) 是生僻字,可读性极差。
+
 ```regex
 # 直接字段 key (以 F 开头,含字母数字下划线/汉字)
-\bF[一-龥A-Za-z0-9_]+\b
+\bF[\p{Script=Han}A-Za-z0-9_]+\b
 
 # 点分隔基础资料属性
-\bF[一-龥A-Za-z0-9_]+\.F?[A-Za-z][A-Za-z0-9_]*\b
+\bF[\p{Script=Han}A-Za-z0-9_]+\.F?[A-Za-z][A-Za-z0-9_]*\b
 
 # GetFieldValue 函数调用
-GetFieldValue\(\s*["']F[一-龥A-Za-z0-9_]+["']\s*\)
+GetFieldValue\(\s*["']F[\p{Script=Han}A-Za-z0-9_]+["']\s*\)
 ```
 
 ### 禁止模式 (应触发 LLM retry)
