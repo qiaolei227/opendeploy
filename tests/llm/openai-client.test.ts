@@ -41,8 +41,68 @@ describe('OpenAI-compatible client', () => {
     expect(events).toEqual([
       { type: 'delta', content: 'Hello ' },
       { type: 'delta', content: 'world' },
+      { type: 'usage', outputTokens: 2 },
       { type: 'done', finishReason: 'stop', usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7 } }
     ]);
+  });
+
+  it('emits usage event before done when stream_options.include_usage is honored (real OpenAI: separate final chunk)', async () => {
+    const fetch = mockFetchStream([
+      'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n',
+      'data: {"choices":[{"finish_reason":"stop"}]}\n\n',
+      // Final chunk: empty choices, usage populated. Real OpenAI shape.
+      'data: {"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}\n\n',
+      'data: [DONE]\n\n'
+    ]);
+    const client = createOpenAiClient({ baseUrl: 'https://x', defaultModel: 'm', fetchImpl: fetch });
+    const events: unknown[] = [];
+    for await (const e of client.stream({
+      providerId: 'test', apiKey: 'sk',
+      messages: [{ id: '1', role: 'user', content: 'hi', createdAt: '' }]
+    })) events.push(e);
+
+    expect(events).toEqual([
+      { type: 'delta', content: 'Hi' },
+      { type: 'usage', outputTokens: 3 },
+      { type: 'done', finishReason: 'stop', usage: { inputTokens: 5, outputTokens: 3, totalTokens: 8 } }
+    ]);
+  });
+
+  it('emits usage event before done when usage piggy-backs on finish_reason chunk (DeepSeek-compat shape)', async () => {
+    const fetch = mockFetchStream([
+      'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n',
+      'data: {"choices":[{"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}\n\n',
+      'data: [DONE]\n\n'
+    ]);
+    const client = createOpenAiClient({ baseUrl: 'https://x', defaultModel: 'm', fetchImpl: fetch });
+    const events: unknown[] = [];
+    for await (const e of client.stream({
+      providerId: 'test', apiKey: 'sk',
+      messages: [{ id: '1', role: 'user', content: 'hi', createdAt: '' }]
+    })) events.push(e);
+
+    expect(events).toEqual([
+      { type: 'delta', content: 'Hi' },
+      { type: 'usage', outputTokens: 2 },
+      { type: 'done', finishReason: 'stop', usage: { inputTokens: 4, outputTokens: 2, totalTokens: 6 } }
+    ]);
+  });
+
+  it('sends stream_options.include_usage in request body', async () => {
+    let capturedBody: any;
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      capturedBody = JSON.parse(init.body as string);
+      return new Response(new ReadableStream({ start(c) { c.close(); } }), { status: 200 });
+    });
+    const client = createOpenAiClient({ baseUrl: 'https://x', defaultModel: 'm', fetchImpl: fetch });
+    const events: unknown[] = [];
+    for await (const e of client.stream({
+      providerId: 'test', apiKey: 'sk',
+      messages: [{ id: '1', role: 'user', content: 'hi', createdAt: '' }]
+    })) events.push(e);
+
+    expect(capturedBody.stream).toBe(true);
+    expect(capturedBody.stream_options).toEqual({ include_usage: true });
   });
 
   it('emits tool_call event', async () => {
