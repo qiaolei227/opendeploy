@@ -22,7 +22,7 @@ describe('Anthropic client', () => {
     const fetch = mockFetchStream([
       'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hi"}}\n\n',
       'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":" there"}}\n\n',
-      'event: message_delta\ndata: {"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}\n\n',
+      'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}\n\n',
       'event: message_stop\ndata: {"type":"message_stop"}\n\n'
     ]);
     const client = createAnthropicClient({ baseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet', fetchImpl: fetch });
@@ -36,7 +36,10 @@ describe('Anthropic client', () => {
       { type: 'delta', content: 'Hi' },
       { type: 'delta', content: ' there' }
     ]);
-    expect(events[events.length - 1]).toMatchObject({ type: 'done', finishReason: 'stop' });
+    const doneEvent = events[events.length - 1] as { type: string; finishReason: string; usage: { outputTokens: number } };
+    expect(doneEvent).toMatchObject({ type: 'done', finishReason: 'stop' });
+    // 锁住 usage 透传 — 之前 fixture 缺 "type":"message_delta" 导致这条没被覆盖
+    expect(doneEvent.usage.outputTokens).toBe(2);
   });
 
   it('emits error on non-200', async () => {
@@ -58,7 +61,7 @@ describe('Anthropic client', () => {
       'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n',
       'event: content_block_start\ndata: {"type":"content_block_start","index":1,"content_block":{"type":"text"}}\n\n',
       'event: content_block_delta\ndata: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"先看扩展"}}\n\n',
-      'event: message_delta\ndata: {"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":10}}\n\n',
+      'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":10}}\n\n',
       'event: message_stop\ndata: {"type":"message_stop"}\n\n'
     ]);
     const client = createAnthropicClient({ baseUrl: 'https://x', defaultModel: 'm', fetchImpl: fetch });
