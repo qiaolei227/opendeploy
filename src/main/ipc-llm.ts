@@ -20,7 +20,6 @@ import { getConnectionState } from './erp/active';
 import { getProject } from './projects/store';
 import { buildPluginTools } from './agent/plugin-tools';
 import { buildPlanTools } from './agent/plan-tools';
-import { buildBosWriteTools } from './agent/bos-write-tools';
 import {
   deleteConversation,
   listConversations,
@@ -116,7 +115,6 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
         for (const t of buildK3CloudTools()) registry.register(t);
         for (const t of buildPluginTools()) registry.register(t);
         for (const t of buildPlanTools()) registry.register(t);
-        for (const t of buildBosWriteTools()) registry.register(t);
 
         const projectTag = activeProjectTag(activeProjectTagRaw);
         const erpRules = erpRulesFragment(activeErpProvider, { k3cloud: k3cloudRulesRaw });

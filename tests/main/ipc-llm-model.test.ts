@@ -50,7 +50,6 @@ vi.mock('../../src/main/erp/active', () => ({
 vi.mock('../../src/main/projects/store', () => ({ getProject: vi.fn() }));
 vi.mock('../../src/main/agent/plugin-tools', () => ({ buildPluginTools: () => [] }));
 vi.mock('../../src/main/agent/plan-tools', () => ({ buildPlanTools: () => [] }));
-vi.mock('../../src/main/agent/bos-write-tools', () => ({ buildBosWriteTools: () => [] }));
 vi.mock('../../src/main/conversations/store', () => ({
   loadConversation: vi.fn(),
   saveConversation: vi.fn().mockResolvedValue(undefined),

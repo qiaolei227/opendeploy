@@ -66,6 +66,9 @@ design/
 # BOS 侦察产出(可能含客户数据 / 内部元数据,不进 git)
 scripts/bos-recon/output/
 *.xel
+.scratch/
+.scratch-*
+.scratch-*
 
 # TypeScript 增量构建
 *.tsbuildinfo
