@@ -277,3 +277,131 @@ describe('runAgentLoop error logging', () => {
     expect(exists).toBe(false);
   });
 });
+
+describe('runAgentLoop trace (Plan 5.13)', () => {
+  let tmp: string;
+  let prevHome: string | undefined;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'opendeploy-loop-trace-'));
+    prevHome = process.env.OPENDEPLOY_HOME;
+    process.env.OPENDEPLOY_HOME = tmp;
+  });
+
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env.OPENDEPLOY_HOME;
+    else process.env.OPENDEPLOY_HOME = prevHome;
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  function tracePath(): string {
+    const ymd = new Date().toISOString().slice(0, 10);
+    return join(tmp, 'logs', `agent-trace.${ymd}.log`);
+  }
+
+  it('writes one JSON line per turn with usage + finish reason + elapsed', async () => {
+    const client = fakeClient([[
+      { type: 'delta', content: 'hi' },
+      { type: 'usage', outputTokens: 42 },
+      { type: 'done', finishReason: 'stop' }
+    ]]);
+    await runAgentLoop({
+      client,
+      tools: new ToolRegistry(),
+      initialMessages: [{ id: 'u', role: 'user', content: 'hi', createdAt: '' }],
+      providerId: 'deepseek',
+      model: 'deepseek-v4',
+      conversationId: 'c-test-1',
+      apiKey: 'k'
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const lines = readFileSync(tracePath(), 'utf-8').trim().split('\n');
+    expect(lines).toHaveLength(1);
+    const rec = JSON.parse(lines[0]);
+    expect(rec.ns).toBe('agent-loop');
+    expect(rec.conversationId).toBe('c-test-1');
+    expect(rec.iteration).toBe(0);
+    expect(rec.providerId).toBe('deepseek');
+    expect(rec.model).toBe('deepseek-v4');
+    expect(rec.outputTokens).toBe(42);
+    expect(rec.finishReason).toBe('stop');
+    expect(rec.errored).toBe(false);
+    expect(typeof rec.llmElapsedMs).toBe('number');
+    expect(typeof rec.totalElapsedMs).toBe('number');
+    expect(rec.toolCalls).toEqual([]);
+  });
+
+  it('records each tool call with name + duration + ok flag + parallelSafe', async () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      definition: {
+        name: 'echo_safe',
+        description: '',
+        parameters: { type: 'object', properties: {} }
+      },
+      parallelSafe: true,
+      async execute() { return 'ok-1'; }
+    });
+    registry.register({
+      definition: {
+        name: 'echo_unsafe',
+        description: '',
+        parameters: { type: 'object', properties: {} }
+      },
+      async execute() { return 'ok-2'; }
+    });
+
+    const client = fakeClient([
+      [
+        { type: 'tool_call', toolCall: { id: 't1', name: 'echo_safe', arguments: {} } },
+        { type: 'tool_call', toolCall: { id: 't2', name: 'echo_unsafe', arguments: {} } },
+        { type: 'done', finishReason: 'tool_calls' }
+      ],
+      [
+        { type: 'delta', content: 'done' },
+        { type: 'done', finishReason: 'stop' }
+      ]
+    ]);
+    await runAgentLoop({
+      client, tools: registry, providerId: 'test', apiKey: 'k',
+      conversationId: 'c-tools',
+      initialMessages: [{ id: 'u', role: 'user', content: 'go', createdAt: '' }]
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const lines = readFileSync(tracePath(), 'utf-8').trim().split('\n');
+    expect(lines).toHaveLength(2); // turn 0 (tool calls) + turn 1 (final)
+    const turn0 = JSON.parse(lines[0]);
+    expect(turn0.iteration).toBe(0);
+    expect(turn0.toolCalls).toHaveLength(2);
+    expect(turn0.toolCalls[0].name).toBe('echo_safe');
+    expect(turn0.toolCalls[0].ok).toBe(true);
+    expect(turn0.toolCalls[0].parallelSafe).toBe(true);
+    expect(turn0.toolCalls[1].name).toBe('echo_unsafe');
+    expect(turn0.toolCalls[1].parallelSafe).toBe(false);
+    expect(typeof turn0.toolCalls[0].durationMs).toBe('number');
+
+    const turn1 = JSON.parse(lines[1]);
+    expect(turn1.iteration).toBe(1);
+    expect(turn1.toolCalls).toEqual([]);
+  });
+
+  it('records errored=true + errorMessage when LLM stream errors', async () => {
+    const client = fakeClient([[
+      { type: 'error', error: 'HTTP 500: oops' }
+    ]]);
+    await runAgentLoop({
+      client,
+      tools: new ToolRegistry(),
+      initialMessages: [{ id: 'u', role: 'user', content: 'hi', createdAt: '' }],
+      providerId: 'test',
+      apiKey: 'k',
+      conversationId: 'c-err'
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const lines = readFileSync(tracePath(), 'utf-8').trim().split('\n');
+    expect(lines).toHaveLength(1);
+    const rec = JSON.parse(lines[0]);
+    expect(rec.errored).toBe(true);
+    expect(rec.errorMessage).toContain('HTTP 500');
+  });
+});

@@ -124,6 +124,10 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
           .join('\n\n');
 
         const client = createLlmClient(req.providerId);
+        // conversationId for trace stitching — fall back to requestId for
+        // brand-new conversations (renderer attaches `conversationId` only
+        // on follow-up turns, but trace records still need a join key).
+        const traceConvId = req.conversationId ?? requestId;
         const finalMessages = await runAgentLoop({
           client,
           tools: registry,
@@ -132,6 +136,7 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
           apiKey: req.apiKey,
           model: req.model,
           systemPrompt,
+          conversationId: traceConvId,
           signal: abortController.signal,
           onEvent: (e) => {
             if (e.type === 'delta') emit({ type: 'delta', content: e.content });

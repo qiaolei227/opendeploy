@@ -43,6 +43,13 @@ interface RunAgentLoopParams {
   onEvent?: (e: AgentLoopEvent) => void;
   maxIterations?: number;
   signal?: AbortSignal;
+  /**
+   * Plan 5.13 — opaque conversation identifier propagated into the trace log
+   * so post-mortem grep can stitch turns. Optional (older callers /
+   * single-shot smokes don't need it); when absent, trace records still get
+   * written but lack the join key.
+   */
+  conversationId?: string;
 }
 
 function makeId(): string {
@@ -65,14 +72,17 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
 
   for (let iter = 0; iter < maxIter; iter++) {
     emit({ type: 'iteration_start', iteration: iter });
+    const turnStart = Date.now();
 
     let assistantContent = '';
     let reasoningContent = '';
     let reasoningSignature = '';
+    let lastUsageOut = 0;
     const toolCalls: ToolCall[] = [];
     let blocks: MessageBlock[] = [];
     let finishReason: 'stop' | 'tool_calls' | 'length' | 'error' = 'stop';
     let errored = false;
+    let errorMessage: string | undefined;
 
     // Prune old tool results before each LLM call. The full `messages` array
     // keeps the unmangled history (so persistence / loadConversation stays
@@ -103,11 +113,13 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
         blocks = appendToolUse(blocks, ev.toolCall.id);
         emit({ type: 'tool_call', toolCall: ev.toolCall });
       } else if (ev.type === 'usage') {
+        lastUsageOut = ev.outputTokens;
         emit({ type: 'usage', outputTokens: ev.outputTokens });
       } else if (ev.type === 'done') {
         finishReason = ev.finishReason;
       } else if (ev.type === 'error') {
         errored = true;
+        errorMessage = ev.error;
         assistantContent = ev.error;
         // Persist to app.log for post-mortem — LLM protocol bugs (DeepSeek V4
         // reasoning_content / Claude signature mismatch / 400 invalid tool
@@ -122,6 +134,8 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
       }
     }
 
+    const llmElapsedMs = Date.now() - turnStart;
+
     const assistantMsg: Message = {
       id: makeId(),
       role: 'assistant',
@@ -135,6 +149,20 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
     messages.push(assistantMsg);
 
     if (errored || finishReason !== 'tool_calls' || toolCalls.length === 0) {
+      void writeTurnTrace({
+        conversationId: params.conversationId,
+        iteration: iter,
+        providerId: params.providerId,
+        model: params.model,
+        toolDefCount: toolDefs.length,
+        toolCalls: [],
+        outputTokens: lastUsageOut,
+        finishReason,
+        errored,
+        errorMessage,
+        llmElapsedMs,
+        totalElapsedMs: Date.now() - turnStart
+      });
       emit({ type: 'done' });
       return messages;
     }
@@ -147,11 +175,20 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
       toolCalls.length > 1 &&
       toolCalls.every((tc) => params.tools.get(tc.name)?.parallelSafe === true);
 
+    const toolStarts: number[] = toolCalls.map(() => 0);
+    const toolEnds: number[] = toolCalls.map(() => 0);
+    const wrap = (idx: number, tc: ToolCall) => {
+      toolStarts[idx] = Date.now();
+      return params.tools.execute(tc.name, tc.arguments).then((r) => {
+        toolEnds[idx] = Date.now();
+        return r;
+      });
+    };
     const results = allSafe
-      ? await Promise.all(toolCalls.map((tc) => params.tools.execute(tc.name, tc.arguments)))
+      ? await Promise.all(toolCalls.map((tc, i) => wrap(i, tc)))
       : await (async () => {
           const out = [];
-          for (const tc of toolCalls) out.push(await params.tools.execute(tc.name, tc.arguments));
+          for (let i = 0; i < toolCalls.length; i++) out.push(await wrap(i, toolCalls[i]));
           return out;
         })();
 
@@ -172,7 +209,56 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
         createdAt: new Date().toISOString()
       });
     }
+
+    void writeTurnTrace({
+      conversationId: params.conversationId,
+      iteration: iter,
+      providerId: params.providerId,
+      model: params.model,
+      toolDefCount: toolDefs.length,
+      toolCalls: toolCalls.map((tc, i) => ({
+        name: tc.name,
+        durationMs: toolEnds[i] - toolStarts[i],
+        ok: !(results[i].isError ?? false),
+        parallelSafe: params.tools.get(tc.name)?.parallelSafe === true
+      })),
+      outputTokens: lastUsageOut,
+      finishReason,
+      errored: false,
+      llmElapsedMs,
+      totalElapsedMs: Date.now() - turnStart
+    });
   }
 
   throw new Error(`Agent loop exceeded max iterations (${maxIter})`);
+}
+
+interface TurnTraceRecord {
+  conversationId?: string;
+  iteration: number;
+  providerId: string;
+  model?: string;
+  toolDefCount: number;
+  toolCalls: Array<{ name: string; durationMs: number; ok: boolean; parallelSafe: boolean }>;
+  outputTokens: number;
+  finishReason: 'stop' | 'tool_calls' | 'length' | 'error';
+  errored: boolean;
+  errorMessage?: string;
+  llmElapsedMs: number;
+  totalElapsedMs: number;
+}
+
+/**
+ * One JSON line per agent turn. Captures the cheap signal needed to triage
+ * "why was this turn slow / why did the agent pick that tool" without
+ * dumping full prompts (those go to raw-llm/ when `settings.llmRawDump` is
+ * on — see Plan 5.13 raw layer). Fire-and-forget — never let trace I/O fail
+ * the agent run.
+ */
+async function writeTurnTrace(rec: TurnTraceRecord): Promise<void> {
+  try {
+    await logger.trace(rec as unknown as Record<string, unknown>);
+  } catch {
+    // swallow — trace is diagnostics, not load-bearing
+  }
 }
