@@ -373,7 +373,7 @@ function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
           sourceField: {
             type: 'string',
             description:
-              '(base_property / reference_property 必填) 同单据上的源 BaseDataField Key, 例 "FCustId"。值随源字段变化时自动带出。'
+              '(base_property 必填) 同单据上的源 BaseDataField Key, 例 "FCustId"。值随源字段变化时自动带出。'
           },
           srcDisplayFieldName: {
             type: 'string',

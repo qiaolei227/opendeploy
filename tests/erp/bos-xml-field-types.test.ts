@@ -342,7 +342,7 @@ describe('insertFieldIntoKernelXml — base_data', () => {
   });
 });
 
-describe('insertFieldIntoKernelXml — base_property / reference_property', () => {
+describe('insertFieldIntoKernelXml — base_property', () => {
   it('base_property emits ControlFieldKey + SrcDisplayFieldName + SrcBaseDataDisplayType', () => {
     const out = insertFieldIntoKernelXml(BASE_XML, 'base_property', {
       spec: {

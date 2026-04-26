@@ -39,13 +39,24 @@ import type { PluginMeta } from '@shared/erp-types';
 // `requiredExtraProps` lists the spec fields *beyond* the universal
 // {key, caption}. The tool layer validates these before dispatching.
 
-// reference_property is intentionally NOT in this list. The BOS C# class
-// `ReferencePropertyField` exists (ElementType=250) but BOS rejects
-// `<ReferencePropertyField>` as "未能找到对应的数据类型" during deserialization
-// — 2026-04-26 user demo实证 on SAL_SaleOrder. Likely the type needs a
-// non-standard parent context (it's never used in any sampled standard bill,
-// 0 hits in SAL_SaleOrder FKERNELXML). v0.1 drops it; revisit when we have a
-// real-XML sample showing where it's actually accepted.
+// `reference_property` is intentionally OUT of scope.
+//
+// The BOS C# class `ReferencePropertyField : Field, ILookUpField` exists
+// (ElementType=250, line 249110 of decompiled Kingdee.BOS.Core.dll) and has
+// extra knobs over base_property — `SupportGroup` / `SingleForQuery` /
+// `MulLanguage` / a list of `RefPropertyKeys` for grouped multi-language
+// reference display. But it can't be added to standard business bills:
+// 2026-04-26 user demo on SAL_SaleOrder showed BOS rejecting the XML tag
+// during deserialization with "未能找到 ReferencePropertyField 对应的数据类型".
+// 0 hits across SAL_SaleOrder's 1 MB FKERNELXML — the type appears to
+// belong to system-level multi-language base data plumbing, not consultant
+// extension territory.
+//
+// 95% of consultant scenarios that need "show a base-data property on this
+// bill" are covered by `base_property` (single-value bring-out: customer
+// name / customer address / customer short-name). OpenDeploy v0.1 ships
+// without `reference_property` and treats it as out of scope — not a
+// future task.
 export const FIELD_TYPES = [
   'text',
   'large_text',
@@ -344,7 +355,7 @@ export interface FieldSpec {
   comboItems?: ReadonlyArray<{ value: string; caption: string }>;
   /** base_data: target base-data object key (e.g. 'BD_Customer'). */
   refBaseDataObjectKey?: string;
-  /** base_property / reference_property: source BaseDataField key on same bill. */
+  /** base_property: source BaseDataField key on same bill. */
   sourceField?: string;
   /** base_property: source base data property to display (e.g. 'FName'). */
   srcDisplayFieldName?: string;
