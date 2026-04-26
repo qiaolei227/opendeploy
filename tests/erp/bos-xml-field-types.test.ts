@@ -354,7 +354,12 @@ describe('insertFieldIntoKernelXml — base_property', () => {
     // <SourceField>。详见 memory bos_field_xml_realities.md。
     expect(out).toContain('<ControlFieldKey>FCustId</ControlFieldKey>');
     expect(out).toContain('<SrcDisplayFieldName>FName</SrcDisplayFieldName>');
-    expect(out).toContain('<SrcBaseDataDisplayType action="setnull"/>');
+    // Earlier rounds emitted <SrcBaseDataDisplayType action="setnull"/>
+    // because real SAL_SaleOrder samples (14/14) had it. That's legacy
+    // data — current-version BOS Designer doesn't write it and rejects
+    // strict-schema reload of new extensions that include it. 2026-04-26
+    // hand-built golden master from extension 29628cf2-... confirms.
+    expect(out).not.toMatch(/<SrcBaseDataDisplayType/);
     expect(out).not.toMatch(/<SourceField>/);
     // BasePropertyFieldAppearance 必须有 <Locked>-1</Locked>(原厂 14/14
     // 实证)。BOS 加载缺这个元素会抛"字段外观不存在或者类型不对",2026-04-26
@@ -374,7 +379,6 @@ describe('insertFieldIntoKernelXml — base_property', () => {
     // 或者类型不对"。
     const expectedOrder = [
       '<SrcDisplayFieldName>',
-      '<SrcBaseDataDisplayType',
       '<DefaultCondition>',
       '<ConditionType>',
       '<PropertyName>',

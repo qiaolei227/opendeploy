@@ -508,20 +508,33 @@ function renderFieldNode(
 }
 
 /**
- * BasePropertyField specialized renderer — child elements MUST appear in
- * this exact order (real SAL_SaleOrder 14/14 samples agree):
- *   SrcDisplayFieldName → SrcBaseDataDisplayType → DefaultCondition →
- *   ConditionType → PropertyName → ControlFieldKey → ListTabIndex →
- *   Name → Id → Key
+ * BasePropertyField specialized renderer — golden-master shape captured
+ * from a fresh BOS Designer hand-built field on 2026-04-26 (test extension
+ * `29628cf2-...`):
  *
- * Notable contrasts vs the universal renderer:
+ *   <BasePropertyField ElementType="14" ElementStyle="0">
+ *     <SrcDisplayFieldName>FName</SrcDisplayFieldName>
+ *     <DefaultCondition>67</DefaultCondition>
+ *     <ConditionType>0</ConditionType>
+ *     <PropertyName>...</PropertyName>
+ *     <ControlFieldKey>FCustId</ControlFieldKey>
+ *     <ListTabIndex>3134</ListTabIndex>
+ *     <Name>...</Name>
+ *     <Id>...</Id>
+ *     <Key>F_TEST_BPROP</Key>
+ *   </BasePropertyField>
+ *
+ * Three earlier rounds of derivation from original SAL_SaleOrder samples
+ * (14/14 BasePropertyFields) all triggered BOS's "字段外观不存在或者类型不对"
+ * — those samples carry a legacy `<SrcBaseDataDisplayType action="setnull"/>`
+ * element that current-version BOS Designer no longer writes and rejects on
+ * strict-schema reload of new extensions. The hand-built sample is
+ * guaranteed-loadable: omit SrcBaseDataDisplayType to match it.
+ *
+ * Other invariants vs the universal renderer (still required):
  *  - NO <FieldName> (derived field, no physical DB column)
- *  - <DefaultCondition>67</...> required (constant in every real sample)
- *  - <ControlFieldKey> emitted between PropertyName and ListTabIndex (NOT
- *    after Key like other extras)
- *
- * Verified 2026-04-26 user demo: prior universal-order output triggered
- * "字段外观不存在或者类型不对" three rounds in a row before this fix.
+ *  - <DefaultCondition>67</...> constant on every real sample
+ *  - <ControlFieldKey> sits between PropertyName and ListTabIndex
  */
 function renderBasePropertyFieldNode(
   spec: FieldSpec,
@@ -533,7 +546,6 @@ function renderBasePropertyFieldNode(
   return (
     '<BasePropertyField ElementType="14" ElementStyle="0">' +
     `<SrcDisplayFieldName>${xmlEscape(spec.srcDisplayFieldName ?? '')}</SrcDisplayFieldName>` +
-    '<SrcBaseDataDisplayType action="setnull"/>' +
     '<DefaultCondition>67</DefaultCondition>' +
     '<ConditionType>0</ConditionType>' +
     `<PropertyName>${xmlEscape(propertyName)}</PropertyName>` +
