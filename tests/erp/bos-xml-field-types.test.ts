@@ -356,6 +356,23 @@ describe('insertFieldIntoKernelXml — base_property', () => {
     expect(out).toContain('<SrcDisplayFieldName>FName</SrcDisplayFieldName>');
     expect(out).toContain('<SrcBaseDataDisplayType action="setnull"/>');
     expect(out).not.toMatch(/<SourceField>/);
+    // BasePropertyFieldAppearance 必须有 <Locked>-1</Locked>(原厂 14/14
+    // 实证)。BOS 加载缺这个元素会抛"字段外观不存在或者类型不对",2026-04-26
+    // 客户实测撞过。
+    expect(out).toMatch(/<BasePropertyFieldAppearance[^>]*><Locked>-1<\/Locked>/);
+  });
+
+  it('non-base_property field appearances do NOT emit <Locked> (avoid noise)', () => {
+    // Locked is type-specific; only base_property requires it. Verify text
+    // and amount appearances stay clean.
+    for (const t of ['text', 'amount'] as const) {
+      const out = insertFieldIntoKernelXml(BASE_XML, t, {
+        spec: { key: 'F_X', caption: 'x' },
+        idGenerator: FIXED_IDS(),
+        numericGenerator: FIXED_NUMERICS
+      });
+      expect(out).not.toMatch(/<Locked>/);
+    }
   });
 
   it('base_property rejects missing sourceField', () => {

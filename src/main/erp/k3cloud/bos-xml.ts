@@ -523,8 +523,15 @@ function renderFieldAppearanceNode(
   const emptyText = typeSpec.appearanceHasEmptyText
     ? '<EmptyText action="setnull"/>'
     : '';
+  // BasePropertyFieldAppearance ships <Locked>-1</Locked> in 14/14 real
+  // SAL_SaleOrder samples. Without it BOS rejects extension load with
+  // "基础资料属性 Key[X] 元数据异常: 字段外观不存在或者类型不对" — 2026-04-26
+  // user demo verified. Other field appearances treat Locked as optional
+  // (only ~15% of TextFieldAppearance carry it), so emit only here.
+  const lockedNode = type === 'base_property' ? '<Locked>-1</Locked>' : '';
   return (
     `<${tag} ElementType="${elementType}" ElementStyle="1">` +
+    lockedNode +
     emptyText +
     `<Key>${xmlEscape(spec.key)}</Key>` +
     '<ListDefaultWidth>100</ListDefaultWidth>' +
