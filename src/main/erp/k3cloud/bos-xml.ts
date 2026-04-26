@@ -413,7 +413,11 @@ function defaultNumericGenerator() {
  *    user-friendly keys like "BD_Customer" to GUIDs before getting here)
  *  - base_property emits `<ControlFieldKey>` (NOT `<SourceField>`!) +
  *    `<SrcDisplayFieldName>` + `<SrcBaseDataDisplayType action="setnull"/>`
- *  - reference_property emits `<ControlFieldKey>` per the same convention */
+ *  - decimal / amount / qty emit `<FieldPrecision>23</FieldPrecision>` +
+ *    `<FieldScale>10</FieldScale>` (BOS Designer's manual-drag default —
+ *    2026-04-26 user实证). Without these, BOS sees C# default 0/0 and
+ *    rejects the field on save: "字段的小数精度不能大于等于整体精度".
+ *  - int emits precision=10 / scale=0 (integer has no decimal places). */
 function renderFieldExtras(type: FieldType, spec: FieldSpec): string {
   const typeSpec = getFieldTypeSpec(type);
   if (typeSpec.dateOnly) {
@@ -441,6 +445,12 @@ function renderFieldExtras(type: FieldType, spec: FieldSpec): string {
       `<SrcDisplayFieldName>${xmlEscape(spec.srcDisplayFieldName ?? '')}</SrcDisplayFieldName>` +
       '<SrcBaseDataDisplayType action="setnull"/>'
     );
+  }
+  if (type === 'decimal' || type === 'amount' || type === 'qty') {
+    return '<FieldPrecision>23</FieldPrecision><FieldScale>10</FieldScale>';
+  }
+  if (type === 'int') {
+    return '<FieldPrecision>10</FieldPrecision><FieldScale>0</FieldScale>';
   }
   return '';
 }

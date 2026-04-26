@@ -157,6 +157,30 @@ describe('insertFieldIntoKernelXml — simple types', () => {
     expect(apMatch![0]).not.toMatch(/<EmptyText/);
   });
 
+  it('decimal / amount / qty emit FieldPrecision=23 + FieldScale=10 (BOS dragged-default)', () => {
+    // Without these, BOS sees C# default 0/0 and rejects the field on bill
+    // save: "字段的小数精度不能大于等于整体精度" (2026-04-26 user实证).
+    for (const type of ['decimal', 'amount', 'qty'] as const) {
+      const out = insertFieldIntoKernelXml(BASE_XML, type, {
+        spec: { key: `F_${type.toUpperCase()}`, caption: type },
+        idGenerator: FIXED_IDS(),
+        numericGenerator: FIXED_NUMERICS
+      });
+      expect(out, `${type} missing FieldPrecision`).toContain('<FieldPrecision>23</FieldPrecision>');
+      expect(out, `${type} missing FieldScale`).toContain('<FieldScale>10</FieldScale>');
+    }
+  });
+
+  it('int emits FieldPrecision=10 + FieldScale=0 (integer has no decimals)', () => {
+    const out = insertFieldIntoKernelXml(BASE_XML, 'int', {
+      spec: { key: 'F_INT', caption: '整数' },
+      idGenerator: FIXED_IDS(),
+      numericGenerator: FIXED_NUMERICS
+    });
+    expect(out).toContain('<FieldPrecision>10</FieldPrecision>');
+    expect(out).toContain('<FieldScale>0</FieldScale>');
+  });
+
   it('TextFieldAppearance keeps EmptyText (regression — was right before, must stay)', () => {
     const out = insertFieldIntoKernelXml(BASE_XML, 'text', {
       spec: { key: 'F_T', caption: '文本' },
