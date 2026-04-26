@@ -369,6 +369,27 @@ describe('insertFieldIntoKernelXml — base_property', () => {
     // 类型不对"。
     const fieldNode = out.match(/<BasePropertyField[\s\S]*?<\/BasePropertyField>/)?.[0] ?? '';
     expect(fieldNode).not.toMatch(/<FieldName>/);
+    // BOS .NET XmlSerializer 严格按 [XmlElement(Order=N)] 校验 BasePropertyField
+    // 子元素顺序;原厂 14/14 都是这个固定序。顺序不对 BOS 报"字段外观不存在
+    // 或者类型不对"。
+    const expectedOrder = [
+      '<SrcDisplayFieldName>',
+      '<SrcBaseDataDisplayType',
+      '<DefaultCondition>',
+      '<ConditionType>',
+      '<PropertyName>',
+      '<ControlFieldKey>',
+      '<ListTabIndex>',
+      '<Name>',
+      '<Id>',
+      '<Key>'
+    ];
+    let cursor = 0;
+    for (const tag of expectedOrder) {
+      const idx = fieldNode.indexOf(tag, cursor);
+      expect(idx, `子元素 ${tag} 必须出现在 BasePropertyField 内, 顺序在 ${expectedOrder[expectedOrder.indexOf(tag) - 1] ?? '<开始>'} 之后`).toBeGreaterThan(-1);
+      cursor = idx + tag.length;
+    }
   });
 
   it('non-base_property field appearances do NOT emit <Locked> (avoid noise)', () => {

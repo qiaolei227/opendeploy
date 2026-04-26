@@ -460,16 +460,9 @@ function renderFieldExtras(type: FieldType, spec: FieldSpec): string {
     return `<LookUpObjectID>${xmlEscape(spec.refBaseDataObjectKey ?? '')}</LookUpObjectID>`;
   }
   if (type === 'base_property') {
-    // <DefaultCondition>67</DefaultCondition> appears on 14/14 real
-    // SAL_SaleOrder BasePropertyField nodes — BOS rejects extension load
-    // ("字段外观不存在或者类型不对") if absent. 67 is the constant value
-    // every real sample uses; treat as required boilerplate.
-    return (
-      `<ControlFieldKey>${xmlEscape(spec.sourceField ?? '')}</ControlFieldKey>` +
-      `<SrcDisplayFieldName>${xmlEscape(spec.srcDisplayFieldName ?? '')}</SrcDisplayFieldName>` +
-      '<SrcBaseDataDisplayType action="setnull"/>' +
-      '<DefaultCondition>67</DefaultCondition>'
-    );
+    // base_property bypasses the universal renderer (see
+    // renderBasePropertyFieldNode) — extras logic should never reach here.
+    return '';
   }
   if (type === 'decimal' || type === 'amount' || type === 'qty') {
     return '<FieldPrecision>23</FieldPrecision><FieldScale>10</FieldScale>';
@@ -486,6 +479,13 @@ function renderFieldNode(
   id: string,
   listTabIndex: number
 ): string {
+  // BasePropertyField needs a fully custom child-element order — BOS's
+  // .NET XmlSerializer enforces [XmlElement(Order=N)] strictly on this
+  // class. Real SAL_SaleOrder samples (14/14) all share the same fixed
+  // order; deviating triggers "字段外观不存在或者类型不对" on load.
+  if (type === 'base_property') {
+    return renderBasePropertyFieldNode(spec, id, listTabIndex);
+  }
   const typeSpec = getFieldTypeSpec(type);
   const tag = typeSpec.xmlTag;
   const elementType = typeSpec.elementType;
@@ -493,22 +493,56 @@ function renderFieldNode(
   const propertyName = spec.propertyName ?? spec.key;
   const fieldName = spec.fieldName ?? spec.key.toUpperCase();
   const extras = renderFieldExtras(type, spec);
-  // BasePropertyField is a *derived display* field — its value is brought
-  // out from another base-data row at runtime, no physical DB column. Real
-  // SAL_SaleOrder XML has 0/14 BasePropertyField nodes carrying <FieldName>;
-  // emitting it makes BOS reject the field with "字段外观不存在或者类型不对".
-  const omitFieldName = type === 'base_property';
   return (
     `<${tag} ElementType="${elementType}" ElementStyle="0">` +
     '<ConditionType>0</ConditionType>' +
     `<PropertyName>${xmlEscape(propertyName)}</PropertyName>` +
-    (omitFieldName ? '' : `<FieldName>${xmlEscape(fieldName)}</FieldName>`) +
+    `<FieldName>${xmlEscape(fieldName)}</FieldName>` +
     `<ListTabIndex>${listTabIndex}</ListTabIndex>` +
     `<Name>${xmlEscape(name)}</Name>` +
     `<Id>${xmlEscape(id)}</Id>` +
     `<Key>${xmlEscape(spec.key)}</Key>` +
     extras +
     `</${tag}>`
+  );
+}
+
+/**
+ * BasePropertyField specialized renderer — child elements MUST appear in
+ * this exact order (real SAL_SaleOrder 14/14 samples agree):
+ *   SrcDisplayFieldName → SrcBaseDataDisplayType → DefaultCondition →
+ *   ConditionType → PropertyName → ControlFieldKey → ListTabIndex →
+ *   Name → Id → Key
+ *
+ * Notable contrasts vs the universal renderer:
+ *  - NO <FieldName> (derived field, no physical DB column)
+ *  - <DefaultCondition>67</...> required (constant in every real sample)
+ *  - <ControlFieldKey> emitted between PropertyName and ListTabIndex (NOT
+ *    after Key like other extras)
+ *
+ * Verified 2026-04-26 user demo: prior universal-order output triggered
+ * "字段外观不存在或者类型不对" three rounds in a row before this fix.
+ */
+function renderBasePropertyFieldNode(
+  spec: FieldSpec,
+  id: string,
+  listTabIndex: number
+): string {
+  const name = spec.name ?? spec.caption;
+  const propertyName = spec.propertyName ?? spec.key;
+  return (
+    '<BasePropertyField ElementType="14" ElementStyle="0">' +
+    `<SrcDisplayFieldName>${xmlEscape(spec.srcDisplayFieldName ?? '')}</SrcDisplayFieldName>` +
+    '<SrcBaseDataDisplayType action="setnull"/>' +
+    '<DefaultCondition>67</DefaultCondition>' +
+    '<ConditionType>0</ConditionType>' +
+    `<PropertyName>${xmlEscape(propertyName)}</PropertyName>` +
+    `<ControlFieldKey>${xmlEscape(spec.sourceField ?? '')}</ControlFieldKey>` +
+    `<ListTabIndex>${listTabIndex}</ListTabIndex>` +
+    `<Name>${xmlEscape(name)}</Name>` +
+    `<Id>${xmlEscape(id)}</Id>` +
+    `<Key>${xmlEscape(spec.key)}</Key>` +
+    '</BasePropertyField>'
   );
 }
 
