@@ -208,7 +208,7 @@ function createExtensionTool(c: K3CloudConnector, projectId: string): ToolHandle
           extId: r.extId,
           backupFile: r.backupFile,
           reminder:
-            '请在 BOS Designer 中刷新扩展列表(工具栏刷新按钮);新建销售订单时客户端可能需重登一次才能加载新插件。如需共享给团队,去 BOS Designer 点一次"同步"(SVN)。'
+            '请在 BOS Designer 中刷新扩展列表(工具栏刷新按钮);新建销售订单时客户端可能需重登一次才能加载新插件。如需共享给团队,去 BOS Designer 点一次"同步"(SVN)。**以后想删这个扩展请回来调 kingdee_delete_extension,不要在 BOS Designer 里点删 —— Designer 删会触发 SVN 同步报"local modifications"卡死。**'
         },
         null,
         2
@@ -291,7 +291,8 @@ function deleteExtensionTool(c: K3CloudConnector, projectId: string): ToolHandle
       name: 'kingdee_delete_extension',
       description:
         '彻底删除一个扩展 —— 连带它名下所有插件 / 字段扩展 / 引用克隆。8 张 BOS 表的行全部清掉。' +
-        '这是 nuclear 操作。调用前一定要双重确认:只想移除某一个插件用 kingdee_unregister_plugin。backup JSON 文件会写到项目目录,用户可手工恢复。',
+        '这是 nuclear 操作。调用前一定要双重确认:只想移除某一个插件用 kingdee_unregister_plugin。backup JSON 文件会写到项目目录,用户可手工恢复。\n' +
+        '\n**用户想删扩展时永远走这个工具,不要让用户去 BOS Designer 手工删** —— Designer 里删会触发 SVN 同步检查,撞"`local modifications` -- commit or revert them first"卡死。本工具直改 DB 绕过 SVN,运行时 BOS 只读 DB,SVN 工作区残留的 .dym 文件无害。',
       parameters: {
         type: 'object',
         properties: {

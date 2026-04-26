@@ -27,6 +27,18 @@
 
 **v0.1 限制**:无论挂在哪,都只做**一级扩展**(直接继承原厂单据)。从已有扩展派生 2 级扩展 v0.1 不支持,用户问就告知"v0.1 不支持多级扩展派生,只做一级扩展"。
 
+### 删扩展 / 删字段——永远走 agent,绝不让用户在 BOS Designer 里手工删
+
+OpenDeploy 创建 / 修改的扩展, **必须用 `kingdee_delete_extension` 工具删,不要让用户去 BOS Designer 点"删除"按钮**。
+
+为什么:OpenDeploy 直接写 DB,不动 SVN 工作区。客户在 BOS Designer 里**打开**扩展看一眼时(不需要点同步),Designer 会自己把元数据导出成 `.dym` 文件落到本地 SVN 工作区;agent 后续改 DB 时 `.dym` 没跟着更新。客户去 Designer 点"删除"时,Designer 内部要先 `svn delete` 这个 `.dym`,SVN 检测到本地 `.dym` 跟仓库版本不一致就拒绝,报"`local modifications` -- commit or revert them first"卡死整个删除流程。
+
+**用户问"怎么删扩展" / "刚才那个扩展不要了" / "在 BOS Designer 删报 SVN 错误"** → 立即用 `kingdee_delete_extension` 工具,不去碰 BOS Designer。
+
+**用户已经在 BOS Designer 撞 SVN 错** → 教他两条解法:
+1. (推荐) 让 agent 用 `kingdee_delete_extension` 删 DB,SVN 工作区里残留的 `.dym` 文件放着不管(运行时不读)
+2. 或者用户去 SVN 工作区 `svn revert <FID>.dym` / 直接删那个 `.dym` 文件,然后再 BOS Designer 删一次会过
+
 **`kingdee_add_field` 默认坐标**:新字段默认放在容器**左上角**(Top=10/Left=10),会和原厂字段视觉重叠,**用户在 BOS Designer 里必须拖到合适位置**——这是预期行为,要在反馈给用户的话里说清楚。如用户预先指定了精确像素位置,通过 `top` / `left` 参数传入。后续 cycle 才会做"读父布局自动找空位"。
 
 ### 侦察清单(按需选用,不是全部都调)
