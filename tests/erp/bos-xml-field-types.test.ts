@@ -22,7 +22,10 @@ const FIXED_IDS = (): (() => string) => {
 const FIXED_NUMERICS = () => ({ listTabIndex: 9001, zOrderIndex: 99, tabindex: 9001 });
 
 describe('Field type registry', () => {
-  it('declares all 16 expected types', () => {
+  it('declares all 15 expected types (reference_property dropped in v0.1)', () => {
+    // reference_property C# class exists but BOS rejects the XML tag during
+    // deserialization on standard bills (2026-04-26 user demo实证). Re-add
+    // when we have a real-XML sample showing the right context.
     const expected: FieldType[] = [
       'text',
       'large_text',
@@ -37,7 +40,6 @@ describe('Field type registry', () => {
       'mul_combo',
       'base_data',
       'base_property',
-      'reference_property',
       'color',
       'mobile'
     ];
@@ -71,7 +73,6 @@ describe('Field type registry', () => {
     expect(getFieldTypeSpec('mul_combo').xmlTag).toBe('MulComboField');
     expect(getFieldTypeSpec('base_data').xmlTag).toBe('BaseDataField');
     expect(getFieldTypeSpec('base_property').xmlTag).toBe('BasePropertyField');
-    expect(getFieldTypeSpec('reference_property').xmlTag).toBe('ReferencePropertyField');
     expect(getFieldTypeSpec('color').xmlTag).toBe('ColorField');
     expect(getFieldTypeSpec('mobile').xmlTag).toBe('MobileField');
   });
@@ -84,10 +85,6 @@ describe('Field type registry', () => {
     expect(getFieldTypeSpec('base_property').requiredExtraProps).toEqual(
       expect.arrayContaining(['sourceField', 'srcDisplayFieldName'])
     );
-  });
-
-  it('reference_property requires sourceField', () => {
-    expect(getFieldTypeSpec('reference_property').requiredExtraProps).toContain('sourceField');
   });
 
   it('combo + mul_combo require comboItems', () => {
@@ -363,28 +360,5 @@ describe('insertFieldIntoKernelXml — base_property / reference_property', () =
     ).toThrow(/srcDisplayFieldName/);
   });
 
-  it('reference_property emits ReferencePropertyField tag + ElementType=250 + ControlFieldKey', () => {
-    const out = insertFieldIntoKernelXml(BASE_XML, 'reference_property', {
-      spec: {
-        key: 'F_REFADDR',
-        caption: '引用地址',
-        sourceField: 'FCustId'
-      },
-      idGenerator: FIXED_IDS(),
-      numericGenerator: FIXED_NUMERICS
-    });
-    expect(out).toMatch(/<ReferencePropertyField ElementType="250" /);
-    expect(out).toContain('<ControlFieldKey>FCustId</ControlFieldKey>');
-    expect(out).toMatch(/<ReferencePropertyFieldAppearance[ >]/);
-  });
-
-  it('reference_property rejects missing sourceField', () => {
-    expect(() =>
-      insertFieldIntoKernelXml(BASE_XML, 'reference_property', {
-        spec: { key: 'F_X', caption: 'x' }, // no sourceField
-        idGenerator: FIXED_IDS(),
-        numericGenerator: FIXED_NUMERICS
-      })
-    ).toThrow(/sourceField/);
-  });
+  // reference_property dropped in v0.1 — see FIELD_TYPES comment in bos-xml.ts.
 });

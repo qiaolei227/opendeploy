@@ -39,6 +39,13 @@ import type { PluginMeta } from '@shared/erp-types';
 // `requiredExtraProps` lists the spec fields *beyond* the universal
 // {key, caption}. The tool layer validates these before dispatching.
 
+// reference_property is intentionally NOT in this list. The BOS C# class
+// `ReferencePropertyField` exists (ElementType=250) but BOS rejects
+// `<ReferencePropertyField>` as "未能找到对应的数据类型" during deserialization
+// — 2026-04-26 user demo实证 on SAL_SaleOrder. Likely the type needs a
+// non-standard parent context (it's never used in any sampled standard bill,
+// 0 hits in SAL_SaleOrder FKERNELXML). v0.1 drops it; revisit when we have a
+// real-XML sample showing where it's actually accepted.
 export const FIELD_TYPES = [
   'text',
   'large_text',
@@ -53,7 +60,6 @@ export const FIELD_TYPES = [
   'mul_combo',
   'base_data',
   'base_property',
-  'reference_property',
   'color',
   'mobile'
 ] as const;
@@ -101,7 +107,8 @@ const FIELD_TYPE_SPECS: Record<FieldType, FieldTypeSpec> = {
   // (field=13, appearance=7 — verified against real SAL_SaleOrder F客户).
   base_data:          { xmlTag: 'BaseDataField',          csClass: 'BaseDataField',          elementType: 13,  appearanceElementType: 7,   appearanceHasEmptyText: true,  requiredExtraProps: ['refBaseDataObjectKey'] },
   base_property:      { xmlTag: 'BasePropertyField',      csClass: 'BasePropertyField',      elementType: 14,  appearanceElementType: 14,  appearanceHasEmptyText: true,  requiredExtraProps: ['sourceField', 'srcDisplayFieldName'] },
-  reference_property: { xmlTag: 'ReferencePropertyField', csClass: 'ReferencePropertyField', elementType: 250, appearanceElementType: 250, appearanceHasEmptyText: true,  requiredExtraProps: ['sourceField'] },
+  // reference_property removed in v0.1 — BOS rejects <ReferencePropertyField> on
+  // standard bills. See FIELD_TYPES comment above.
   color:              { xmlTag: 'ColorField',             csClass: 'ColorField',             elementType: 1,   appearanceElementType: 1,   appearanceHasEmptyText: true,  requiredExtraProps: [] },
   mobile:             { xmlTag: 'MobileField',            csClass: 'MobileField',            elementType: 1,   appearanceElementType: 1,   appearanceHasEmptyText: true,  requiredExtraProps: [] }
 };
@@ -434,9 +441,6 @@ function renderFieldExtras(type: FieldType, spec: FieldSpec): string {
       `<SrcDisplayFieldName>${xmlEscape(spec.srcDisplayFieldName ?? '')}</SrcDisplayFieldName>` +
       '<SrcBaseDataDisplayType action="setnull"/>'
     );
-  }
-  if (type === 'reference_property') {
-    return `<ControlFieldKey>${xmlEscape(spec.sourceField ?? '')}</ControlFieldKey>`;
   }
   return '';
 }

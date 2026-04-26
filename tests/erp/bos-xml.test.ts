@@ -387,11 +387,11 @@ describe('parseFieldsFromKernelXml', () => {
       {
         type: 'base_property',
         extras: { sourceField: 'FCustId', srcDisplayFieldName: 'FName' }
-      },
-      { type: 'reference_property', extras: { sourceField: 'FCustId' } }
+      }
+      // reference_property dropped in v0.1 — see bos-xml.ts FIELD_TYPES comment.
     ];
 
-    it('round-trips all 16 BOS field types: insert → parse keeps the type', () => {
+    it('round-trips all 15 BOS field types: insert → parse keeps the type', () => {
       // Insert one of every type into a fresh extension, then parse back.
       // Plan 5.12.1 user demo实证发现 parser 只识别 TextField,导致写完反查
       // 13 个字段只看到 1 个 — 这个测试就是回归 anchor。
