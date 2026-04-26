@@ -91,7 +91,12 @@
     "aboutVersion": "Version",
     "aboutLicense": "License",
     "aboutSource": "Source",
-    "aboutCopyright": "© 2026 qiaolei"
+    "aboutCopyright": "© 2026 qiaolei",
+    "diagnosticsHeader": "Diagnostics",
+    "rawDumpLabel": "Log raw LLM requests",
+    "rawDumpDescription": "Persist each turn's full request body + SSE chunks to logs/raw-llm/<conv-id>/ for postmortem. Authorization headers are auto-redacted. Only the 20 newest conversations are kept; older ones auto-clean. Default ON in community edition.",
+    "rawDumpOn": "Enabled",
+    "rawDumpOff": "Disabled"
   },
   "titlebar": {
     "minimize": "Minimize",

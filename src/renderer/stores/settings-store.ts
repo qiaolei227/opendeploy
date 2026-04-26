@@ -12,6 +12,7 @@ interface SettingsState {
   setApiKey: (provider: string, key: string) => Promise<void>;
   setModel: (provider: string, modelId: string) => Promise<void>;
   setOllamaModelInput: (value: string) => Promise<void>;
+  setLlmRawDump: (on: boolean) => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -59,6 +60,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   setOllamaModelInput: async (value) => {
     const next = { ...get().settings, ollamaModelInput: value };
+    await window.opendeploy.saveSettings(next);
+    set({ settings: next });
+  },
+
+  setLlmRawDump: async (on) => {
+    const next = { ...get().settings, llmRawDump: on };
     await window.opendeploy.saveSettings(next);
     set({ settings: next });
   }

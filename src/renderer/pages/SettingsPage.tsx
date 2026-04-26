@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { i18n } from '@renderer/i18n';
 import { useSettingsStore } from '@renderer/stores/settings-store';
@@ -413,12 +413,44 @@ function AboutSection() {
           </a>
         </div>
       </div>
-      <div className="setting-row" style={{ borderBottom: 'none' }}>
+      <div className="setting-row">
         <div>
           <div className="lbl">{t('settings.aboutCopyright')}</div>
         </div>
       </div>
+
+      <h3 style={{ margin: '24px 0 4px', fontSize: 16 }}>{t('settings.diagnosticsHeader')}</h3>
+      <RawDumpRow />
     </section>
+  );
+}
+
+function RawDumpRow(): React.ReactElement {
+  const { t } = useTranslation();
+  const settings = useSettingsStore((s) => s.settings);
+  const setLlmRawDump = useSettingsStore((s) => s.setLlmRawDump);
+  const enabled = settings.llmRawDump !== false;
+  return (
+    <div className="setting-row" style={{ borderBottom: 'none' }}>
+      <div style={{ flex: 1 }}>
+        <div className="lbl">{t('settings.rawDumpLabel')}</div>
+        <div className="muted small" style={{ marginTop: 4, lineHeight: 1.5 }}>
+          {t('settings.rawDumpDescription')}
+        </div>
+      </div>
+      <div className="ctl">
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => {
+              void setLlmRawDump(e.target.checked);
+            }}
+          />
+          {enabled ? t('settings.rawDumpOn') : t('settings.rawDumpOff')}
+        </label>
+      </div>
+    </div>
   );
 }
 

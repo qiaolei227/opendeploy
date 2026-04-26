@@ -91,7 +91,12 @@
     "aboutVersion": "版本",
     "aboutLicense": "开源协议",
     "aboutSource": "源码",
-    "aboutCopyright": "© 2026 乔磊"
+    "aboutCopyright": "© 2026 乔磊",
+    "diagnosticsHeader": "诊断 / 调试",
+    "rawDumpLabel": "记录原始 LLM 请求",
+    "rawDumpDescription": "把每轮 LLM 的请求 body 和返回的 SSE chunk 完整写到 logs/raw-llm/<对话 ID>/ 下,便于事后排查 agent 行为。Authorization 头会自动 redact。仅保留最近 20 个对话,旧的自动清理。社区版默认开。",
+    "rawDumpOn": "已开启",
+    "rawDumpOff": "已关闭"
   },
   "titlebar": {
     "minimize": "最小化",
