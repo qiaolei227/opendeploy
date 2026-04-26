@@ -580,9 +580,11 @@ export function insertTextFieldIntoKernelXml(
 export interface ExtensionFieldMeta {
   /** 表单 Key, 如 'F_DEMO' (BOS Designer 中的"字段标识")。*/
   key: string;
-  /** v0.1 只解析 TextField → 'text';后续支持其他类型时此处分支。*/
-  type: 'text';
-  /** 显示标签;优先取 Appearance 的 Caption,次取 TextField 的 Name。*/
+  /** Plan 5.12.1 起识别 16 个 BOS 字段类型。`unknown` 兜底:遇到未来 BOS
+   *  新增 / 我们没建模的标签时仍把字段返回(只是 type 不准),agent 闭环
+   *  反查至少能确认字段存在。*/
+  type: FieldType | 'unknown';
+  /** 显示标签;优先取 Appearance 的 Caption,次取 field 节点的 Name。*/
   caption: string;
   propertyName: string;
   fieldName: string;
@@ -590,14 +592,31 @@ export interface ExtensionFieldMeta {
   container: string | undefined;
 }
 
+/** Reverse-lookup `xmlTag → FieldType`. Built from `FIELD_TYPE_SPECS` so
+ *  registry stays single source of truth. DateTimeField has two members
+ *  (`date` and `datetime`) — the parser disambiguates by looking for
+ *  `<EditFormat>yyyy-MM-dd</EditFormat>`. We pick `datetime` as the default
+ *  here and post-process. */
+const FIELD_TAGS = (() => {
+  const map: Record<string, FieldType> = {};
+  for (const [type, spec] of Object.entries(FIELD_TYPE_SPECS)) {
+    // Last write wins is fine — the only collision is DateTimeField,
+    // which we resolve below via EditFormat sniffing.
+    map[spec.xmlTag] = type as FieldType;
+  }
+  return map;
+})();
+
 /**
- * 解析扩展 FKERNELXML 里的扩展字段定义(目前只识别 <TextField>)。
- * 流程:① 遍历 Elements 直接子级的 <TextField> 收 base info(按 key 入 map);
- * ② 在 LayoutInfos/Appearances/TextFieldAppearance 里按 Key 配对捞 Caption / Container,
- *    并以 Appearance 出现顺序作为最终输出顺序——这是 BOS Designer 里用户感知的字段顺序;
- *    `insertTextFieldIntoKernelXml` 把新 TextField 插在 `</Form>` 之后, 文档里 TextField
- *    顺序与插入顺序相反, 但 Appearance 是追加进 `</Appearances>` 之前, 顺序正向。
- * ③ 没有 Appearance 的 TextField 兜底按文档出现顺序追加, 保证 parser 不丢字段。
+ * 解析扩展 FKERNELXML 里的扩展字段定义,识别所有 16 类 BOS 字段。
+ * 流程:① 遍历 Elements 直接子级的字段节点 (TextField / IntegerField /
+ *      BaseDataField / ... ),按 key → {type, base info} 入 map;
+ * ② 在 LayoutInfos/Appearances/<TypeTag>Appearance 里按 Key 配对捞
+ *    Caption / Container,以 Appearance 出现顺序为最终输出顺序——这是 BOS
+ *    Designer 里用户感知的字段顺序;`insertFieldIntoKernelXml` 把新字段插在
+ *    `</Form>` 之后,文档里字段顺序与插入顺序相反,但 Appearance 是追加进
+ *    `</Appearances>` 之前,顺序正向。
+ * ③ 没有 Appearance 的字段兜底按文档出现顺序追加,保证 parser 不丢字段。
  */
 export function parseFieldsFromKernelXml(xml: string): ExtensionFieldMeta[] {
   if (!xml) return [];
@@ -606,28 +625,42 @@ export function parseFieldsFromKernelXml(xml: string): ExtensionFieldMeta[] {
   const appearanceByKey = new Map<string, { caption?: string; container?: string }>();
   collectAppearances(xml, appearanceByKey);
 
-  // Step 2: 收所有顶层 <TextField> 的 base info, 按 key → meta(无 caption/container)入 map
-  type Base = { propertyName: string; fieldName: string; name: string };
+  // Step 2: 收所有顶层字段节点的 base info, 按 key → meta 入 map。
+  type Base = {
+    type: FieldType | 'unknown';
+    propertyName: string;
+    fieldName: string;
+    name: string;
+  };
   const baseByKey = new Map<string, Base>();
-  const baseOrder: string[] = []; // 文档出现顺序, 兜底用
-  type Frame = { tag: string; bodyStart: number; isTextField: boolean };
+  const baseOrder: string[] = [];
+  type Frame = { tag: string; bodyStart: number; mappedType: FieldType | undefined };
   const stack: Frame[] = [];
   for (const tk of iterateTagTokens(xml)) {
     if (tk.isSelfClose) continue;
     if (!tk.isClose) {
-      stack.push({ tag: tk.tag, bodyStart: tk.end, isTextField: tk.tag === 'TextField' });
+      stack.push({ tag: tk.tag, bodyStart: tk.end, mappedType: FIELD_TAGS[tk.tag] });
       continue;
     }
     const frame = stack.pop();
-    if (!frame || !frame.isTextField) continue;
-    // 字段定义的 <TextField> 是 <Elements> 的直接子。任何嵌得更深(LayoutInfos /
-    // Appearances / 未来可能的 wrapper 标签)的同名节点都不是字段定义本身。
+    if (!frame || frame.mappedType === undefined) continue;
+    // 字段定义节点是 <Elements> 的直接子。任何嵌得更深(LayoutInfos /
+    // Appearances / 未来可能的 wrapper)的同名节点都不是字段定义本身。
     const parent = stack[stack.length - 1];
     if (!parent || parent.tag !== 'Elements') continue;
     const body = xml.substring(frame.bodyStart, tk.start);
     const key = findLastTopLevelChildText(body, 'Key');
     if (!key || baseByKey.has(key)) continue;
+    // DateTimeField — pick `date` if `<EditFormat>yyyy-MM-dd</EditFormat>` is
+    // present, otherwise `datetime`. This is the same marker
+    // `renderFieldExtras` emits for the date variant.
+    let resolvedType: FieldType = frame.mappedType;
+    if (frame.tag === 'DateTimeField') {
+      const isDateOnly = /<EditFormat>\s*yyyy-MM-dd\s*<\/EditFormat>/.test(body);
+      resolvedType = isDateOnly ? 'date' : 'datetime';
+    }
     baseByKey.set(key, {
+      type: resolvedType,
       propertyName: findLastTopLevelChildText(body, 'PropertyName') ?? key,
       fieldName: findLastTopLevelChildText(body, 'FieldName') ?? key.toUpperCase(),
       name: findLastTopLevelChildText(body, 'Name') ?? key
@@ -635,7 +668,7 @@ export function parseFieldsFromKernelXml(xml: string): ExtensionFieldMeta[] {
     baseOrder.push(key);
   }
 
-  // Step 3: 优先按 Appearance 顺序输出, 没 Appearance 的按 TextField 文档顺序兜底
+  // Step 3: 优先按 Appearance 顺序输出, 没 Appearance 的按字段文档顺序兜底
   const fields: ExtensionFieldMeta[] = [];
   const emitted = new Set<string>();
   const emit = (key: string) => {
@@ -645,7 +678,7 @@ export function parseFieldsFromKernelXml(xml: string): ExtensionFieldMeta[] {
     const app = appearanceByKey.get(key);
     fields.push({
       key,
-      type: 'text',
+      type: base.type,
       caption: app?.caption ?? base.name,
       propertyName: base.propertyName,
       fieldName: base.fieldName,
@@ -657,11 +690,16 @@ export function parseFieldsFromKernelXml(xml: string): ExtensionFieldMeta[] {
   return fields;
 }
 
+/** Reverse-lookup tag set: `<{Tag}Appearance>` → owning field type. */
+const APPEARANCE_TAGS = new Set(
+  Object.values(FIELD_TYPE_SPECS).map((s) => `${s.xmlTag}Appearance`)
+);
+
 function collectAppearances(
   xml: string,
   out: Map<string, { caption?: string; container?: string }>
 ): void {
-  type Frame = { tag: string; bodyStart: number; isTextFieldAppearance: boolean };
+  type Frame = { tag: string; bodyStart: number; isAppearance: boolean };
   const stack: Frame[] = [];
   for (const tk of iterateTagTokens(xml)) {
     if (tk.isSelfClose) continue;
@@ -669,12 +707,12 @@ function collectAppearances(
       stack.push({
         tag: tk.tag,
         bodyStart: tk.end,
-        isTextFieldAppearance: tk.tag === 'TextFieldAppearance'
+        isAppearance: APPEARANCE_TAGS.has(tk.tag)
       });
       continue;
     }
     const frame = stack.pop();
-    if (!frame || !frame.isTextFieldAppearance) continue;
+    if (!frame || !frame.isAppearance) continue;
     const body = xml.substring(frame.bodyStart, tk.start);
     const key = findLastTopLevelChildText(body, 'Key');
     if (!key) continue;

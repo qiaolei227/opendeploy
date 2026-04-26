@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addPluginToKernelXml,
   buildExtensionKernelXml,
+  insertFieldIntoKernelXml,
   insertTextFieldIntoKernelXml,
   parseFieldsFromKernelXml,
   parseFormPluginsFromKernelXml,
@@ -359,6 +360,76 @@ describe('parseFieldsFromKernelXml', () => {
     expect(fields.map((f) => f.key)).toEqual(['F_A', 'F_B']);
     expect(fields.find((f) => f.key === 'F_A')?.caption).toBe('甲');
     expect(fields.find((f) => f.key === 'F_B')?.caption).toBe('乙');
+  });
+
+  describe('round-trip — Plan 5.12.1 Task 5.5 (16-type parser)', () => {
+    // Each row = field type the parser must round-trip through insert → parse.
+    // Spec-extras column carries the per-type required props (combo items,
+    // base data GUID, etc.) since some types reject empty specs.
+    const ROUND_TRIP_CASES: Array<{
+      type: import('../../src/main/erp/k3cloud/bos-xml').FieldType;
+      extras?: Record<string, unknown>;
+    }> = [
+      { type: 'text' },
+      { type: 'large_text' },
+      { type: 'int' },
+      { type: 'decimal' },
+      { type: 'amount' },
+      { type: 'qty' },
+      { type: 'date' },
+      { type: 'datetime' },
+      { type: 'checkbox' },
+      { type: 'color' },
+      { type: 'mobile' },
+      { type: 'combo', extras: { comboItems: [{ value: 'H', caption: '高' }] } },
+      { type: 'mul_combo', extras: { comboItems: [{ value: 'A', caption: 'A 类' }] } },
+      { type: 'base_data', extras: { refBaseDataObjectKey: '407d24cb-fake-guid' } },
+      {
+        type: 'base_property',
+        extras: { sourceField: 'FCustId', srcDisplayFieldName: 'FName' }
+      },
+      { type: 'reference_property', extras: { sourceField: 'FCustId' } }
+    ];
+
+    it('round-trips all 16 BOS field types: insert → parse keeps the type', () => {
+      // Insert one of every type into a fresh extension, then parse back.
+      // Plan 5.12.1 user demo实证发现 parser 只识别 TextField,导致写完反查
+      // 13 个字段只看到 1 个 — 这个测试就是回归 anchor。
+      let xml = buildExtensionKernelXml(EXT, []);
+      const insertedKeys: string[] = [];
+      for (const c of ROUND_TRIP_CASES) {
+        const key = `F_${c.type.toUpperCase()}`;
+        xml = insertFieldIntoKernelXml(xml, c.type, {
+          spec: { key, caption: `caption-${c.type}`, ...(c.extras ?? {}) }
+        });
+        insertedKeys.push(key);
+      }
+
+      const parsed = parseFieldsFromKernelXml(xml);
+      const parsedByKey = new Map(parsed.map((f) => [f.key, f]));
+      for (const c of ROUND_TRIP_CASES) {
+        const key = `F_${c.type.toUpperCase()}`;
+        const meta = parsedByKey.get(key);
+        expect(meta, `parser dropped ${c.type} field ${key}`).toBeDefined();
+        expect(meta!.type).toBe(c.type);
+        expect(meta!.caption).toBe(`caption-${c.type}`);
+        expect(meta!.container).toBe('FTAB_P0');
+      }
+      expect(parsed).toHaveLength(insertedKeys.length);
+    });
+
+    it('disambiguates date vs datetime via EditFormat marker', () => {
+      let xml = buildExtensionKernelXml(EXT, []);
+      xml = insertFieldIntoKernelXml(xml, 'date', {
+        spec: { key: 'F_D1', caption: '日期' }
+      });
+      xml = insertFieldIntoKernelXml(xml, 'datetime', {
+        spec: { key: 'F_DT1', caption: '日期时间' }
+      });
+      const parsed = parseFieldsFromKernelXml(xml);
+      expect(parsed.find((f) => f.key === 'F_D1')?.type).toBe('date');
+      expect(parsed.find((f) => f.key === 'F_DT1')?.type).toBe('datetime');
+    });
   });
 
   it('falls back to Name when no matching appearance Caption', () => {
