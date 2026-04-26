@@ -3,6 +3,12 @@ import type { LlmChatRequest } from '@shared/types';
 import { createLlmClient } from './llm/factory';
 import { runAgentLoop } from './agent/loop';
 import { createLogger } from './logger';
+import { loadSettings } from './settings';
+import {
+  createFileRawCapture,
+  pruneOldRawConvs,
+  DEFAULT_RAW_KEEP_N
+} from './llm/raw-dump';
 
 const logger = createLogger('ipc-llm');
 import { ToolRegistry } from './agent/tools';
@@ -128,6 +134,19 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
         // brand-new conversations (renderer attaches `conversationId` only
         // on follow-up turns, but trace records still need a join key).
         const traceConvId = req.conversationId ?? requestId;
+
+        // Plan 5.13 raw layer — gate behind `settings.llmRawDump` (default
+        // true for community edition). Build a per-turn file capture; the
+        // loop will invoke the factory once per LLM call. Always-on prune
+        // after the first turn keeps the dir size bounded without manual
+        // cleanup; the prune is fire-and-forget so it doesn't slow the turn.
+        const settings = await loadSettings();
+        const rawDumpOn = settings.llmRawDump !== false;
+        const rawCaptureFactory = rawDumpOn
+          ? (turn: number) =>
+              createFileRawCapture({ conversationId: traceConvId, turn })
+          : undefined;
+
         const finalMessages = await runAgentLoop({
           client,
           tools: registry,
@@ -137,6 +156,7 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
           model: req.model,
           systemPrompt,
           conversationId: traceConvId,
+          rawCaptureFactory,
           signal: abortController.signal,
           onEvent: (e) => {
             if (e.type === 'delta') emit({ type: 'delta', content: e.content });
@@ -186,6 +206,13 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
           messages: finalMessages,
           ...(projectId ? { projectId } : {})
         });
+
+        // Bound raw-llm/ disk footprint — keep newest N conv dirs only.
+        // Fire-and-forget: a slow prune shouldn't delay the user-visible
+        // 'done' event. Errors are swallowed; the next turn will retry.
+        if (rawDumpOn) {
+          void pruneOldRawConvs(DEFAULT_RAW_KEEP_N).catch(() => undefined);
+        }
 
         emit({ type: 'done' });
       } catch (err) {

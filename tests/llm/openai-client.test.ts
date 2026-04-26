@@ -241,4 +241,59 @@ describe('OpenAI-compatible client', () => {
     expect(assistantMsg).toBeDefined();
     expect('reasoning_content' in assistantMsg!).toBe(false);
   });
+
+  it('Plan 5.13 — fires rawCapture.onRequest + onChunk + onClose end-to-end', async () => {
+    const fetch = mockFetchStream([
+      'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+      'data: {"choices":[{"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}\n\n',
+      'data: [DONE]\n\n'
+    ]);
+    const client = createOpenAiClient({ baseUrl: 'https://x', defaultModel: 'm', fetchImpl: fetch });
+
+    let reqBody: unknown = null;
+    let reqHeaders: Record<string, string> | null = null;
+    const chunks: string[] = [];
+    let closed = false;
+    const capture = {
+      onRequest(b: unknown, h: Record<string, string>) { reqBody = b; reqHeaders = h; },
+      onChunk(c: string) { chunks.push(c); },
+      async onClose() { closed = true; }
+    };
+
+    for await (const _e of client.stream(
+      {
+        providerId: 'test', apiKey: 'sk-secret-key',
+        messages: [{ id: 'u', role: 'user', content: 'hi', createdAt: '' }]
+      },
+      { rawCapture: capture }
+    )) { /* drain */ }
+
+    expect(reqBody).toBeTruthy();
+    expect((reqBody as { model: string }).model).toBe('m');
+    expect(reqHeaders).toEqual({
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer sk-secret-key' // raw — redaction happens in raw-dump.ts before disk write
+    });
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
+    expect(chunks[0]).toContain('"content":"hi"');
+    expect(closed).toBe(true);
+  });
+
+  it('Plan 5.13 — onClose still fires when fetch throws', async () => {
+    const fetch = vi.fn(async () => { throw new Error('ECONNREFUSED'); });
+    const client = createOpenAiClient({ baseUrl: 'https://x', defaultModel: 'm', fetchImpl: fetch });
+    let closed = false;
+    const capture = {
+      onRequest() {},
+      onChunk() {},
+      async onClose() { closed = true; }
+    };
+    const events: unknown[] = [];
+    for await (const e of client.stream(
+      { providerId: 't', apiKey: 'k', messages: [{ id: 'u', role: 'user', content: 'x', createdAt: '' }] },
+      { rawCapture: capture }
+    )) events.push(e);
+    expect(events.some((e) => (e as { type: string }).type === 'error')).toBe(true);
+    expect(closed).toBe(true);
+  });
 });

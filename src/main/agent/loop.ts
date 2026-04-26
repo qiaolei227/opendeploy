@@ -1,5 +1,6 @@
 import type { Message, ToolCall } from '@shared/llm-types';
 import type { LlmClient } from '../llm/types';
+import type { RawCapture } from '../llm/raw-dump';
 import type { ToolRegistry } from './tools';
 import { pruneOldToolResults } from './history-prune';
 import { appendTextDelta, appendToolUse, type MessageBlock } from '@shared/blocks';
@@ -50,6 +51,15 @@ interface RunAgentLoopParams {
    * written but lack the join key.
    */
   conversationId?: string;
+  /**
+   * Plan 5.13 raw layer — per-turn capture factory. The loop calls this once
+   * before each `client.stream()` call; if the factory returns a capture, it
+   * gets passed in so the client emits raw req body + SSE chunks. Returning
+   * undefined disables capture for that turn (e.g. when settings.llmRawDump
+   * is off, or for smoke / unit tests). Loop is otherwise unaware of where
+   * the capture lands (file, memory, ...).
+   */
+  rawCaptureFactory?: (turn: number) => RawCapture | undefined;
 }
 
 function makeId(): string {
@@ -88,13 +98,14 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
     // keeps the unmangled history (so persistence / loadConversation stays
     // lossless); only the slice the model sees has old tool payloads replaced
     // with a placeholder. See agent/history-prune.ts for the rationale.
+    const rawCapture = params.rawCaptureFactory?.(iter);
     for await (const ev of params.client.stream({
       providerId: params.providerId,
       apiKey: params.apiKey,
       model: params.model,
       messages: pruneOldToolResults(messages, KEEP_LAST_N_TOOL_RESULTS),
       tools: toolDefs.length > 0 ? toolDefs : undefined
-    }, params.signal)) {
+    }, { abortSignal: params.signal, rawCapture })) {
       if (ev.type === 'delta') {
         assistantContent += ev.content;
         blocks = appendTextDelta(blocks, ev.content);

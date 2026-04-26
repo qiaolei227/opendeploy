@@ -1,5 +1,6 @@
 import type { ChatRequest, StreamEvent } from '@shared/llm-types';
 import type { LlmClient } from './types';
+import { resolveStreamOpts } from './types';
 
 interface OllamaOpts {
   baseUrl: string;
@@ -11,7 +12,8 @@ export function createOllamaClient(opts: OllamaOpts): LlmClient {
   const fetchImpl = opts.fetchImpl ?? fetch;
 
   return {
-    async *stream(req: ChatRequest, signal?: AbortSignal): AsyncIterable<StreamEvent> {
+    async *stream(req: ChatRequest, optsOrSignal?): AsyncIterable<StreamEvent> {
+      const { abortSignal: signal, rawCapture } = resolveStreamOpts(optsOrSignal);
       const body = {
         model: req.model ?? opts.defaultModel,
         messages: req.messages.map(m => ({ role: m.role, content: m.content })),
@@ -19,24 +21,35 @@ export function createOllamaClient(opts: OllamaOpts): LlmClient {
         options: req.temperature !== undefined ? { temperature: req.temperature } : {}
       };
 
+      const headers = { 'Content-Type': 'application/json' };
+      rawCapture?.onRequest(body, headers);
+
       let response: Response;
       try {
         response = await fetchImpl(`${opts.baseUrl}/api/chat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify(body),
           signal
         });
       } catch (err) {
+        await rawCapture?.onClose();
         yield { type: 'error', error: err instanceof Error ? err.message : String(err) };
         return;
       }
 
       if (!response.ok) {
-        yield { type: 'error', error: `HTTP ${response.status}: ${await response.text()}` };
+        const text = await response.text();
+        rawCapture?.onChunk(`HTTP ${response.status}\n${text}`);
+        await rawCapture?.onClose();
+        yield { type: 'error', error: `HTTP ${response.status}: ${text}` };
         return;
       }
-      if (!response.body) { yield { type: 'error', error: 'no body' }; return; }
+      if (!response.body) {
+        await rawCapture?.onClose();
+        yield { type: 'error', error: 'no body' };
+        return;
+      }
 
       const decoder = new TextDecoder();
       const reader = response.body.getReader();
@@ -53,6 +66,7 @@ export function createOllamaClient(opts: OllamaOpts): LlmClient {
           const line = buffer.slice(0, nl).trim();
           buffer = buffer.slice(nl + 1);
           if (!line) continue;
+          rawCapture?.onChunk(line);
           let obj: any;
           try { obj = JSON.parse(line); } catch { continue; }
 
@@ -75,10 +89,12 @@ export function createOllamaClient(opts: OllamaOpts): LlmClient {
                 totalTokens: (obj.prompt_eval_count ?? 0) + outputTokens
               }
             };
+            await rawCapture?.onClose();
             return;
           }
         }
       }
+      await rawCapture?.onClose();
     }
   };
 }

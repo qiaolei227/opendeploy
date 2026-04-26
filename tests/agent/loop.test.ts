@@ -385,6 +385,49 @@ describe('runAgentLoop trace (Plan 5.13)', () => {
     expect(turn1.toolCalls).toEqual([]);
   });
 
+  it('passes per-turn rawCapture into client.stream when factory provided', async () => {
+    const captures: Array<{ turn: number; gotRequest: boolean; gotChunkCount: number; closed: boolean }> = [];
+    const factory = (turn: number) => {
+      const rec = { turn, gotRequest: false, gotChunkCount: 0, closed: false };
+      captures.push(rec);
+      return {
+        onRequest() { rec.gotRequest = true; },
+        onChunk() { rec.gotChunkCount++; },
+        async onClose() { rec.closed = true; }
+      };
+    };
+
+    // Custom client that exercises the rawCapture argument so we don't depend
+    // on real openai-client wiring here — the per-client integration is covered
+    // by tests/llm/openai-client.test.ts etc.
+    const client = {
+      async *stream(_req: unknown, opts: { rawCapture?: { onRequest: Function; onChunk: Function; onClose: () => Promise<void> } }) {
+        opts.rawCapture?.onRequest({ body: 'fake' }, { Authorization: 'sk' });
+        opts.rawCapture?.onChunk('chunk-1');
+        opts.rawCapture?.onChunk('chunk-2');
+        yield { type: 'delta', content: 'hi' } as const;
+        yield { type: 'done', finishReason: 'stop' } as const;
+        await opts.rawCapture?.onClose();
+      }
+    } as unknown as import('../../src/main/llm/types').LlmClient;
+
+    await runAgentLoop({
+      client,
+      tools: new ToolRegistry(),
+      initialMessages: [{ id: 'u', role: 'user', content: 'hi', createdAt: '' }],
+      providerId: 'test',
+      apiKey: 'k',
+      conversationId: 'c-raw',
+      rawCaptureFactory: factory
+    });
+
+    expect(captures).toHaveLength(1);
+    expect(captures[0].turn).toBe(0);
+    expect(captures[0].gotRequest).toBe(true);
+    expect(captures[0].gotChunkCount).toBe(2);
+    expect(captures[0].closed).toBe(true);
+  });
+
   it('records errored=true + errorMessage when LLM stream errors', async () => {
     const client = fakeClient([[
       { type: 'error', error: 'HTTP 500: oops' }

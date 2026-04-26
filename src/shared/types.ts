@@ -32,13 +32,24 @@ export interface AppSettings {
   projects?: Project[];
   /** Id of the project whose connection pool drives agent metadata queries. */
   activeProjectId?: string;
+  /**
+   * Plan 5.13 — write each LLM turn's full request body + SSE chunks to
+   * `logs/raw-llm/<convId>/turn-NNN.{req,res}.{json,txt}` for postmortem.
+   * Defaults to `true` (single-machine community edition: business data
+   * never leaves the user's box, so dumping is fine and helps diagnosis).
+   * Enterprise edition (MVP-3+) flips this default to false and adds
+   * redact / audit layers. Authorization headers are always redacted to
+   * `***` regardless — defense against screen-share / issue-paste leaks.
+   */
+  llmRawDump?: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   language: 'zh-CN',
   theme: 'system',
   knowledgeSources: [],
-  projects: []
+  projects: [],
+  llmRawDump: true
 };
 
 export interface LlmChatRequest {

@@ -1,5 +1,6 @@
 import type { ChatRequest, StreamEvent, ToolCall } from '@shared/llm-types';
 import type { LlmClient } from './types';
+import { resolveStreamOpts } from './types';
 import { parseSseStream } from './sse';
 
 interface OpenAiClientOpts {
@@ -13,7 +14,8 @@ export function createOpenAiClient(opts: OpenAiClientOpts): LlmClient {
   const fetchImpl = opts.fetchImpl ?? fetch;
 
   return {
-    async *stream(req: ChatRequest, signal?: AbortSignal): AsyncIterable<StreamEvent> {
+    async *stream(req: ChatRequest, optsOrSignal?): AsyncIterable<StreamEvent> {
+      const { abortSignal: signal, rawCapture } = resolveStreamOpts(optsOrSignal);
       const body = {
         model: req.model ?? opts.defaultModel,
         messages: req.messages.map((m) => {
@@ -45,31 +47,42 @@ export function createOpenAiClient(opts: OpenAiClientOpts): LlmClient {
         ...(req.maxTokens !== undefined ? { max_tokens: req.maxTokens } : {})
       };
 
+      const headers = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${req.apiKey ?? ''}`
+      };
+      // Plan 5.13: snapshot req body before the wire call so a fetch failure
+      // still gives us the body in raw-llm/<conv>/turn-N.req.json. The
+      // matching onClose() is in the outer try/finally below.
+      rawCapture?.onRequest(body, headers);
+
       let response: Response;
       try {
         response = await fetchImpl(`${opts.baseUrl}/chat/completions`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${req.apiKey ?? ''}`
-          },
+          headers,
           body: JSON.stringify(body),
           signal
         });
       } catch (err) {
+        await rawCapture?.onClose();
         yield { type: 'error', error: err instanceof Error ? err.message : String(err) };
         return;
       }
 
       if (!response.ok) {
         const text = await response.text();
+        rawCapture?.onChunk(`HTTP ${response.status}\n${text}`);
+        await rawCapture?.onClose();
         yield { type: 'error', error: `HTTP ${response.status}: ${text}` };
         return;
       }
       if (!response.body) {
+        await rawCapture?.onClose();
         yield { type: 'error', error: 'Response has no body' };
         return;
       }
+
 
       // Accumulate tool call fragments across deltas
       const toolCallAcc = new Map<number, { id: string; name: string; argsText: string }>();
@@ -89,6 +102,10 @@ export function createOpenAiClient(opts: OpenAiClientOpts): LlmClient {
       let usageEmitted = false;
 
       for await (const dataStr of parseSseStream(stream)) {
+        // Plan 5.13: capture every SSE payload verbatim BEFORE the JSON parse
+        // — postmortem may need to inspect malformed / unparseable chunks too.
+        rawCapture?.onChunk(dataStr);
+
         let data: any;
         try { data = JSON.parse(dataStr); } catch { continue; }
 
@@ -114,6 +131,7 @@ export function createOpenAiClient(opts: OpenAiClientOpts): LlmClient {
                 totalTokens: data.usage.total_tokens ?? 0
               }
             };
+            await rawCapture?.onClose();
             return;
           }
         }
@@ -163,6 +181,7 @@ export function createOpenAiClient(opts: OpenAiClientOpts): LlmClient {
                 totalTokens: data.usage.total_tokens ?? 0
               }
             };
+            await rawCapture?.onClose();
             return;
           }
           // Separate-chunk format: defer done, wait for the usage chunk
@@ -175,6 +194,7 @@ export function createOpenAiClient(opts: OpenAiClientOpts): LlmClient {
       if (pendingDone) {
         yield { type: 'done', finishReason: pendingDone.finishReason };
       }
+      await rawCapture?.onClose();
     }
   };
 }

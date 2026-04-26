@@ -1,5 +1,6 @@
 import type { ChatRequest, StreamEvent } from '@shared/llm-types';
 import type { LlmClient } from './types';
+import { resolveStreamOpts } from './types';
 import { parseSseStream } from './sse';
 
 interface AnthropicOpts {
@@ -12,7 +13,8 @@ export function createAnthropicClient(opts: AnthropicOpts): LlmClient {
   const fetchImpl = opts.fetchImpl ?? fetch;
 
   return {
-    async *stream(req: ChatRequest, signal?: AbortSignal): AsyncIterable<StreamEvent> {
+    async *stream(req: ChatRequest, optsOrSignal?): AsyncIterable<StreamEvent> {
+      const { abortSignal: signal, rawCapture } = resolveStreamOpts(optsOrSignal);
       // Split out system messages (Anthropic takes them separately)
       const systemParts = req.messages.filter(m => m.role === 'system').map(m => m.content);
       const conversation = req.messages.filter(m => m.role !== 'system').map(m => {
@@ -59,29 +61,39 @@ export function createAnthropicClient(opts: AnthropicOpts): LlmClient {
         ...(req.temperature !== undefined ? { temperature: req.temperature } : {})
       };
 
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': req.apiKey ?? '',
+        'anthropic-version': '2023-06-01'
+      };
+      rawCapture?.onRequest(body, headers);
+
       let response: Response;
       try {
         response = await fetchImpl(`${opts.baseUrl}/messages`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': req.apiKey ?? '',
-            'anthropic-version': '2023-06-01'
-          },
+          headers,
           body: JSON.stringify(body),
           signal
         });
       } catch (err) {
+        await rawCapture?.onClose();
         yield { type: 'error', error: err instanceof Error ? err.message : String(err) };
         return;
       }
 
       if (!response.ok) {
         const text = await response.text();
+        rawCapture?.onChunk(`HTTP ${response.status}\n${text}`);
+        await rawCapture?.onClose();
         yield { type: 'error', error: `HTTP ${response.status}: ${text}` };
         return;
       }
-      if (!response.body) { yield { type: 'error', error: 'no body' }; return; }
+      if (!response.body) {
+        await rawCapture?.onClose();
+        yield { type: 'error', error: 'no body' };
+        return;
+      }
 
       const reader = response.body.getReader();
       const stream: AsyncIterable<Uint8Array> = {
@@ -99,6 +111,7 @@ export function createAnthropicClient(opts: AnthropicOpts): LlmClient {
       let outputTokens = 0;
 
       for await (const dataStr of parseSseStream(stream)) {
+        rawCapture?.onChunk(dataStr);
         let data: any;
         try { data = JSON.parse(dataStr); } catch { continue; }
 
@@ -131,9 +144,13 @@ export function createAnthropicClient(opts: AnthropicOpts): LlmClient {
             finishReason,
             usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens }
           };
+          await rawCapture?.onClose();
           return;
         }
       }
+      // Stream ended without a `message_stop` event (rare — connection cut?).
+      // Still flush the capture so we don't leak the buffered chunks.
+      await rawCapture?.onClose();
     }
   };
 }
