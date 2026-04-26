@@ -57,20 +57,20 @@ async function main(): Promise<void> {
   const xml = result.recordset[0].FKERNELXML_TEXT;
   console.log(`xml length: ${xml.length}`);
 
-  // 多种字段类型,各取首例 (优先小一些的样本以便阅读).
+  // 多种字段 + Appearance 节点,各取首例.
   const tags = [
-    'TextField',
-    'IntegerField',
-    'DecimalField',
-    'AmountField',
-    'QtyField',
-    'DateTimeField',
-    'CheckBoxField',
-    'ComboField',
-    'MulComboField',
-    'BaseDataField',
-    'BasePropertyField',
-    'ReferencePropertyField'
+    'TextFieldAppearance',
+    'IntegerFieldAppearance',
+    'DecimalFieldAppearance',
+    'AmountFieldAppearance',
+    'QtyFieldAppearance',
+    'DateTimeFieldAppearance',
+    'CheckBoxFieldAppearance',
+    'ComboFieldAppearance',
+    'MulComboFieldAppearance',
+    'BaseDataFieldAppearance',
+    'BasePropertyFieldAppearance',
+    'ReferencePropertyFieldAppearance'
   ];
   for (const tag of tags) {
     const re = new RegExp(`<${tag}\\b[\\s\\S]*?</${tag}>`, 'g');

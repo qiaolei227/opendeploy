@@ -139,10 +139,35 @@ describe('insertFieldIntoKernelXml — simple types', () => {
     });
     expect(out).toMatch(new RegExp(`<${tag}[ >]`));
     expect(out).toMatch(new RegExp(`<${tag}Appearance[ >]`));
-    // Field-side ElementType is type-specific. The appearance always uses
-    // ElementType="1" ElementStyle="1", so anchoring on the bare field tag
-    // (no "Appearance" suffix) keeps this assertion unambiguous.
+    // Both the field-side AND the appearance-side ElementType are type-
+    // specific. Earlier code wrote `Appearance ElementType="1"` for every
+    // type, which made BOS Designer mis-render non-text fields as text and
+    // emit "QtyField does not have property Editlen" warnings (2026-04-26
+    // user demo实证). Lock that in.
     expect(out).toMatch(new RegExp(`<${tag} ElementType="${elementType}" `));
+    expect(out).toMatch(new RegExp(`<${tag}Appearance ElementType="${elementType}" `));
+  });
+
+  it('CheckBoxFieldAppearance does NOT emit EmptyText (no placeholder concept for yes/no widget)', () => {
+    const out = insertFieldIntoKernelXml(BASE_XML, 'checkbox', {
+      spec: { key: 'F_CB', caption: '是否启用' },
+      idGenerator: FIXED_IDS(),
+      numericGenerator: FIXED_NUMERICS
+    });
+    // Slice the appearance node, then assert no EmptyText inside.
+    const apMatch = out.match(/<CheckBoxFieldAppearance[\s\S]*?<\/CheckBoxFieldAppearance>/);
+    expect(apMatch).toBeTruthy();
+    expect(apMatch![0]).not.toMatch(/<EmptyText/);
+  });
+
+  it('TextFieldAppearance keeps EmptyText (regression — was right before, must stay)', () => {
+    const out = insertFieldIntoKernelXml(BASE_XML, 'text', {
+      spec: { key: 'F_T', caption: '文本' },
+      idGenerator: FIXED_IDS(),
+      numericGenerator: FIXED_NUMERICS
+    });
+    const apMatch = out.match(/<TextFieldAppearance[\s\S]*?<\/TextFieldAppearance>/);
+    expect(apMatch![0]).toContain('<EmptyText action="setnull"/>');
   });
 
   it('shared body — Key/Caption/Container all serialize regardless of type', () => {
@@ -262,7 +287,7 @@ describe('insertFieldIntoKernelXml — base_data', () => {
   // 工具层把 'BD_Customer' 翻译成 GUID 后,XML 层只看 GUID。
   const FIXTURE_GUID = '407d24cb-57f7-46bf-afb6-a9ab458fd845';
 
-  it('emits BaseDataField tag + ElementType=13 + LookUpObjectID', () => {
+  it('emits BaseDataField tag + ElementType=13 + LookUpObjectID + Appearance ElementType=7', () => {
     const out = insertFieldIntoKernelXml(BASE_XML, 'base_data', {
       spec: {
         key: 'F_REFCUST',
@@ -277,7 +302,10 @@ describe('insertFieldIntoKernelXml — base_data', () => {
     // NOT `<RefBaseDataObjectType>{key}` (the latter was a training-data
     // hallucination — see memory `bos_field_xml_realities.md`).
     expect(out).toContain(`<LookUpObjectID>${FIXTURE_GUID}</LookUpObjectID>`);
-    expect(out).toMatch(/<BaseDataFieldAppearance[ >]/);
+    // BaseDataField is the only type where field-node ElementType (13) and
+    // appearance-node ElementType (7) differ — verified against real
+    // SAL_SaleOrder F客户 节点。
+    expect(out).toMatch(/<BaseDataFieldAppearance ElementType="7" /);
     expect(out).toContain('<Key>F_REFCUST</Key>');
     expect(out).toContain('<Caption>关联客户</Caption>');
   });

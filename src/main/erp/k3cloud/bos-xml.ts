@@ -66,11 +66,18 @@ export interface FieldTypeSpec {
   /** Full BOS C# class name. Identical to xmlTag for now; kept separate so
    *  future variants (e.g., a CheckBox sub-type of TextField) can deviate. */
   csClass: string;
-  /** `ElementType="N"` numeric attribute emitted in the field-side XML node.
-   *  Implants reverse-engineered from real SAL_SaleOrder FKERNELXML
-   *  (see memory `bos_field_xml_realities.md`). Default 1 for as-yet-unsampled
-   *  types. */
+  /** `ElementType="N"` numeric attribute on the FIELD node (e.g.
+   *  `<QtyField ElementType="22">`). Reverse-engineered from real
+   *  SAL_SaleOrder FKERNELXML — see memory `bos_field_xml_realities.md`. */
   elementType: number;
+  /** `ElementType="N"` numeric attribute on the APPEARANCE node (e.g.
+   *  `<QtyFieldAppearance ElementType="22">`). Usually equals `elementType`
+   *  but BaseDataField is the exception: field=13, appearance=7. */
+  appearanceElementType: number;
+  /** Whether the appearance node should emit `<EmptyText action="setnull"/>`.
+   *  CheckBoxFieldAppearance does NOT have it (no placeholder concept for a
+   *  yes/no widget); every other appearance does. Default true. */
+  appearanceHasEmptyText: boolean;
   /** Spec field names that the caller MUST supply beyond {key, caption}.
    *  Tool-layer validates; XML renderer can assume these are present. */
   requiredExtraProps: readonly string[];
@@ -79,22 +86,24 @@ export interface FieldTypeSpec {
 }
 
 const FIELD_TYPE_SPECS: Record<FieldType, FieldTypeSpec> = {
-  text:               { xmlTag: 'TextField',              csClass: 'TextField',              elementType: 1,   requiredExtraProps: [] },
-  large_text:         { xmlTag: 'LargeRichTextField',     csClass: 'LargeRichTextField',     elementType: 1,   requiredExtraProps: [] },
-  int:                { xmlTag: 'IntegerField',           csClass: 'IntegerField',           elementType: 3,   requiredExtraProps: [] },
-  decimal:            { xmlTag: 'DecimalField',           csClass: 'DecimalField',           elementType: 2,   requiredExtraProps: [] },
-  amount:             { xmlTag: 'AmountField',            csClass: 'AmountField',            elementType: 21,  requiredExtraProps: [] },
-  qty:                { xmlTag: 'QtyField',               csClass: 'QtyField',               elementType: 22,  requiredExtraProps: [] },
-  date:               { xmlTag: 'DateTimeField',          csClass: 'DateTimeField',          elementType: 5,   requiredExtraProps: [], dateOnly: true },
-  datetime:           { xmlTag: 'DateTimeField',          csClass: 'DateTimeField',          elementType: 5,   requiredExtraProps: [], dateOnly: false },
-  checkbox:           { xmlTag: 'CheckBoxField',          csClass: 'CheckBoxField',          elementType: 8,   requiredExtraProps: [] },
-  combo:              { xmlTag: 'ComboField',             csClass: 'ComboField',             elementType: 9,   requiredExtraProps: ['comboItems'] },
-  mul_combo:          { xmlTag: 'MulComboField',          csClass: 'MulComboField',          elementType: 9,   requiredExtraProps: ['comboItems'] },
-  base_data:          { xmlTag: 'BaseDataField',          csClass: 'BaseDataField',          elementType: 13,  requiredExtraProps: ['refBaseDataObjectKey'] },
-  base_property:      { xmlTag: 'BasePropertyField',      csClass: 'BasePropertyField',      elementType: 14,  requiredExtraProps: ['sourceField', 'srcDisplayFieldName'] },
-  reference_property: { xmlTag: 'ReferencePropertyField', csClass: 'ReferencePropertyField', elementType: 250, requiredExtraProps: ['sourceField'] },
-  color:              { xmlTag: 'ColorField',             csClass: 'ColorField',             elementType: 1,   requiredExtraProps: [] },
-  mobile:             { xmlTag: 'MobileField',            csClass: 'MobileField',            elementType: 1,   requiredExtraProps: [] }
+  text:               { xmlTag: 'TextField',              csClass: 'TextField',              elementType: 1,   appearanceElementType: 1,   appearanceHasEmptyText: true,  requiredExtraProps: [] },
+  large_text:         { xmlTag: 'LargeRichTextField',     csClass: 'LargeRichTextField',     elementType: 1,   appearanceElementType: 1,   appearanceHasEmptyText: true,  requiredExtraProps: [] },
+  int:                { xmlTag: 'IntegerField',           csClass: 'IntegerField',           elementType: 3,   appearanceElementType: 3,   appearanceHasEmptyText: true,  requiredExtraProps: [] },
+  decimal:            { xmlTag: 'DecimalField',           csClass: 'DecimalField',           elementType: 2,   appearanceElementType: 2,   appearanceHasEmptyText: true,  requiredExtraProps: [] },
+  amount:             { xmlTag: 'AmountField',            csClass: 'AmountField',            elementType: 21,  appearanceElementType: 21,  appearanceHasEmptyText: true,  requiredExtraProps: [] },
+  qty:                { xmlTag: 'QtyField',               csClass: 'QtyField',               elementType: 22,  appearanceElementType: 22,  appearanceHasEmptyText: true,  requiredExtraProps: [] },
+  date:               { xmlTag: 'DateTimeField',          csClass: 'DateTimeField',          elementType: 5,   appearanceElementType: 5,   appearanceHasEmptyText: true,  requiredExtraProps: [], dateOnly: true },
+  datetime:           { xmlTag: 'DateTimeField',          csClass: 'DateTimeField',          elementType: 5,   appearanceElementType: 5,   appearanceHasEmptyText: true,  requiredExtraProps: [], dateOnly: false },
+  checkbox:           { xmlTag: 'CheckBoxField',          csClass: 'CheckBoxField',          elementType: 8,   appearanceElementType: 8,   appearanceHasEmptyText: false, requiredExtraProps: [] },
+  combo:              { xmlTag: 'ComboField',             csClass: 'ComboField',             elementType: 9,   appearanceElementType: 9,   appearanceHasEmptyText: true,  requiredExtraProps: ['comboItems'] },
+  mul_combo:          { xmlTag: 'MulComboField',          csClass: 'MulComboField',          elementType: 9,   appearanceElementType: 9,   appearanceHasEmptyText: true,  requiredExtraProps: ['comboItems'] },
+  // BaseDataField is the only type where field-node and appearance-node ElementType differ
+  // (field=13, appearance=7 — verified against real SAL_SaleOrder F客户).
+  base_data:          { xmlTag: 'BaseDataField',          csClass: 'BaseDataField',          elementType: 13,  appearanceElementType: 7,   appearanceHasEmptyText: true,  requiredExtraProps: ['refBaseDataObjectKey'] },
+  base_property:      { xmlTag: 'BasePropertyField',      csClass: 'BasePropertyField',      elementType: 14,  appearanceElementType: 14,  appearanceHasEmptyText: true,  requiredExtraProps: ['sourceField', 'srcDisplayFieldName'] },
+  reference_property: { xmlTag: 'ReferencePropertyField', csClass: 'ReferencePropertyField', elementType: 250, appearanceElementType: 250, appearanceHasEmptyText: true,  requiredExtraProps: ['sourceField'] },
+  color:              { xmlTag: 'ColorField',             csClass: 'ColorField',             elementType: 1,   appearanceElementType: 1,   appearanceHasEmptyText: true,  requiredExtraProps: [] },
+  mobile:             { xmlTag: 'MobileField',            csClass: 'MobileField',            elementType: 1,   appearanceElementType: 1,   appearanceHasEmptyText: true,  requiredExtraProps: [] }
 };
 
 export function getFieldTypeSpec(type: FieldType): FieldTypeSpec {
@@ -466,15 +475,23 @@ function renderFieldAppearanceNode(
   zOrderIndex: number,
   tabindex: number
 ): string {
-  const tag = `${getFieldTypeSpec(type).xmlTag}Appearance`;
+  const typeSpec = getFieldTypeSpec(type);
+  const tag = `${typeSpec.xmlTag}Appearance`;
+  const elementType = typeSpec.appearanceElementType;
   const container = spec.containerKey ?? 'FTAB_P0';
   const width = spec.width ?? 300;
   const labelWidth = spec.labelWidth ?? 100;
   const top = spec.top ?? 10;
   const left = spec.left ?? 10;
+  // CheckBoxFieldAppearance does not have an EmptyText element — no
+  // placeholder concept for a yes/no widget. Other types include it
+  // ("setnull" = "no placeholder configured"; matches real BOS XML).
+  const emptyText = typeSpec.appearanceHasEmptyText
+    ? '<EmptyText action="setnull"/>'
+    : '';
   return (
-    `<${tag} ElementType="1" ElementStyle="1">` +
-    '<EmptyText action="setnull"/>' +
+    `<${tag} ElementType="${elementType}" ElementStyle="1">` +
+    emptyText +
     `<Key>${xmlEscape(spec.key)}</Key>` +
     '<ListDefaultWidth>100</ListDefaultWidth>' +
     `<Container>${xmlEscape(container)}</Container>` +
