@@ -460,10 +460,15 @@ function renderFieldExtras(type: FieldType, spec: FieldSpec): string {
     return `<LookUpObjectID>${xmlEscape(spec.refBaseDataObjectKey ?? '')}</LookUpObjectID>`;
   }
   if (type === 'base_property') {
+    // <DefaultCondition>67</DefaultCondition> appears on 14/14 real
+    // SAL_SaleOrder BasePropertyField nodes — BOS rejects extension load
+    // ("字段外观不存在或者类型不对") if absent. 67 is the constant value
+    // every real sample uses; treat as required boilerplate.
     return (
       `<ControlFieldKey>${xmlEscape(spec.sourceField ?? '')}</ControlFieldKey>` +
       `<SrcDisplayFieldName>${xmlEscape(spec.srcDisplayFieldName ?? '')}</SrcDisplayFieldName>` +
-      '<SrcBaseDataDisplayType action="setnull"/>'
+      '<SrcBaseDataDisplayType action="setnull"/>' +
+      '<DefaultCondition>67</DefaultCondition>'
     );
   }
   if (type === 'decimal' || type === 'amount' || type === 'qty') {
@@ -488,11 +493,16 @@ function renderFieldNode(
   const propertyName = spec.propertyName ?? spec.key;
   const fieldName = spec.fieldName ?? spec.key.toUpperCase();
   const extras = renderFieldExtras(type, spec);
+  // BasePropertyField is a *derived display* field — its value is brought
+  // out from another base-data row at runtime, no physical DB column. Real
+  // SAL_SaleOrder XML has 0/14 BasePropertyField nodes carrying <FieldName>;
+  // emitting it makes BOS reject the field with "字段外观不存在或者类型不对".
+  const omitFieldName = type === 'base_property';
   return (
     `<${tag} ElementType="${elementType}" ElementStyle="0">` +
     '<ConditionType>0</ConditionType>' +
     `<PropertyName>${xmlEscape(propertyName)}</PropertyName>` +
-    `<FieldName>${xmlEscape(fieldName)}</FieldName>` +
+    (omitFieldName ? '' : `<FieldName>${xmlEscape(fieldName)}</FieldName>`) +
     `<ListTabIndex>${listTabIndex}</ListTabIndex>` +
     `<Name>${xmlEscape(name)}</Name>` +
     `<Id>${xmlEscape(id)}</Id>` +

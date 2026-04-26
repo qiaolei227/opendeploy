@@ -360,6 +360,15 @@ describe('insertFieldIntoKernelXml — base_property', () => {
     // 实证)。BOS 加载缺这个元素会抛"字段外观不存在或者类型不对",2026-04-26
     // 客户实测撞过。
     expect(out).toMatch(/<BasePropertyFieldAppearance[^>]*><Locked>-1<\/Locked>/);
+    // BasePropertyField 必须含 <DefaultCondition>67</DefaultCondition>(原厂
+    // 14/14 一致),BOS 加载缺这个值会抛同一个"字段外观"错误。2026-04-26 客户
+    // 实测第二轮撞过。
+    expect(out).toContain('<DefaultCondition>67</DefaultCondition>');
+    // BasePropertyField 是派生显示字段, 没物理 DB 列, 因此不能 emit
+    // <FieldName>(原厂 0/14 都没这个节点)。带了 BOS 也报"字段外观不存在或者
+    // 类型不对"。
+    const fieldNode = out.match(/<BasePropertyField[\s\S]*?<\/BasePropertyField>/)?.[0] ?? '';
+    expect(fieldNode).not.toMatch(/<FieldName>/);
   });
 
   it('non-base_property field appearances do NOT emit <Locked> (avoid noise)', () => {
