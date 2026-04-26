@@ -229,6 +229,10 @@ describe('listExtensionFields', () => {
 interface WritePoolOpts {
   tables: Record<string, Record<string, unknown>[]>;
   updateCapture: Array<{ sql: string; inputs: Record<string, unknown> }>;
+  /** Optional: capture INSERTs (combo creates 4 enum-table inserts per add). */
+  insertCapture?: Array<{ sql: string; inputs: Record<string, unknown> }>;
+  /** Optional: provide rows for SELECT-by-FROM-table (e.g. T_META_LOOKUPCLASS). */
+  selectRows?: Record<string, Record<string, unknown>[]>;
 }
 function makeWritePool(opts: WritePoolOpts): sql.ConnectionPool {
   const makeRequest = () => {
@@ -244,8 +248,15 @@ function makeWritePool(opts: WritePoolOpts): sql.ConnectionPool {
           opts.updateCapture.push({ sql: text, inputs: { ...inputs } });
           return { recordset: [] };
         }
+        if (/^\s*INSERT\b/i.test(text)) {
+          opts.insertCapture?.push({ sql: text, inputs: { ...inputs } });
+          return { recordset: [] };
+        }
         if (tableMatch) {
-          return { recordset: opts.tables[tableMatch[1]] ?? [] };
+          const t = tableMatch[1];
+          const fromSelect = opts.selectRows?.[t];
+          if (fromSelect) return { recordset: fromSelect };
+          return { recordset: opts.tables[t] ?? [] };
         }
         return { recordset: [] };
       }
@@ -487,4 +498,191 @@ describe('addFieldToExtension', () => {
   // 第二次加字段时扩展已有 LayoutInfos 的行为 — 纯函数层 bos-xml.test.ts 的
   // `第二次加字段 → 只追加 TextFieldAppearance` 测试已完整覆盖。writer 层只
   // 负责 snapshot + 调用纯函数 + update, 无需在这里重复验证。
+
+  it('type=base_data: friendly key 翻成 GUID 走 LOOKUPCLASS, FKERNELXML 含 GUID', async () => {
+    const updates: WritePoolOpts['updateCapture'] = [];
+    const guid = '407d24cb-57f7-46bf-afb6-a9ab458fd845';
+    const pool = makeWritePool({
+      updateCapture: updates,
+      tables: {
+        T_META_OBJECTTYPE: [
+          { FID: EXT, FKERNELXML: buildExtensionKernelXml(EXT, []) }
+        ]
+      },
+      selectRows: {
+        T_META_LOOKUPCLASS: [{ FID: guid }]
+      }
+    });
+    await addFieldToExtension(pool, 'pid', EXT, 'base_data', {
+      key: 'F_REFCUST',
+      caption: '关联客户',
+      refBaseDataObjectKey: 'BD_Customer'
+    });
+    expect(updates).toHaveLength(1);
+    const xmlArg = String(updates[0].inputs.xml);
+    expect(xmlArg).toContain(`<LookUpObjectID>${guid}</LookUpObjectID>`);
+    // 友好 key 不应该泄漏到 XML 里
+    expect(xmlArg).not.toContain('BD_Customer');
+  });
+
+  it('type=base_data: GUID-shape input passes through (no second LOOKUPCLASS hit needed)', async () => {
+    const updates: WritePoolOpts['updateCapture'] = [];
+    const guid = '407d24cb-57f7-46bf-afb6-a9ab458fd845';
+    const pool = makeWritePool({
+      updateCapture: updates,
+      tables: {
+        T_META_OBJECTTYPE: [
+          { FID: EXT, FKERNELXML: buildExtensionKernelXml(EXT, []) }
+        ]
+      }
+      // no selectRows — pre-resolved GUID should not need lookup
+    });
+    await addFieldToExtension(pool, 'pid', EXT, 'base_data', {
+      key: 'F_REFCUST',
+      caption: '关联客户',
+      refBaseDataObjectKey: guid
+    });
+    expect(updates).toHaveLength(1);
+    expect(String(updates[0].inputs.xml)).toContain(`<LookUpObjectID>${guid}</LookUpObjectID>`);
+  });
+
+  it('type=base_data: 翻不到 GUID → 抛错(包含 key 名),不写 DB', async () => {
+    const updates: WritePoolOpts['updateCapture'] = [];
+    const pool = makeWritePool({
+      updateCapture: updates,
+      tables: {
+        T_META_OBJECTTYPE: [
+          { FID: EXT, FKERNELXML: buildExtensionKernelXml(EXT, []) }
+        ]
+      },
+      selectRows: { T_META_LOOKUPCLASS: [] } // empty result
+    });
+    await expect(
+      addFieldToExtension(pool, 'pid', EXT, 'base_data', {
+        key: 'F_REFCUST',
+        caption: '关联客户',
+        refBaseDataObjectKey: 'BD_TYPO'
+      })
+    ).rejects.toThrow(/BD_TYPO|LOOKUPCLASS|未在/);
+    expect(updates).toHaveLength(0);
+  });
+
+  it('type=combo: 4 个 INSERT (FORMENUM + _L + FORMENUMITEM + _L per item), FKERNELXML 含 <EnumType>', async () => {
+    const updates: WritePoolOpts['updateCapture'] = [];
+    const inserts: WritePoolOpts['updateCapture'] = [];
+    const pool = makeWritePool({
+      updateCapture: updates,
+      insertCapture: inserts,
+      tables: {
+        T_META_OBJECTTYPE: [
+          { FID: EXT, FKERNELXML: buildExtensionKernelXml(EXT, []) }
+        ]
+      }
+    });
+    await addFieldToExtension(pool, 'pid', EXT, 'combo', {
+      key: 'F_PRIORITY',
+      caption: '优先级',
+      comboItems: [
+        { value: 'H', caption: '高' },
+        { value: 'M', caption: '中' },
+        { value: 'L', caption: '低' }
+      ]
+    });
+    // 1× FORMENUM + 1× FORMENUM_L + 3× ITEM + 3× ITEM_L = 8
+    expect(inserts).toHaveLength(1 + 1 + 3 + 3);
+    const insertedTables = inserts.map((i) => /INSERT INTO (\w+)/.exec(i.sql)?.[1]);
+    expect(insertedTables.filter((t) => t === 'T_META_FORMENUM')).toHaveLength(1);
+    expect(insertedTables.filter((t) => t === 'T_META_FORMENUM_L')).toHaveLength(1);
+    expect(insertedTables.filter((t) => t === 'T_META_FORMENUMITEM')).toHaveLength(3);
+    expect(insertedTables.filter((t) => t === 'T_META_FORMENUMITEM_L')).toHaveLength(3);
+
+    // FKERNELXML emits <EnumType>{enumGuid}</EnumType> referencing the
+    // FORMENUM row we just inserted — and never <ComboItems>.
+    expect(updates).toHaveLength(1);
+    const xmlArg = String(updates[0].inputs.xml);
+    const enumIdInsert = inserts.find((i) => /T_META_FORMENUM\s*\(/.test(i.sql));
+    const enumGuid = String(enumIdInsert?.inputs.id ?? '');
+    expect(enumGuid).toMatch(GUID_RE_FOR_TEST);
+    expect(xmlArg).toContain(`<EnumType>${enumGuid}</EnumType>`);
+    expect(xmlArg).not.toContain('<ComboItems>');
+
+    // Item rows reference the enum FK via FID (not FENUMID — that's the
+    // item's own PK, the column name is misleading; see memory).
+    const itemInserts = inserts.filter((i) => /INSERT INTO T_META_FORMENUMITEM\s*\(/.test(i.sql));
+    for (const ii of itemInserts) {
+      expect(ii.inputs.enumId).toBe(enumGuid);
+    }
+  });
+
+  it('type=mul_combo: 同 combo 路径 (FORMENUM 表共用),emit MulComboField + EnumType', async () => {
+    const updates: WritePoolOpts['updateCapture'] = [];
+    const inserts: WritePoolOpts['updateCapture'] = [];
+    const pool = makeWritePool({
+      updateCapture: updates,
+      insertCapture: inserts,
+      tables: {
+        T_META_OBJECTTYPE: [
+          { FID: EXT, FKERNELXML: buildExtensionKernelXml(EXT, []) }
+        ]
+      }
+    });
+    await addFieldToExtension(pool, 'pid', EXT, 'mul_combo', {
+      key: 'F_TAGS',
+      caption: '标签',
+      comboItems: [{ value: 'A', caption: 'A 类' }]
+    });
+    expect(inserts).toHaveLength(1 + 1 + 1 + 1);
+    expect(updates).toHaveLength(1);
+    const xmlArg = String(updates[0].inputs.xml);
+    expect(xmlArg).toMatch(/<MulComboField[ >]/);
+    expect(xmlArg).toMatch(/<EnumType>[0-9a-f-]{36}<\/EnumType>/);
+    expect(xmlArg).not.toContain('<ComboItems>');
+  });
+
+  it('type=combo: 已传 enumTypeGuid → 复用,不再插 FORMENUM 表', async () => {
+    const updates: WritePoolOpts['updateCapture'] = [];
+    const inserts: WritePoolOpts['updateCapture'] = [];
+    const pool = makeWritePool({
+      updateCapture: updates,
+      insertCapture: inserts,
+      tables: {
+        T_META_OBJECTTYPE: [
+          { FID: EXT, FKERNELXML: buildExtensionKernelXml(EXT, []) }
+        ]
+      }
+    });
+    const reusedGuid = 'c6929d92-8195-46d5-81af-fc9c09fa8346';
+    await addFieldToExtension(pool, 'pid', EXT, 'combo', {
+      key: 'F_PRIORITY',
+      caption: '优先级',
+      enumTypeGuid: reusedGuid
+    });
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(1);
+    expect(String(updates[0].inputs.xml)).toContain(`<EnumType>${reusedGuid}</EnumType>`);
+  });
+
+  it('type=combo: 没有 comboItems 也没 enumTypeGuid → 抛错,不写 DB', async () => {
+    const updates: WritePoolOpts['updateCapture'] = [];
+    const inserts: WritePoolOpts['updateCapture'] = [];
+    const pool = makeWritePool({
+      updateCapture: updates,
+      insertCapture: inserts,
+      tables: {
+        T_META_OBJECTTYPE: [
+          { FID: EXT, FKERNELXML: buildExtensionKernelXml(EXT, []) }
+        ]
+      }
+    });
+    await expect(
+      addFieldToExtension(pool, 'pid', EXT, 'combo', {
+        key: 'F_P',
+        caption: '优先级'
+      })
+    ).rejects.toThrow(/comboItems/);
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
 });
+
+const GUID_RE_FOR_TEST = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -300,6 +300,104 @@ export async function listExtensionFields(
  */
 export type FieldType = BosFieldType;
 
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const RESOLVE_LOOKUP_GUID_SQL =
+  'SELECT TOP 1 FID FROM T_META_LOOKUPCLASS WHERE FFORMID = @key';
+
+/**
+ * Translate an agent-friendly base-data form id (`'BD_Customer'` / `'BD_MATERIAL'`)
+ * into the GUID that BaseDataField's `<LookUpObjectID>` expects. GUID-shape
+ * inputs are short-circuited as a passthrough so callers may already pass a
+ * resolved value. See memory `bos_field_xml_realities.md`.
+ */
+async function resolveBaseDataLookupGuid(
+  pool: sql.ConnectionPool,
+  key: string
+): Promise<string> {
+  if (GUID_RE.test(key)) return key.toLowerCase();
+  requireValid(RESOLVE_LOOKUP_GUID_SQL);
+  const r = await pool
+    .request()
+    .input('key', sql.VarChar(36), key)
+    .query<{ FID: string }>(RESOLVE_LOOKUP_GUID_SQL);
+  const row = r.recordset[0];
+  if (!row) {
+    throw new Error(
+      `基础资料对象 "${key}" 未在 T_META_LOOKUPCLASS 注册 — 检查 FormID 拼写 ` +
+        '(例 BD_Customer / BD_MATERIAL / BD_Department)'
+    );
+  }
+  return row.FID;
+}
+
+/**
+ * Insert one custom enum into `T_META_FORMENUM` + `T_META_FORMENUM_L` + N×
+ * `T_META_FORMENUMITEM` + N× `T_META_FORMENUMITEM_L`, return the FORMENUM
+ * GUID for the caller to embed as `<EnumType>` on the ComboField. Schema
+ * notes that bit users (column names lie):
+ *   - FORMENUMITEM.FID   = FK to FORMENUM.FID (enum-type FK)
+ *   - FORMENUMITEM.FENUMID = item PK (single-column unique index)
+ *   - FORMENUMITEM_L.FENUMID joins to ITEM.FENUMID, NOT to FORMENUM.FID
+ * Sequential inserts (no transaction): FORMENUM rows are isolated metadata —
+ * partial residue is harmless. See memory `bos_field_xml_realities.md`.
+ */
+async function createFormEnum(
+  pool: sql.ConnectionPool,
+  params: { name: string; items: ReadonlyArray<{ value: string; caption: string }> }
+): Promise<{ enumGuid: string }> {
+  const enumGuid = randomUUID().toLowerCase();
+  const enumLPkid = randomUUID().toLowerCase();
+
+  const INSERT_FORMENUM_SQL =
+    'INSERT INTO T_META_FORMENUM (FID, FCATEGORY, FISSYSPRESET) VALUES (@id, 0, \'0\')';
+  requireValid(INSERT_FORMENUM_SQL);
+  await pool
+    .request()
+    .input('id', sql.VarChar(36), enumGuid)
+    .query(INSERT_FORMENUM_SQL);
+
+  const INSERT_FORMENUM_L_SQL =
+    'INSERT INTO T_META_FORMENUM_L (FPKID, FID, FLOCALEID, FNAME) VALUES (@pkid, @id, 2052, @name)';
+  requireValid(INSERT_FORMENUM_L_SQL);
+  await pool
+    .request()
+    .input('pkid', sql.VarChar(36), enumLPkid)
+    .input('id', sql.VarChar(36), enumGuid)
+    .input('name', sql.NVarChar(200), params.name)
+    .query(INSERT_FORMENUM_L_SQL);
+
+  const INSERT_ITEM_SQL =
+    'INSERT INTO T_META_FORMENUMITEM (FID, FENUMID, FVALUE, FSEQ, FINVALID, FISSYSPRESET) ' +
+    'VALUES (@enumId, @itemId, @value, @seq, \'0\', \'0\')';
+  const INSERT_ITEM_L_SQL =
+    'INSERT INTO T_META_FORMENUMITEM_L (FPKID, FENUMID, FLOCALEID, FCAPTION) ' +
+    'VALUES (@pkid, @itemId, 2052, @caption)';
+  requireValid(INSERT_ITEM_SQL);
+  requireValid(INSERT_ITEM_L_SQL);
+
+  for (let i = 0; i < params.items.length; i++) {
+    const it = params.items[i];
+    const itemId = randomUUID().toLowerCase();
+    const itemLPkid = randomUUID().toLowerCase();
+    await pool
+      .request()
+      .input('enumId', sql.VarChar(36), enumGuid)
+      .input('itemId', sql.VarChar(36), itemId)
+      .input('value', sql.VarChar(36), it.value)
+      .input('seq', sql.Int, i + 1)
+      .query(INSERT_ITEM_SQL);
+    await pool
+      .request()
+      .input('pkid', sql.VarChar(36), itemLPkid)
+      .input('itemId', sql.VarChar(36), itemId)
+      .input('caption', sql.NVarChar(400), it.caption)
+      .query(INSERT_ITEM_L_SQL);
+  }
+
+  return { enumGuid };
+}
+
 export async function addFieldToExtension(
   pool: sql.ConnectionPool,
   projectId: string,
@@ -308,11 +406,7 @@ export async function addFieldToExtension(
   spec: FieldSpec
 ): Promise<{ backupFile: string }> {
   // Validate the type name up front so an unknown type fails before we touch
-  // the DB or write a backup file. Required-prop validation per type still
-  // happens inside insertFieldIntoKernelXml (after snapshot) since it needs
-  // the spec, not just the type — if the user e.g. forgets refBaseDataObjectKey
-  // for base_data, a backup gets written then the insert throws. Acceptable —
-  // the backup file then serves as evidence of the attempt.
+  // the DB or write a backup file.
   getFieldTypeSpec(type);
 
   const snapshot = await snapshotExtension(pool, extId, 'add-field');
@@ -323,7 +417,38 @@ export async function addFieldToExtension(
   const currentXml = typeof row.FKERNELXML === 'string' ? row.FKERNELXML : '';
   if (!currentXml) throw new Error(`extension ${extId} has no FKERNELXML to extend`);
 
-  const newXml = insertFieldIntoKernelXml(currentXml, type, { spec });
+  // base_data: friendly key → GUID. Always translate (LOOKUPCLASS lookup is
+  // cheap; passing through GUID-shape inputs is just for round-trip safety).
+  let resolvedSpec: FieldSpec = spec;
+  if (type === 'base_data') {
+    if (!spec.refBaseDataObjectKey) {
+      throw new Error(
+        'base_data 字段必须提供 refBaseDataObjectKey (例 "BD_Customer")'
+      );
+    }
+    const guid = await resolveBaseDataLookupGuid(pool, spec.refBaseDataObjectKey);
+    resolvedSpec = { ...spec, refBaseDataObjectKey: guid };
+  }
+
+  // combo / mul_combo: comboItems → FORMENUM rows + FKERNELXML <EnumType>.
+  // Caller may also pre-supply enumTypeGuid to reuse an existing enum.
+  if (type === 'combo' || type === 'mul_combo') {
+    if (!spec.enumTypeGuid) {
+      const items = spec.comboItems ?? [];
+      if (items.length === 0) {
+        throw new Error(
+          `${type} 字段必须提供 comboItems (至少一项 {value, caption})`
+        );
+      }
+      const { enumGuid } = await createFormEnum(pool, {
+        name: spec.caption,
+        items
+      });
+      resolvedSpec = { ...resolvedSpec, enumTypeGuid: enumGuid };
+    }
+  }
+
+  const newXml = insertFieldIntoKernelXml(currentXml, type, { spec: resolvedSpec });
   await updateKernelXml(pool, extId, newXml);
   return { backupFile };
 }

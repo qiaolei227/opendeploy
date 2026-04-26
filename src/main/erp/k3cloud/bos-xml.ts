@@ -112,8 +112,8 @@ const FIELD_TYPE_SPECS: Record<FieldType, FieldTypeSpec> = {
   date:               { xmlTag: 'DateTimeField',          csClass: 'DateTimeField',          elementType: 5,   appearanceElementType: 5,   appearanceHasEmptyText: true,  requiredExtraProps: [], dateOnly: true },
   datetime:           { xmlTag: 'DateTimeField',          csClass: 'DateTimeField',          elementType: 5,   appearanceElementType: 5,   appearanceHasEmptyText: true,  requiredExtraProps: [], dateOnly: false },
   checkbox:           { xmlTag: 'CheckBoxField',          csClass: 'CheckBoxField',          elementType: 8,   appearanceElementType: 8,   appearanceHasEmptyText: false, requiredExtraProps: [] },
-  combo:              { xmlTag: 'ComboField',             csClass: 'ComboField',             elementType: 9,   appearanceElementType: 9,   appearanceHasEmptyText: true,  requiredExtraProps: ['comboItems'] },
-  mul_combo:          { xmlTag: 'MulComboField',          csClass: 'MulComboField',          elementType: 9,   appearanceElementType: 9,   appearanceHasEmptyText: true,  requiredExtraProps: ['comboItems'] },
+  combo:              { xmlTag: 'ComboField',             csClass: 'ComboField',             elementType: 9,   appearanceElementType: 9,   appearanceHasEmptyText: true,  requiredExtraProps: ['enumTypeGuid'] },
+  mul_combo:          { xmlTag: 'MulComboField',          csClass: 'MulComboField',          elementType: 9,   appearanceElementType: 9,   appearanceHasEmptyText: true,  requiredExtraProps: ['enumTypeGuid'] },
   // BaseDataField is the only type where field-node and appearance-node ElementType differ
   // (field=13, appearance=7 — verified against real SAL_SaleOrder F客户).
   base_data:          { xmlTag: 'BaseDataField',          csClass: 'BaseDataField',          elementType: 13,  appearanceElementType: 7,   appearanceHasEmptyText: true,  requiredExtraProps: ['refBaseDataObjectKey'] },
@@ -351,9 +351,21 @@ export interface FieldSpec {
   /** Left pixel position, default 10. */
   left?: number;
   // ─── Type-specific extras (validated per type) ─────────────────────
-  /** combo / mul_combo: dropdown items. */
+  /** combo / mul_combo: dropdown items. Writer-layer input; the writer
+   *  inserts these into T_META_FORMENUM*  and fills `enumTypeGuid` for
+   *  the XML layer. NOT read by the XML renderer — see `enumTypeGuid`. */
   comboItems?: ReadonlyArray<{ value: string; caption: string }>;
-  /** base_data: target base-data object key (e.g. 'BD_Customer'). */
+  /** combo / mul_combo: GUID of the row in `T_META_FORMENUM` whose items
+   *  feed this dropdown. Emitted as `<EnumType>{guid}</EnumType>` —
+   *  BOS resolves dropdown content from the FORMENUM table at runtime,
+   *  NOT from XML. Real SAL_SaleOrder ComboField nodes have 0
+   *  `<ComboItems>` children; BOS silently drops them when present.
+   *  See memory `bos_field_xml_realities.md` (combo / mul_combo section). */
+  enumTypeGuid?: string;
+  /** base_data: target base-data object's LookUpClass GUID. The agent
+   *  passes a friendly key (`'BD_Customer'`) which the writer translates
+   *  via `T_META_LOOKUPCLASS.FFORMID → FID`; XML layer always sees a
+   *  GUID. BOS rejects friendly keys with "未正确配置基础资料". */
   refBaseDataObjectKey?: string;
   /** base_property: source BaseDataField key on same bill. */
   sourceField?: string;
@@ -435,17 +447,14 @@ function renderFieldExtras(type: FieldType, spec: FieldSpec): string {
     return '<EditFormat>yyyy-MM-dd</EditFormat>';
   }
   if (type === 'combo' || type === 'mul_combo') {
-    const items = spec.comboItems ?? [];
-    const itemsXml = items
-      .map(
-        (it) =>
-          '<ComboItem>' +
-          `<Value>${xmlEscape(it.value)}</Value>` +
-          `<Caption>${xmlEscape(it.caption)}</Caption>` +
-          '</ComboItem>'
-      )
-      .join('');
-    return `<ComboItems>${itemsXml}</ComboItems>`;
+    // BOS resolves dropdown items via T_META_FORMENUM at runtime, looked up
+    // by the GUID emitted here. `<ComboItems>` is silently dropped on load
+    // — never write it. `<Editlen>36</Editlen>` is the BOS Designer default
+    // (matches real SAL_SaleOrder XML and what BOS auto-fills if missing).
+    return (
+      '<Editlen>36</Editlen>' +
+      `<EnumType>${xmlEscape(spec.enumTypeGuid ?? '')}</EnumType>`
+    );
   }
   if (type === 'base_data') {
     return `<LookUpObjectID>${xmlEscape(spec.refBaseDataObjectKey ?? '')}</LookUpObjectID>`;
@@ -537,11 +546,8 @@ function renderFieldAppearanceNode(
 function validateRequiredExtras(type: FieldType, spec: FieldSpec): void {
   for (const prop of getFieldTypeSpec(type).requiredExtraProps) {
     const v = (spec as unknown as Record<string, unknown>)[prop];
-    if (v === undefined || v === null) {
+    if (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) {
       throw new Error(`field type "${type}" requires spec.${prop}`);
-    }
-    if (prop === 'comboItems' && Array.isArray(v) && v.length === 0) {
-      throw new Error(`field type "${type}" requires non-empty spec.comboItems`);
     }
   }
 }

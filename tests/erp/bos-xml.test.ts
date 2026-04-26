@@ -381,8 +381,9 @@ describe('parseFieldsFromKernelXml', () => {
       { type: 'checkbox' },
       { type: 'color' },
       { type: 'mobile' },
-      { type: 'combo', extras: { comboItems: [{ value: 'H', caption: '高' }] } },
-      { type: 'mul_combo', extras: { comboItems: [{ value: 'A', caption: 'A 类' }] } },
+      // combo / mul_combo XML 层只看 enumTypeGuid;writer 层负责把 comboItems 转 enum 行。
+      { type: 'combo', extras: { enumTypeGuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' } },
+      { type: 'mul_combo', extras: { enumTypeGuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' } },
       { type: 'base_data', extras: { refBaseDataObjectKey: '407d24cb-fake-guid' } },
       {
         type: 'base_property',

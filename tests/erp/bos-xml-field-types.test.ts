@@ -87,9 +87,9 @@ describe('Field type registry', () => {
     );
   });
 
-  it('combo + mul_combo require comboItems', () => {
-    expect(getFieldTypeSpec('combo').requiredExtraProps).toContain('comboItems');
-    expect(getFieldTypeSpec('mul_combo').requiredExtraProps).toContain('comboItems');
+  it('combo + mul_combo require enumTypeGuid', () => {
+    expect(getFieldTypeSpec('combo').requiredExtraProps).toContain('enumTypeGuid');
+    expect(getFieldTypeSpec('mul_combo').requiredExtraProps).toContain('enumTypeGuid');
   });
 
   it('simple types (text/int/decimal/etc.) have no required extra props', () => {
@@ -245,61 +245,55 @@ describe('insertFieldIntoKernelXml — simple types', () => {
 });
 
 describe('insertFieldIntoKernelXml — combo / mul_combo', () => {
-  it('combo emits ComboItems with provided values', () => {
+  // GUID-shape fixture for the FORMENUM row created by the writer layer
+  // (see `bos-writer.ts → createFormEnum`). XML layer only sees this GUID;
+  // ComboItems are inserted separately into T_META_FORMENUMITEM (+ _L).
+  const ENUM_GUID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+  it('combo emits <EnumType> referencing the FORMENUM row, not <ComboItems>', () => {
     const out = insertFieldIntoKernelXml(BASE_XML, 'combo', {
-      spec: {
-        key: 'F_PRIORITY',
-        caption: '优先级',
-        comboItems: [
-          { value: 'H', caption: '高' },
-          { value: 'M', caption: '中' },
-          { value: 'L', caption: '低' }
-        ]
-      },
+      spec: { key: 'F_PRIORITY', caption: '优先级', enumTypeGuid: ENUM_GUID },
       idGenerator: FIXED_IDS(),
       numericGenerator: FIXED_NUMERICS
     });
     expect(out).toMatch(/<ComboField[ >]/);
-    expect(out).toMatch(/<ComboItems>/);
-    expect(out).toContain('<Value>H</Value>');
-    expect(out).toContain('<Caption>高</Caption>');
-    expect(out).toContain('<Value>M</Value>');
-    expect(out).toContain('<Value>L</Value>');
+    expect(out).toContain(`<EnumType>${ENUM_GUID}</EnumType>`);
+    // BOS silently drops <ComboItems>; never emit it.
+    expect(out).not.toMatch(/<ComboItems>/);
+    // Editlen=36 default — matches real SAL_SaleOrder ComboField + what
+    // BOS Designer auto-fills if absent.
+    expect(out).toContain('<Editlen>36</Editlen>');
   });
 
-  it('mul_combo emits MulComboField + ComboItems', () => {
+  it('mul_combo emits MulComboField + <EnumType> (same path as combo)', () => {
     const out = insertFieldIntoKernelXml(BASE_XML, 'mul_combo', {
-      spec: {
-        key: 'F_TAGS',
-        caption: '标签',
-        comboItems: [{ value: 'A', caption: 'A 类' }]
-      },
+      spec: { key: 'F_TAGS', caption: '标签', enumTypeGuid: ENUM_GUID },
       idGenerator: FIXED_IDS(),
       numericGenerator: FIXED_NUMERICS
     });
     expect(out).toMatch(/<MulComboField[ >]/);
-    expect(out).toMatch(/<ComboItems>/);
-    expect(out).toContain('<Value>A</Value>');
+    expect(out).toContain(`<EnumType>${ENUM_GUID}</EnumType>`);
+    expect(out).not.toMatch(/<ComboItems>/);
   });
 
-  it('combo without comboItems throws', () => {
+  it('combo without enumTypeGuid throws', () => {
     expect(() =>
       insertFieldIntoKernelXml(BASE_XML, 'combo', {
-        spec: { key: 'F_P', caption: '优先级' }, // no comboItems
+        spec: { key: 'F_P', caption: '优先级' }, // no enumTypeGuid
         idGenerator: FIXED_IDS(),
         numericGenerator: FIXED_NUMERICS
       })
-    ).toThrow(/comboItems/);
+    ).toThrow(/enumTypeGuid/);
   });
 
-  it('mul_combo without comboItems throws', () => {
+  it('mul_combo without enumTypeGuid throws', () => {
     expect(() =>
       insertFieldIntoKernelXml(BASE_XML, 'mul_combo', {
         spec: { key: 'F_T', caption: '标签' },
         idGenerator: FIXED_IDS(),
         numericGenerator: FIXED_NUMERICS
       })
-    ).toThrow(/comboItems/);
+    ).toThrow(/enumTypeGuid/);
   });
 });
 
