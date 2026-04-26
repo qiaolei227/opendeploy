@@ -314,15 +314,14 @@ function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
     definition: {
       name: 'kingdee_add_field',
       description:
-        '给已有扩展加一个业务字段 (写 T_META_OBJECTTYPE.FKERNELXML)。客户在 BOS Designer 中刷新扩展(工具栏刷新)后就能看到。Plan 5.12.1 起支持 16 种字段类型 — 选择规则:\n' +
+        '给已有扩展加一个业务字段 (写 T_META_OBJECTTYPE.FKERNELXML)。客户在 BOS Designer 中刷新扩展(工具栏刷新)后就能看到。Plan 5.12.1 起支持 15 种字段类型 — 选择规则:\n' +
         '• text / large_text — 单行 / 多行文本(备注)\n' +
-        '• int / decimal / amount / qty — 整数 / 小数 / 金额 / 数量(qty 默认带单位字段)\n' +
+        '• int / decimal / amount / qty — 整数 / 小数 / 金额 / 数量\n' +
         '• date / datetime — 日期 / 日期时间\n' +
         '• checkbox — 是/否 复选框\n' +
         '• combo / mul_combo — 单选 / 多选下拉(必带 comboItems)\n' +
-        '• base_data — 基础资料引用(客户 / 物料 / 部门 ...,**必带 refBaseDataObjectKey 是 GUID** — 先调 kingdee_describe_basedata 拿 GUID)\n' +
-        '• base_property — 基础资料属性带值(必带 sourceField + srcDisplayFieldName,sourceField 必须是同单据已有 BaseDataField)\n' +
-        '• reference_property — 引用属性(高级版,可分组多语言)\n' +
+        '• base_data — 基础资料引用(客户 / 物料 / 部门 ...,refBaseDataObjectKey 直接传 BD_Customer / BD_MATERIAL 这种 key 即可,BOS 接受字符串 FID,不需要 GUID)\n' +
+        '• base_property — 基础资料属性带值(必带 sourceField + srcDisplayFieldName)。**用前先调 kingdee_describe_basedata** 反查目标基础资料能 srcDisplay 哪些字段(如客户名 FName / 客户简称 FShortName / 客户地址 FAddress)。sourceField 必须是同单据上已有的 BaseDataField key (如销售订单上的 FCustId 客户字段)。\n' +
         '• color / mobile — 颜色 / 手机号\n' +
         '不知道扩展 ID 先调 kingdee_list_extensions。',
       parameters: {
@@ -369,7 +368,7 @@ function addFieldTool(c: K3CloudConnector, projectId: string): ToolHandler {
           refBaseDataObjectKey: {
             type: 'string',
             description:
-              '(base_data 必填) 关联基础资料对象的 **GUID** (`<LookUpObjectID>` 内容)。先调 `kingdee_describe_basedata` 把 "BD_Customer" 之类的 key 翻成 GUID。'
+              '(base_data 必填) 关联基础资料对象的 FormID, 如 "BD_Customer"(客户)/ "BD_MATERIAL"(物料,大写)/ "BD_Department"(部门)。BOS 接受字符串 FID 作为 LookUpObjectID,不需要 GUID。不确定 key 拼写先调 kingdee_describe_basedata 验证存在。'
           },
           sourceField: {
             type: 'string',

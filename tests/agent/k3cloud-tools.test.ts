@@ -30,9 +30,10 @@ function makeFake(
 }
 
 describe('buildK3CloudTools', () => {
-  it('returns 5 tools when a connector is present', () => {
+  it('returns 6 tools when a connector is present', () => {
     const tools = buildK3CloudTools(makeFake());
     expect(tools.map((t) => t.definition.name).sort()).toEqual([
+      'kingdee_describe_basedata',
       'kingdee_get_fields',
       'kingdee_get_object',
       'kingdee_list_objects',
@@ -243,5 +244,88 @@ describe('kingdee_list_subsystems tool', () => {
     const parsed = JSON.parse(await tool.execute({}));
     expect(parsed.count).toBe(2);
     expect(parsed.subsystems).toHaveLength(2);
+  });
+});
+
+describe('kingdee_describe_basedata tool (Plan 5.12.1 Task 6)', () => {
+  function getDescribeTool(fake: K3CloudConnector) {
+    return buildK3CloudTools(fake).find(
+      (t) => t.definition.name === 'kingdee_describe_basedata'
+    )!;
+  }
+
+  it('returns found=false when key does not exist (with helpful hint)', async () => {
+    const fake = makeFake({
+      getObject: vi.fn(async () => null)
+    });
+    const tool = getDescribeTool(fake);
+    const parsed = JSON.parse(await tool.execute({ key: 'BD_NoSuchThing' }));
+    expect(parsed.found).toBe(false);
+    expect(parsed.key).toBe('BD_NoSuchThing');
+    expect(parsed.message).toMatch(/不存在/);
+    expect(parsed.message).toMatch(/BD_Customer/); // hint includes common keys
+  });
+
+  it('returns simple-text fields and excludes BaseDataField references', async () => {
+    const fake = makeFake({
+      getObject: vi.fn(async () => ({
+        id: 'BD_Customer', name: '客户',
+        modelTypeId: 400, subsystemId: 'BAS', isTemplate: false, modifyDate: null
+      })),
+      getFields: vi.fn(async () => [
+        { key: 'FName', name: '名称', type: 'TextField', isEntryField: false },
+        { key: 'FNumber', name: '编号', type: 'TextField', isEntryField: false },
+        { key: 'FShortName', name: '简称', type: 'TextField', isEntryField: false },
+        { key: 'FCreditLimit', name: '信用额度', type: 'AmountField', isEntryField: false },
+        // BaseDataField — itself a reference, can't srcDisplay → must be filtered out
+        { key: 'FOwnerOrgID', name: '所属组织', type: 'BaseDataField', isEntryField: false },
+        { key: 'FCreateDate', name: '创建日期', type: 'DateTimeField', isEntryField: false }
+      ])
+    });
+    const tool = getDescribeTool(fake);
+    const parsed = JSON.parse(await tool.execute({ key: 'BD_Customer' }));
+    expect(parsed.found).toBe(true);
+    expect(parsed.key).toBe('BD_Customer');
+    expect(parsed.name).toBe('客户');
+    expect(parsed.totalFields).toBe(6);
+    // Only 5 displayable — BaseDataField filtered out
+    expect(parsed.displayableCount).toBe(5);
+    expect(parsed.fields.map((f: { key: string }) => f.key)).toEqual([
+      'FName', 'FNumber', 'FShortName', 'FCreditLimit', 'FCreateDate'
+    ]);
+    // Hint mentions both base_data and base_property usage
+    expect(parsed.hint).toMatch(/refBaseDataObjectKey/);
+    expect(parsed.hint).toMatch(/srcDisplayFieldName/);
+  });
+
+  it('keyword filter narrows results and uses case-insensitive substring match', async () => {
+    const fake = makeFake({
+      getObject: vi.fn(async () => ({
+        id: 'BD_Customer', name: '客户',
+        modelTypeId: 400, subsystemId: 'BAS', isTemplate: false, modifyDate: null
+      })),
+      getFields: vi.fn(async () => [
+        { key: 'FName', name: '名称', type: 'TextField', isEntryField: false },
+        { key: 'FShortName', name: '简称', type: 'TextField', isEntryField: false },
+        { key: 'FNumber', name: '编号', type: 'TextField', isEntryField: false },
+        { key: 'FAddress', name: '地址', type: 'TextField', isEntryField: false }
+      ])
+    });
+    const tool = getDescribeTool(fake);
+    // 'name' should match FName + FShortName (key contains "name", case-insensitive)
+    const parsed = JSON.parse(await tool.execute({ key: 'BD_Customer', keyword: 'name' }));
+    expect(parsed.keyword).toBe('name');
+    expect(parsed.fields.map((f: { key: string }) => f.key)).toEqual(['FName', 'FShortName']);
+  });
+
+  it('rejects empty key', async () => {
+    const fake = makeFake();
+    const tool = getDescribeTool(fake);
+    await expect(tool.execute({ key: '' })).rejects.toThrow(/non-empty/);
+  });
+
+  it('marked parallelSafe (read-only metadata query, no DB writes)', () => {
+    const tool = getDescribeTool(makeFake());
+    expect(tool.parallelSafe).toBe(true);
   });
 });

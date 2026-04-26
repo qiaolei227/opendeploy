@@ -19,7 +19,8 @@ export function buildK3CloudTools(connector?: K3CloudConnector): ToolHandler[] {
     getObjectTool(c),
     getFieldsTool(c),
     listSubsystemsTool(c),
-    searchMetadataTool(c)
+    searchMetadataTool(c),
+    describeBasedataTool(c)
   ];
 }
 
@@ -314,6 +315,123 @@ function searchMetadataTool(c: K3CloudConnector): ToolHandler {
       }
       const rows = await c.searchMetadata(keyword);
       return JSON.stringify({ count: rows.length, matches: rows }, null, 2);
+    }
+  };
+}
+
+/**
+ * Plan 5.12.1 Task 6 — describe a base-data object's fields so the agent can
+ * pick a sensible `srcDisplayFieldName` for a base_property field.
+ *
+ * Confirmed via 2026-04-26 recon:
+ * - BD_Customer.FID is literally the string "BD_Customer" (not a GUID), so
+ *   `kingdee_add_field` accepts the same key directly as `refBaseDataObjectKey`
+ *   for base_data fields. The XML emits `<LookUpObjectID>BD_Customer</LookUpObjectID>`
+ *   and BOS resolves it (verified via real SAL_SaleOrder where some
+ *   LookUpObjectIDs are FID-keys like "BOS_ItemClass" rather than GUIDs).
+ * - BD_Customer.FKERNELXML carries 33 TextFields + 24 BaseDataFields + ... —
+ *   its full schema is in its own row, no need to walk the BOS_OrgControlBDModel
+ *   parent template.
+ *
+ * Tool returns ONLY the simple-text-typed fields (TextField / IntegerField /
+ * DecimalField / DateTimeField / etc.) since those are the ones a
+ * BasePropertyField can srcDisplay. BaseDataField references are excluded
+ * (they're themselves lookups, not display values).
+ */
+function describeBasedataTool(c: K3CloudConnector): ToolHandler {
+  return {
+    parallelSafe: true,
+    definition: {
+      name: 'kingdee_describe_basedata',
+      description:
+        '反查某基础资料对象(如 BD_Customer 客户档案 / BD_MATERIAL 物料 / BD_Department 部门)的字段清单 —— 用于加 base_property 字段(基础资料属性带值)时,确定 srcDisplayFieldName 该填什么(例如客户名称=FName,客户简称=FShortName,客户地址=FAddress)。同时也确认基础资料 key 本身是否存在,以便用于 base_data 字段的 refBaseDataObjectKey。返回值只包含可"带值"的简单类型字段(文本/数字/日期等),不返回它本身的基础资料引用字段(那些不能直接 srcDisplay)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          key: {
+            type: 'string',
+            description:
+              '基础资料 FormID, 如 "BD_Customer"(客户)、"BD_MATERIAL"(物料,大写)、"BD_Department"(部门)。'
+          },
+          keyword: {
+            type: 'string',
+            description:
+              '可选。按字段 key 或中文名做大小写不敏感子串过滤(如 "name" / "地址" / "电话"),只返匹配项。基础资料字段动辄几十个,加 keyword 能省 token。'
+          }
+        },
+        required: ['key']
+      }
+    },
+    async execute(args) {
+      const key = args.key;
+      if (typeof key !== 'string' || key.trim() === '') {
+        throw new Error('kingdee_describe_basedata requires a non-empty `key` string.');
+      }
+      const obj = await c.getObject(key);
+      if (!obj) {
+        return JSON.stringify(
+          {
+            found: false,
+            key,
+            message:
+              '基础资料对象不存在。常见 key 命名: BD_Customer / BD_MATERIAL(大写) / BD_Supplier / BD_Department / BD_Empinfo / BD_Currency 等。先用 kingdee_search_metadata 搜一下确认。'
+          },
+          null,
+          2
+        );
+      }
+
+      const allFields = await c.getFields(key);
+
+      // Only fields whose value can be displayed as text — exclude
+      // BaseDataField (it's a reference itself, not a display value).
+      const DISPLAYABLE_TYPES = new Set([
+        'TextField',
+        'LargeRichTextField',
+        'IntegerField',
+        'DecimalField',
+        'AmountField',
+        'QtyField',
+        'DateTimeField',
+        'CheckBoxField',
+        'ComboField',
+        'MulComboField',
+        'ColorField',
+        'MobileField'
+      ]);
+      let displayable = allFields.filter((f) => DISPLAYABLE_TYPES.has(f.type));
+
+      const keyword =
+        typeof args.keyword === 'string' ? args.keyword.trim().toLowerCase() : '';
+      if (keyword) {
+        displayable = displayable.filter(
+          (f) =>
+            f.key.toLowerCase().includes(keyword) ||
+            f.name.toLowerCase().includes(keyword)
+        );
+      }
+
+      return JSON.stringify(
+        {
+          found: true,
+          key,
+          name: obj.name,
+          totalFields: allFields.length,
+          displayableCount: displayable.length,
+          ...(keyword ? { keyword } : {}),
+          // Compact list — agent picks one of these `key` values for srcDisplayFieldName.
+          fields: displayable.map((f) => ({
+            key: f.key,
+            name: f.name,
+            type: f.type,
+            ...(f.entryKey ? { entryKey: f.entryKey } : {})
+          })),
+          hint:
+            'base_data 字段:把上面的 key (如 BD_Customer) 作为 refBaseDataObjectKey 即可。base_property 字段:挑一个上面 fields[*].key (如 FName) 作为 srcDisplayFieldName。'
+        },
+        null,
+        2
+      );
     }
   };
 }

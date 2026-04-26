@@ -57,21 +57,22 @@ async function main(): Promise<void> {
   const xml = result.recordset[0].FKERNELXML_TEXT;
   console.log(`xml length: ${xml.length}`);
 
-  // 多种字段 + Appearance 节点,各取首例.
-  const tags = [
-    'TextFieldAppearance',
-    'IntegerFieldAppearance',
-    'DecimalFieldAppearance',
-    'AmountFieldAppearance',
-    'QtyFieldAppearance',
-    'DateTimeFieldAppearance',
-    'CheckBoxFieldAppearance',
-    'ComboFieldAppearance',
-    'MulComboFieldAppearance',
-    'BaseDataFieldAppearance',
-    'BasePropertyFieldAppearance',
-    'ReferencePropertyFieldAppearance'
-  ];
+  // Pull every LookUpObjectID value to see if any are FID-keys (not GUIDs)
+  const lookupRe = /<LookUpObjectID>([^<]+)<\/LookUpObjectID>/g;
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = lookupRe.exec(xml)) !== null) {
+    seen.add(m[1]);
+    if (seen.size >= 50) break;
+  }
+  console.log(`\n=== distinct LookUpObjectID values in SAL_SaleOrder XML (${seen.size}) ===`);
+  for (const id of seen) {
+    const isGuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    console.log(`  ${isGuid ? 'GUID' : '?KEY'}  ${id}`);
+  }
+  return;
+
+  const tags = [];
   for (const tag of tags) {
     const re = new RegExp(`<${tag}\\b[\\s\\S]*?</${tag}>`, 'g');
     const hits: string[] = [];
