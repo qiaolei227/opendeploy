@@ -1,0 +1,207 @@
+/**
+ * Shared types for the K/3 Cloud BOS RPC client.
+ *
+ * Reflect the wire protocol observed in real BOS Designer captures
+ * (.scratch/captures/decoded/req-*) — see memory references:
+ *   - bos_save_for_ide_v9_wire_format.md
+ *   - bos_dcxml_element_schema.md
+ *
+ * These types are the *typed AST* that callers build up; the dcxml emitter
+ * converts to DCXML strings for the SaveForIDEV9 wire format.
+ */
+
+/** Locale IDs observed: 2052=zh-CN, 1033=en-US, 3076=zh-HK. */
+export type LocaleId = 2052 | 1033 | 3076;
+
+export interface BosLocalizedString {
+  localeId: LocaleId;
+  value: string;
+}
+
+/** Identity of an extension form (the K/3 Cloud "扩展" object). */
+export interface BosExtensionMeta {
+  /** GUID; new for first save, persists thereafter. */
+  formId: string;
+  /** Parent object ID, e.g. "SAL_SaleOrder". */
+  baseObjectId: string;
+  /** ModelType numeric: 100 = BillModel. */
+  modelTypeId: number;
+  /** Subsystem id, e.g. "23". */
+  subSystemId: string;
+  /** Localized extension name (typically inherits parent name unless overridden). */
+  name: BosLocalizedString[];
+  /** Developer / ISV identity — see bos_dcxml_element_schema.md `ISV / DevCode 来源`. */
+  isv: BosIsvIdentity;
+  /** Set on rename; null otherwise. */
+  oldId?: string | null;
+}
+
+export interface BosIsvIdentity {
+  /** Locked at app creation in BOS Designer. The user-facing developer code (e.g. "PAIJ"). */
+  devCode: string;
+  /** Display name; usually equals devCode. */
+  name?: string;
+  /** Always "Kingdee" for OpenDeploy-managed extensions per observed samples. */
+  isvSignal?: string;
+  /** Empty unless using a packaged solution. */
+  packageSignal?: string;
+  /** Equals devCode in observed samples; left independent for future flexibility. */
+  id?: string;
+}
+
+/**
+ * Field types currently supported by the RPC dcxml emitter, with their
+ * ElementType numeric codes (BOS internal element registry).
+ *
+ * Extending: add the new field here, add a case in the dcxml emitter's
+ * field-element renderer, and add a snapshot test under tests/erp/rpc/.
+ */
+export type BosFieldType =
+  | 'TextField'           // ElementType=1
+  | 'DecimalField'        // ElementType=2
+  | 'IntegerField'        // ElementType=3
+  | 'DateField'           // ElementType=4
+  | 'CheckBoxField'       // ElementType=8
+  | 'ComboField'          // ElementType=9
+  | 'BaseDataField'       // ElementType=13
+  | 'BasePropertyField'   // ElementType=14
+  | 'PriceField'          // ElementType=20
+  | 'AmountField'         // ElementType=21
+  | 'QtyField'            // ElementType=22
+  | 'UnitField';          // ElementType=46
+
+export const FIELD_ELEMENT_TYPE: Record<BosFieldType, number> = {
+  TextField: 1,
+  DecimalField: 2,
+  IntegerField: 3,
+  DateField: 4,
+  CheckBoxField: 8,
+  ComboField: 9,
+  BaseDataField: 13,
+  BasePropertyField: 14,
+  PriceField: 20,
+  AmountField: 21,
+  QtyField: 22,
+  UnitField: 46,
+};
+
+/**
+ * Common fields all element types share. Discriminated unions below add
+ * the type-specific extras.
+ */
+export interface BosFieldCommon {
+  /** F_DEV_xxx (case-sensitive entity property name). Equals XML <Key>. */
+  key: string;
+  /** Field display caption (used by appearance Caption + element Name). */
+  caption: string;
+  /**
+   * Server-managed sequence index; BOS Designer increments per save. Pass
+   * a value that's strictly greater than any previously-used index for
+   * this extension to avoid collisions.
+   */
+  listTabIndex: number;
+  /** Optional explicit element ID; auto-generated GUID if omitted. */
+  id?: string;
+}
+
+export type BosFieldElement =
+  | (BosFieldCommon & { type: 'TextField' })
+  | (BosFieldCommon & { type: 'IntegerField' })
+  | (BosFieldCommon & { type: 'DateField' })
+  | (BosFieldCommon & { type: 'DecimalField'; fieldScale: number; fieldPrecision: number })
+  | (BosFieldCommon & { type: 'PriceField'; fieldScale: number; fieldPrecision: number })
+  | (BosFieldCommon & { type: 'AmountField'; fieldScale: number; fieldPrecision: number })
+  | (BosFieldCommon & {
+      type: 'QtyField';
+      fieldScale: number;
+      fieldPrecision: number;
+      controlFieldKey: string; // associated UnitField key
+    })
+  | (BosFieldCommon & { type: 'CheckBoxField'; defaultCondition?: 0 | 1 })
+  | (BosFieldCommon & {
+      type: 'ComboField';
+      enumTypeId: string; // T_META_FORMENUM GUID
+      defaultCondition?: number;
+    })
+  | (BosFieldCommon & {
+      type: 'BaseDataField';
+      lookUpObjectId: string; // BD_xxx referenced object's GUID (NOT the friendly key)
+      srcFindFieldName?: string; // default "FNUMBER"
+      srcDisplayFieldName?: string; // default "FNAME"
+    })
+  | (BosFieldCommon & {
+      type: 'BasePropertyField';
+      controlFieldKey: string; // parent base data field key (e.g. "FCustId")
+      srcDisplayFieldName?: string; // default "FName" (note casing)
+      defaultCondition?: number; // observed = 67
+    })
+  | (BosFieldCommon & {
+      type: 'UnitField';
+      unitTypeKey: string;
+      lookUpObjectId: string; // BD_UnitGroup GUID
+    });
+
+export interface BosFieldAppearance {
+  type: BosFieldType;
+  /** Matches the corresponding BosFieldElement.key. */
+  key: string;
+  caption: string;
+  /** Tab page or container ID, e.g. "FTAB_P0". */
+  container: string;
+  /** Order within container (visual). */
+  zOrderIndex: number;
+  /** Tab navigation order. */
+  tabindex: number;
+  /** Pixel position. Default 10/10 puts it visible top-left so user can drag. */
+  left: number;
+  top: number;
+  /** Default 300. */
+  width?: number;
+  /** Default 100. */
+  labelWidth?: number;
+  /** Default 100. */
+  listDefaultWidth?: number;
+  /** Bitmask, default 1023 = all states visible. */
+  visible?: number;
+  /** Default 100. */
+  visibleExt?: number;
+  /** Optional explicit appearance ID; auto-generated GUID if omitted. */
+  id?: string;
+  // DateField only:
+  mask?: string;
+  displayFormatString?: string;
+}
+
+/** A field/element to drop from the extension's metadata graph. */
+export interface BosRemoveElement {
+  /** Tag name in DCXML. e.g. "TextField", "SubEntryEntity". */
+  tagName: string;
+  /** Original field's identity attribute (oid). */
+  oid: string;
+}
+
+/** Top-level shape of one SaveForIDEV9 invocation. */
+export interface SaveExtensionRequest {
+  extension: BosExtensionMeta;
+  /** True for the first save (no prior extension row); false thereafter. */
+  isNew: boolean;
+  addFields?: BosFieldElement[];
+  removeFields?: BosRemoveElement[];
+  addAppearances?: BosFieldAppearance[];
+  /**
+   * Existing layout's oid in the parent object. Required for non-new
+   * extensions. Each Save creates / edits this single LayoutInfo node.
+   */
+  layoutInfoOid: string;
+}
+
+/**
+ * What the RPC client returns to callers after a SaveForIDEV9 round-trip.
+ * Mirrors the `IDEOperateResult` JSON we observed in capture decode.
+ */
+export interface SaveExtensionResult {
+  isSuccess: boolean;
+  funcResult: boolean;
+  messageTitle?: string | null;
+  messageDetail?: string | null;
+}
