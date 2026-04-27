@@ -93,13 +93,14 @@ beforeEach(() => {
 });
 
 describe('buildBosRpcTools', () => {
-  it('returns create + add-field + delete tools when project has bos creds', async () => {
+  it('returns all four write tools when project has bos creds', async () => {
     mockedGetProject.mockResolvedValue(makeProject(true));
     const tools = await buildBosRpcTools(makeFakeConnector(), 'p1', makeSessionMgr());
     expect(tools.map((t) => t.definition.name).sort()).toEqual([
       'kingdee_add_field',
       'kingdee_create_extension',
       'kingdee_delete_extension',
+      'kingdee_register_python_plugin',
     ]);
   });
 
@@ -532,5 +533,122 @@ describe('kingdee_add_field', () => {
     );
     expect(out.ok).toBe(false);
     expect(out.messageDetail).toBe('字段 key 已存在');
+  });
+});
+
+describe('kingdee_register_python_plugin', () => {
+  const EXT_ID = 'ee0011223344556677889900aabbccdd';
+  const EXTENSION_OBJECT: ObjectMeta = {
+    id: EXT_ID,
+    name: '信用额度预警',
+    modelTypeId: 100,
+    subsystemId: '23',
+    baseObjectId: 'SAL_SaleOrder',
+    isTemplate: false,
+    modifyDate: null,
+  };
+
+  const findPluginTool = async (
+    connector?: K3CloudConnector,
+    session = makeSessionMgr(),
+  ) => {
+    mockedGetProject.mockResolvedValue(makeProject(true));
+    const c =
+      connector ??
+      makeFakeConnector({
+        getObject: async (id: string) =>
+          id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+      });
+    const tools = await buildBosRpcTools(c, 'p1', session);
+    const tool = tools.find((t) => t.definition.name === 'kingdee_register_python_plugin');
+    if (!tool) throw new Error('kingdee_register_python_plugin not in tool list');
+    return { tool };
+  };
+
+  beforeEach(() => {
+    mockedSave.mockResolvedValue({
+      isSuccess: true,
+      funcResult: true,
+      messageTitle: null,
+      messageDetail: null,
+    });
+  });
+
+  it('builds saveExtension request with addPlugins delta on existing extension', async () => {
+    const { tool } = await findPluginTool();
+    const out = JSON.parse(
+      await tool.execute({
+        extId: EXT_ID,
+        className: 'credit_warn',
+        pyBody: '#stub plugin\nfrom Kingdee.BOS.Core.DynamicForm.PlugIn import AbstractDynamicFormPlugIn',
+      }),
+    );
+
+    expect(out.ok).toBe(true);
+    expect(out.className).toBe('credit_warn');
+
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.isNew).toBe(false);
+    expect(req.extension.formId).toBe(EXT_ID);
+    expect(req.extension.baseObjectId).toBe('SAL_SaleOrder');
+    expect(req.layoutInfoOid).toBe(SAL_LAYOUT_OID);
+    expect(req.addPlugins).toHaveLength(1);
+    expect(req.addPlugins![0]).toEqual({
+      className: 'credit_warn',
+      type: 'python',
+      pyScript: '#stub plugin\nfrom Kingdee.BOS.Core.DynamicForm.PlugIn import AbstractDynamicFormPlugIn',
+    });
+    // No fields / appearances on a plugin-only save.
+    expect(req.addFields).toBeUndefined();
+    expect(req.addAppearances).toBeUndefined();
+  });
+
+  it('rejects empty / missing required args', async () => {
+    const { tool } = await findPluginTool();
+    await expect(
+      tool.execute({ className: 'x', pyBody: '#x' }),
+    ).rejects.toThrow(/extId/);
+    await expect(
+      tool.execute({ extId: EXT_ID, pyBody: '#x' }),
+    ).rejects.toThrow(/className/);
+    await expect(
+      tool.execute({ extId: EXT_ID, className: 'x', pyBody: '   ' }),
+    ).rejects.toThrow(/pyBody/);
+  });
+
+  it('rejects className with disallowed characters', async () => {
+    const { tool } = await findPluginTool();
+    await expect(
+      tool.execute({ extId: EXT_ID, className: 'bad-name', pyBody: '#x' }),
+    ).rejects.toThrow(/不合法/);
+    await expect(
+      tool.execute({ extId: EXT_ID, className: 'with space', pyBody: '#x' }),
+    ).rejects.toThrow(/不合法/);
+  });
+
+  it('rejects when extId points to a non-extension', async () => {
+    const { tool } = await findPluginTool(
+      makeFakeConnector({
+        getObject: async () => ({ ...SAL_PARENT_OBJECT, baseObjectId: null }),
+      }),
+    );
+    await expect(
+      tool.execute({ extId: 'X', className: 'x', pyBody: '#x' }),
+    ).rejects.toThrow(/不是 BOS 扩展/);
+  });
+
+  it('surfaces server-side rejection as ok=false', async () => {
+    mockedSave.mockResolvedValue({
+      isSuccess: false,
+      funcResult: false,
+      messageTitle: '保存失败',
+      messageDetail: '同名插件已存在',
+    });
+    const { tool } = await findPluginTool();
+    const out = JSON.parse(
+      await tool.execute({ extId: EXT_ID, className: 'dup', pyBody: '#x' }),
+    );
+    expect(out.ok).toBe(false);
+    expect(out.messageDetail).toBe('同名插件已存在');
   });
 });

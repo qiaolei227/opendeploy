@@ -15,9 +15,10 @@
 **BOS 写入**(HTTP RPC,与 BOS Designer 同路径):
 - `kingdee_create_extension` — 给原厂父单据新建扩展。返回 `extId`,后续字段 / 插件操作都用它。
 - `kingdee_add_field` — 给已有扩展加业务字段(11 类型:text / int / decimal / price / amount / qty / date / checkbox / base_data / base_property / unit)
+- `kingdee_register_python_plugin` — 给已有扩展挂 Python 表单插件(写到扩展 `<Form><FormPlugins>`)
 - `kingdee_delete_extension` — 删整个扩展(连带其上字段 / 插件)
 
-**v0.1 阶段限制**:Python 表单插件注册 (`kingdee_register_python_plugin`) **暂未上线**——RPC 报文格式还在抓包,等真实样本到位再加。当前版本只能创建扩展和字段,插件需用户在 BOS Designer 中手工添加 Python 脚本到扩展上,或暂以 DLL 替代方案讨论。遇到 Python 插件需求时如实告知用户"插件 RPC 路径 v0.1 还没到位,先把扩展和字段建好,插件部分手工补",**不要假装能调用插件工具**。
+**v0.1 限制**:DLL 插件注册暂不支持(只支持 Python 表单插件);多 locale 名称暂时只写中文(2052)。
 
 ### 决策框架
 
@@ -63,10 +64,11 @@ OpenDeploy 创建的扩展,**必须用 `kingdee_delete_extension` 工具删**(�
 
 base-system 硬规则要求"写完必须验证才能说完成"。K/3 Cloud 的具体闭环:
 
-1. **创建扩展后**:工具返回 `ok: true` 即认为创建成功(服务端 RPC 返回 IDEOperateResult.IsSuccess)。把 `extId` 记下来给用户。
-2. **加字段后**:用 `kingdee_get_object <extId>` 验证扩展存在;**目前没有 `kingdee_get_extension_fields` 工具回查扩展字段**(它是上版 SQL 路径的工具,RPC 切换后还没复活),所以信任服务端 `IsSuccess=true` 即可。后续把扩展字段反查工具加回来。
-3. **任一调用 `ok: false`** → 把 `messageTitle` / `messageDetail` 转述给用户,**不要硬往下走**。常见原因:字段 key 重复 / 父对象不存在 / 当前用户无权限。
-4. **完成消息中**:除提到字段已落库,**必须**包含 BOS Designer 刷新提示——"BOS Designer 工具栏点刷新按钮,客户端表单缓存可能需关闭客户端重登才能看到新字段"(详见 memory `bos_client_cache_relogin`)。
+1. **任一写工具返回 `ok: true`** = 服务端 RPC 接受了请求(IDEOperateResult.IsSuccess=true)。当前 v0.1 信任这个返回值,因为 `kingdee_get_extension_fields` / `kingdee_list_form_plugins` 这两个反查工具是上版 SQL 路径下的工具,RPC 路线切换时被一起删了,还没补回来。
+2. **任一调用 `ok: false`** → 把 `messageTitle` / `messageDetail` 转述给用户,**不要硬往下走**。常见原因:字段 key 重复 / 同名插件已存在 / 父对象不存在 / 当前用户无权限。
+3. **完成消息中必须包含两条提示**(给用户看的话):
+   - **BOS Designer 中点扩展工具栏的刷新按钮**才能看到新字段 / 插件
+   - **如果挂了插件**:用户必须**关闭 K/3 Cloud 客户端重登**,新单据上才会执行新插件(只 F5 刷新表单不够;详见 memory `bos_client_cache_relogin`)。这条**不要省略**——跳过这条提示是 P1 用户体验 bug,客户会以为"插件没生效"。
 
 ### BOS 环境未初始化
 

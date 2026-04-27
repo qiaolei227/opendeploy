@@ -137,6 +137,82 @@ describe('rpc/dcxml emitter', () => {
     );
   });
 
+  it('renders FormPlugins block inside Form for Python plugin (matches captured req-75 shape)', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addPlugins: [
+        {
+          className: 'smoke_test_plugin',
+          type: 'python',
+          pyScript: '#smoke_test_plugin',
+        },
+      ],
+    });
+    // Plugin must be INSIDE <Form>...</Form> (between Id and the closing tag),
+    // wrapped by <FormPlugins>.
+    expect(xml).toMatch(
+      /<Form action="edit"[^>]*>\s*<Id>[^<]+<\/Id>\s*<FormPlugins>\s*<PlugIn /,
+    );
+    expect(xml).toContain('<PlugIn ElementType="0" ElementStyle="0">');
+    expect(xml).toContain('<ClassName>smoke_test_plugin</ClassName>');
+    expect(xml).toContain('<PlugInType>1</PlugInType>');
+    expect(xml).toContain('<PyScript><![CDATA[#smoke_test_plugin]]></PyScript>');
+    expect(xml).toContain('</FormPlugins></Form>');
+  });
+
+  it('preserves CDATA-wrapped script content even with XML special chars', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addPlugins: [
+        {
+          className: 'guard',
+          type: 'python',
+          // Real Python may have < / > / & / quotes in conditionals etc.
+          pyScript: 'if x < 5 and y > 0 & flag: print("ok")',
+        },
+      ],
+    });
+    expect(xml).toContain(
+      '<PyScript><![CDATA[if x < 5 and y > 0 & flag: print("ok")]]></PyScript>',
+    );
+    expect(xml).not.toContain('&lt;');
+    expect(xml).not.toContain('&amp;');
+    expect(xml).not.toContain('&quot;');
+  });
+
+  it('renders multiple plugins in order under one FormPlugins wrapper', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addPlugins: [
+        { className: 'first', type: 'python', pyScript: '#a' },
+        { className: 'second', type: 'python', pyScript: '#b' },
+      ],
+    });
+    const formPluginsBlocks = xml.match(/<FormPlugins>/g) ?? [];
+    expect(formPluginsBlocks).toHaveLength(1);
+    expect(xml).toContain('<ClassName>first</ClassName>');
+    expect(xml).toContain('<ClassName>second</ClassName>');
+    expect(xml.indexOf('<ClassName>first</ClassName>')).toBeLessThan(
+      xml.indexOf('<ClassName>second</ClassName>'),
+    );
+  });
+
+  it('does not emit FormPlugins block when addPlugins is empty/undefined', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+    });
+    expect(xml).not.toContain('<FormPlugins>');
+    expect(xml).not.toContain('<PlugIn ');
+  });
+
   it('xml-escapes special chars in user-controlled values', () => {
     const xml = buildDcxmlSource({
       extension: baselineExt,

@@ -29,6 +29,7 @@ import { newCompactGuid } from '../erp/k3cloud/rpc/dcxml';
 import type {
   BosFieldAppearance,
   BosFieldElement,
+  BosPluginElement,
   SaveExtensionRequest,
 } from '../erp/k3cloud/rpc/types';
 import { getProject } from '../projects/store';
@@ -61,6 +62,7 @@ export async function buildBosRpcTools(
   return [
     createExtensionTool(c, pid, sessionMgr),
     addFieldTool(c, pid, sessionMgr),
+    registerPythonPluginTool(c, pid, sessionMgr),
     deleteExtensionTool(pid, sessionMgr),
   ];
 }
@@ -628,6 +630,144 @@ function addFieldTool(
             '字段已写入。BOS Designer 里需点扩展工具栏的刷新按钮才能看到;客户端表单缓存可能需要关闭客户端重登才会更新。' +
             '**字段默认落在容器左上角(left=10 top=10)会和原厂字段视觉重叠 — 这是预期的,客户在 BOS Designer 中手动拖到合适位置。**' +
             '验证字段已落库:调 kingdee_get_extension_fields(不是 kingdee_get_fields)。',
+        },
+        null,
+        2,
+      );
+    },
+  };
+}
+
+// ─── kingdee_register_python_plugin ──────────────────────────────────────
+//
+// Wire format verified 2026-04-27 capture req-75 + smoke-plugin.ts smoke
+// (extId=631a71d7f48249fca4e78daa74e0b925, IsSuccess=true). Plugin lives
+// inside `<Form><FormPlugins><PlugIn>...` — see rpc/dcxml.ts emitter.
+
+function registerPythonPluginTool(
+  connector: K3CloudConnector,
+  projectId: string,
+  sessionMgr: SessionMgrLike,
+): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_register_python_plugin',
+      description:
+        '把 Python 表单插件挂到一个已有 BOS 扩展上(写到扩展 `<Form>` 节点下的 `<FormPlugins>`)。' +
+        '\n\n何时用:' +
+        '\n- 客户需求要在表单生命周期事件里加自定义校验 / 联动 / 反写(典型:`AfterButtonClick` / `BeforeF7Select` / `DataChanged`)' +
+        '\n- 同一个扩展可挂多个插件(本工具一次注册一个,可多次调用)' +
+        '\n\n传参:' +
+        '\n- `extId`:目标扩展 FID。**不知道就先 `kingdee_create_extension` 建一个或者通过 `kingdee_search_metadata` 找现有的**。' +
+        '\n- `className`:插件标识,小写蛇形(`[a-z0-9_]+`),例 `credit_warn` / `material_validator`。BOS Designer 表单插件列表里显示这个。' +
+        '\n- `pyBody`:**完整** IronPython 2.7 源码,含 `from Kingdee.BOS... import AbstractDynamicFormPlugIn` + 至少一个继承自它的类。脚本里随便用 `<` / `>` / `&` / 引号 — 工具用 CDATA 包裹,无需手动转义。' +
+        '\n\n**写入后**:用户需在 BOS Designer 中刷新扩展(工具栏刷新按钮),且**关闭客户端重登**才能让客户端缓存到新插件(详见 memory `bos_client_cache_relogin`)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: {
+            type: 'string',
+            description: '扩展 FID(32 位 hex GUID,无连字符)。',
+          },
+          className: {
+            type: 'string',
+            description: '插件类名 / 标识,推荐小写蛇形,例 "credit_warn"。',
+          },
+          pyBody: {
+            type: 'string',
+            description: 'IronPython 2.7 完整源码,含 import + 继承 AbstractDynamicFormPlugIn 的类定义。',
+          },
+        },
+        required: ['extId', 'className', 'pyBody'],
+      },
+    },
+    async execute(args) {
+      const extId = String(args.extId ?? '').trim();
+      const className = String(args.className ?? '').trim();
+      const pyBody = String(args.pyBody ?? '');
+      if (!extId) throw new Error('kingdee_register_python_plugin 需要 extId 参数。');
+      if (!className) throw new Error('kingdee_register_python_plugin 需要 className 参数。');
+      if (!/^[a-z0-9_]+$/i.test(className)) {
+        throw new Error(`className "${className}" 不合法 — 仅允许字母 / 数字 / 下划线。`);
+      }
+      if (!pyBody.trim()) throw new Error('kingdee_register_python_plugin 需要非空的 pyBody 参数。');
+
+      const project = await getProject(projectId);
+      if (!project?.bos) {
+        throw new Error('当前项目未配置 BOS 写入凭据,请到项目设置中补全。');
+      }
+
+      const ext = await connector.getObject(extId);
+      if (!ext) {
+        throw new Error(`扩展 ${extId} 不存在。先用 kingdee_search_metadata 确认 FID。`);
+      }
+      if (!ext.baseObjectId) {
+        throw new Error(
+          `${extId} 不是 BOS 扩展(FBASEOBJECTID 为空)。kingdee_register_python_plugin 只能挂在扩展上,不能直接改原厂表单。`,
+        );
+      }
+      if (ext.modelTypeId == null || ext.subsystemId == null) {
+        throw new Error(`扩展 ${extId} 元数据不完整。`);
+      }
+
+      // Same layout-OID discovery as add-field — plugin save still requires
+      // a valid LayoutInfo block in the DCXML, even though plugins don't
+      // touch layout. Empty LayoutInfo is fine; missing it would fail.
+      const xml = await connector.getKernelXml(ext.baseObjectId);
+      if (!xml) {
+        throw new Error(`父单据 ${ext.baseObjectId} 无 FKERNELXML,无法构造保存请求。`);
+      }
+      const layoutInfoOid = extractLayoutInfoOid(xml);
+      if (!layoutInfoOid) {
+        throw new Error(`父单据 ${ext.baseObjectId} FKERNELXML 中未找到 <LayoutInfo oid="...">。`);
+      }
+
+      const plugin: BosPluginElement = {
+        className,
+        type: 'python',
+        pyScript: pyBody,
+      };
+
+      const req: SaveExtensionRequest = {
+        extension: {
+          formId: extId,
+          baseObjectId: ext.baseObjectId,
+          modelTypeId: ext.modelTypeId,
+          subSystemId: ext.subsystemId,
+          name: [{ localeId: 2052, value: ext.name }],
+          isv: { devCode: project.bos.devCode },
+        },
+        isNew: false,
+        layoutInfoOid,
+        addPlugins: [plugin],
+      };
+
+      const session = await sessionMgr.getOrLogin(projectId);
+      const result = await saveExtensionRpc(session, req);
+
+      if (!result.isSuccess) {
+        return JSON.stringify(
+          {
+            ok: false,
+            extId,
+            className,
+            messageTitle: result.messageTitle,
+            messageDetail: result.messageDetail,
+          },
+          null,
+          2,
+        );
+      }
+
+      return JSON.stringify(
+        {
+          ok: true,
+          extId,
+          className,
+          scriptLength: pyBody.length,
+          reminder:
+            '插件已挂到扩展。BOS Designer 中需点扩展工具栏刷新按钮才能在「表单插件」节点看到;' +
+            '**客户端的运行时缓存里没有新插件 — 用户必须关闭 K/3 Cloud 客户端重登,新单据上才会执行这个脚本**(只 F5 刷新表单不够,详见 memory `bos_client_cache_relogin`)。',
         },
         null,
         2,

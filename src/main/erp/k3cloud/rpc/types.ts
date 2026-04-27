@@ -180,6 +180,37 @@ export interface BosRemoveElement {
   oid: string;
 }
 
+/**
+ * One form plugin registration. Renders inside `<Form>` (NOT as a sibling) —
+ * specifically inside a `<FormPlugins>` wrapper. Verified 2026-04-27 capture
+ * req-75: server accepts this shape and returns IsSuccess=true.
+ *
+ *   <Form action="edit" ...>
+ *     <Id>{formId}</Id>
+ *     <FormPlugins>
+ *       <PlugIn ElementType="0" ElementStyle="0">
+ *         <ClassName>...</ClassName>
+ *         <PlugInType>1</PlugInType>
+ *         <PyScript><![CDATA[...]]></PyScript>
+ *       </PlugIn>
+ *     </FormPlugins>
+ *   </Form>
+ *
+ * Order matters — observed captures put ClassName before PlugInType before
+ * PyScript, and the server appears strict about it.
+ */
+export interface BosPluginElement {
+  /**
+   * For Python plugins: the user-facing script name (e.g. "credit_warn").
+   * Lower-snake-case by convention; BOS Designer doesn't enforce.
+   */
+  className: string;
+  /** 1 = Python (inline script via PyScript); 0/absent = DLL (not yet supported). */
+  type: 'python';
+  /** IronPython 2.7 source. CDATA-wrapped on the wire to avoid XML escaping. */
+  pyScript: string;
+}
+
 /** Top-level shape of one SaveForIDEV9 invocation. */
 export interface SaveExtensionRequest {
   extension: BosExtensionMeta;
@@ -188,6 +219,8 @@ export interface SaveExtensionRequest {
   addFields?: BosFieldElement[];
   removeFields?: BosRemoveElement[];
   addAppearances?: BosFieldAppearance[];
+  /** Plugins to register on this Form. Rendered inside `<Form><FormPlugins>...`. */
+  addPlugins?: BosPluginElement[];
   /**
    * Existing layout's oid in the parent object. Required for non-new
    * extensions. Each Save creates / edits this single LayoutInfo node.

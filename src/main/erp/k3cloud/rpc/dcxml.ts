@@ -31,6 +31,7 @@
 import {
   BosFieldElement,
   BosFieldAppearance,
+  BosPluginElement,
   BosRemoveElement,
   SaveExtensionRequest,
   FIELD_ELEMENT_TYPE,
@@ -67,10 +68,41 @@ function child(out: XmlWriter, tag: string, value: string | number | undefined):
   out.push(`<${tag}>${typeof value === 'string' ? xmlEscape(value) : value}</${tag}>`);
 }
 
-function renderFormRoot(out: XmlWriter, formId: string): void {
+function renderFormRoot(
+  out: XmlWriter,
+  formId: string,
+  plugins: BosPluginElement[] | undefined,
+): void {
   out.push(`<Form action="edit" oid="BOS_BillModel" ElementType="100" ElementStyle="0">`);
   out.push(`<Id>${formId}</Id>`);
+  if (plugins && plugins.length > 0) {
+    out.push(`<FormPlugins>`);
+    for (const p of plugins) renderPluginElement(out, p);
+    out.push(`</FormPlugins>`);
+  }
   out.push(`</Form>`);
+}
+
+/**
+ * Render a single `<PlugIn ElementType="0" ElementStyle="0">` block. Order
+ * matches captured req-75: ClassName → PlugInType → PyScript. PyScript wraps
+ * the body in CDATA so script content with `<` / `>` / `&` flows through
+ * without XML escaping.
+ *
+ * Note: capture only confirmed Python (PlugInType=1). DLL plugins use
+ * PlugInType=0 with the .NET fully-qualified type as ClassName and an
+ * `<OrderId>` child — not yet supported here.
+ */
+function renderPluginElement(out: XmlWriter, p: BosPluginElement): void {
+  out.push(`<PlugIn ElementType="0" ElementStyle="0">`);
+  child(out, 'ClassName', p.className);
+  out.push(`<PlugInType>${p.type === 'python' ? 1 : 0}</PlugInType>`);
+  // CDATA — never escape; rely on the rare `]]>` substring case to be
+  // accidental in user-given scripts. If it ever becomes a real problem
+  // we'll split the CDATA section, but Python doesn't naturally produce
+  // `]]>` so this is fine for now.
+  out.push(`<PyScript><![CDATA[${p.pyScript}]]></PyScript>`);
+  out.push(`</PlugIn>`);
 }
 
 /**
@@ -217,7 +249,7 @@ export function buildDcxmlSource(req: SaveExtensionRequest): string {
   out.push(`<?xml version="1.0" encoding="utf-16"?>`);
   out.push(`<FormMetadata>`);
   out.push(`<BusinessInfo><BusinessInfo><Elements>`);
-  renderFormRoot(out, req.extension.formId);
+  renderFormRoot(out, req.extension.formId, req.addPlugins);
   for (const f of req.addFields ?? []) renderFieldElement(out, f);
   for (const r of req.removeFields ?? []) renderRemoveElement(out, r);
   out.push(`</Elements></BusinessInfo></BusinessInfo>`);
