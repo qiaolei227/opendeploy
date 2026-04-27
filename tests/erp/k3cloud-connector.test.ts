@@ -183,4 +183,39 @@ describe('K3CloudConnector metadata methods', () => {
 
     expect(await c.getObject('nope')).toBeNull();
   });
+
+  it('getObject passes both @id (caller format) and @altId (alternate GUID format) so DB matches either', async () => {
+    const inputs: Record<string, unknown> = {};
+    const fakePool = {
+      request: () => {
+        const req = {
+          query: async () => ({ recordset: [] }),
+          input: (name: string, _type: unknown, val: unknown) => {
+            inputs[name] = val;
+            return req;
+          }
+        };
+        return req;
+      },
+      close: async () => undefined
+    } as unknown as sql.ConnectionPool;
+    const c = new K3CloudConnector(config, { openPool: async () => fakePool });
+    await c.connect();
+
+    // Caller passes the dashed form; query should still send the compact form
+    // as altId so a DB row stored compact still matches.
+    await c.getObject('df5bdd0d-fcbc-427c-87bd-a178f65a56e6');
+    expect(inputs.id).toBe('df5bdd0d-fcbc-427c-87bd-a178f65a56e6');
+    expect(inputs.altId).toBe('df5bdd0dfcbc427c87bda178f65a56e6');
+
+    // Caller passes compact; altId should be the dashed form.
+    await c.getObject('631a71d7f48249fca4e78daa74e0b925');
+    expect(inputs.id).toBe('631a71d7f48249fca4e78daa74e0b925');
+    expect(inputs.altId).toBe('631a71d7-f482-49fc-a4e7-8daa74e0b925');
+
+    // Non-GUID FormID: altId stays null (no alternate to try).
+    await c.getObject('SAL_SaleOrder');
+    expect(inputs.id).toBe('SAL_SaleOrder');
+    expect(inputs.altId).toBeNull();
+  });
 });

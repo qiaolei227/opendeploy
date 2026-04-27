@@ -29,6 +29,43 @@ function requireValid(sqlText: string): void {
   if (!r.ok) throw new Error(`SQL validator rejected query: ${r.reason ?? 'no reason given'}`);
 }
 
+/**
+ * BOS extension FIDs come in two flavors and the DB stores both:
+ *   - 32-hex compact   (e.g. "631a71d7f48249fca4e78daa74e0b925") — what
+ *     `kingdee_create_extension` generates and what BOS Designer sometimes uses
+ *   - 8-4-4-4-12 dashed (e.g. "df5bdd0d-fcbc-427c-87bd-a178f65a56e6") — what
+ *     BOS Designer also uses for some extensions
+ *
+ * `WHERE FID = @id` is a literal string match, so a query in the wrong format
+ * silently returns "not found". Every metadata query that takes a FID
+ * parameter MUST normalize to handle both — pass `@id` (caller's input) AND
+ * `@altId` (the other form, or null when the input isn't a GUID at all, e.g.
+ * "SAL_SaleOrder" FormIDs that aren't GUIDs).
+ *
+ * Returns:
+ *   - `primary` = caller's input verbatim (preserves case + format on hit)
+ *   - `alt`     = the alternate format when input is a GUID, else null
+ *
+ * Empty / non-GUID strings pass through unchanged with `alt = null` so
+ * non-GUID FIDs (`SAL_SaleOrder`, `BD_MATERIAL`, etc.) work the same as before.
+ */
+export function guidVariants(id: string): { primary: string; alt: string | null } {
+  const compact = id.replace(/-/g, '').toLowerCase();
+  if (compact.length !== 32 || !/^[0-9a-f]{32}$/.test(compact)) {
+    return { primary: id, alt: null };
+  }
+  const dashed =
+    `${compact.slice(0, 8)}-${compact.slice(8, 12)}-${compact.slice(12, 16)}-` +
+    `${compact.slice(16, 20)}-${compact.slice(20)}`;
+  // Caller's input wins as `primary` so format echoes back on hit; the
+  // alternate is whichever it isn't.
+  return id === dashed
+    ? { primary: dashed, alt: compact }
+    : id === compact
+      ? { primary: compact, alt: dashed }
+      : { primary: id, alt: compact };
+}
+
 function rowToObjectMeta(row: Record<string, unknown>): ObjectMeta {
   const modifyDate = row.FMODIFYDATE;
   return {
@@ -106,7 +143,7 @@ const GET_OBJECT_SQL = `
     FROM T_META_OBJECTTYPE o
     LEFT JOIN T_META_OBJECTTYPE_L ol
            ON o.FID = ol.FID AND ol.FLOCALEID = @locale
-   WHERE o.FID = @id
+   WHERE o.FID = @id OR (@altId IS NOT NULL AND o.FID = @altId)
 `;
 
 export async function getObject(
@@ -115,10 +152,12 @@ export async function getObject(
   locale: number = DEFAULT_LOCALE
 ): Promise<ObjectMeta | null> {
   requireValid(GET_OBJECT_SQL);
+  const { primary, alt } = guidVariants(id);
   const result = await pool
     .request()
     .input('locale', sql.Int, locale)
-    .input('id', sql.VarChar(36), id)
+    .input('id', sql.VarChar(64), primary)
+    .input('altId', sql.VarChar(64), alt)
     .query<Record<string, unknown>>(GET_OBJECT_SQL);
   const row = result.recordset[0];
   return row ? rowToObjectMeta(row) : null;
@@ -169,7 +208,7 @@ export async function searchMetadata(
 const GET_FIELDS_SQL = `
   SELECT CAST(o.FKERNELXML AS nvarchar(max)) AS xml
     FROM T_META_OBJECTTYPE o
-   WHERE o.FID = @id
+   WHERE o.FID = @id OR (@altId IS NOT NULL AND o.FID = @altId)
 `;
 
 /**
@@ -182,9 +221,11 @@ export async function getKernelXml(
   formId: string
 ): Promise<string | null> {
   requireValid(GET_FIELDS_SQL);
+  const { primary, alt } = guidVariants(formId);
   const result = await pool
     .request()
-    .input('id', sql.VarChar(36), formId)
+    .input('id', sql.VarChar(64), primary)
+    .input('altId', sql.VarChar(64), alt)
     .query<{ xml: string | null }>(GET_FIELDS_SQL);
   return result.recordset[0]?.xml ?? null;
 }
@@ -237,9 +278,11 @@ export async function getFields(
   _locale: number = DEFAULT_LOCALE
 ): Promise<FieldMeta[]> {
   requireValid(GET_FIELDS_SQL);
+  const { primary, alt } = guidVariants(formId);
   const result = await pool
     .request()
-    .input('id', sql.VarChar(36), formId)
+    .input('id', sql.VarChar(64), primary)
+    .input('altId', sql.VarChar(64), alt)
     .query<{ xml: string | null }>(GET_FIELDS_SQL);
   const xml = result.recordset[0]?.xml;
   if (!xml) return [];

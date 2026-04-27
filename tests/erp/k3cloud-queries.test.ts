@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  guidVariants,
   parseFieldsFromKernelXml,
   parseFormPluginsFromKernelXml
 } from '../../src/main/erp/k3cloud/queries';
@@ -253,5 +254,62 @@ describe('parseFormPluginsFromKernelXml', () => {
     const xml =
       '<FormPlugins><PlugIn><PlugInType>1</PlugInType></PlugIn></FormPlugins>';
     expect(parseFormPluginsFromKernelXml(xml)).toEqual([]);
+  });
+});
+
+describe('guidVariants', () => {
+  it('treats compact 32-hex as primary, generates dashed alt', () => {
+    expect(guidVariants('631a71d7f48249fca4e78daa74e0b925')).toEqual({
+      primary: '631a71d7f48249fca4e78daa74e0b925',
+      alt: '631a71d7-f482-49fc-a4e7-8daa74e0b925'
+    });
+  });
+
+  it('treats dashed 8-4-4-4-12 as primary, generates compact alt', () => {
+    expect(guidVariants('df5bdd0d-fcbc-427c-87bd-a178f65a56e6')).toEqual({
+      primary: 'df5bdd0d-fcbc-427c-87bd-a178f65a56e6',
+      alt: 'df5bdd0dfcbc427c87bda178f65a56e6'
+    });
+  });
+
+  it('preserves caller case in primary (echoes back on hit)', () => {
+    expect(guidVariants('DF5BDD0D-FCBC-427C-87BD-A178F65A56E6').primary).toBe(
+      'DF5BDD0D-FCBC-427C-87BD-A178F65A56E6'
+    );
+    // alt is always lowercase compact — DB FIDs we've seen are lowercase
+    expect(guidVariants('DF5BDD0D-FCBC-427C-87BD-A178F65A56E6').alt).toBe(
+      'df5bdd0dfcbc427c87bda178f65a56e6'
+    );
+  });
+
+  it('returns alt=null for non-GUID FIDs (FormIDs like SAL_SaleOrder)', () => {
+    expect(guidVariants('SAL_SaleOrder')).toEqual({
+      primary: 'SAL_SaleOrder',
+      alt: null
+    });
+    expect(guidVariants('BD_MATERIAL')).toEqual({
+      primary: 'BD_MATERIAL',
+      alt: null
+    });
+  });
+
+  it('returns alt=null for non-hex strings of GUID-like length', () => {
+    // 32 chars but not all hex
+    expect(guidVariants('631a71d7f48249fca4e78daa74e0bzzz').alt).toBeNull();
+  });
+
+  it('returns alt=null for too-short or too-long inputs', () => {
+    expect(guidVariants('').alt).toBeNull();
+    expect(guidVariants('abc').alt).toBeNull();
+    expect(guidVariants('631a71d7f48249fca4e78daa74e0b925ff').alt).toBeNull();
+  });
+
+  it('handles a non-canonical mix of dashes (e.g. one stripped) by returning compact alt', () => {
+    // Input has 31 hex + 1 dash → compact normalization gives 32 hex, valid alt.
+    const oddInput = 'df5bdd0d-fcbc427c87bda178f65a56e6';
+    expect(guidVariants(oddInput)).toEqual({
+      primary: oddInput,
+      alt: 'df5bdd0dfcbc427c87bda178f65a56e6'
+    });
   });
 });
