@@ -11,8 +11,10 @@
 
 import sql from 'mssql';
 import type {
+  ExtensionMeta,
   FieldMeta,
   ObjectMeta,
+  PluginMeta,
   SubsystemMeta
 } from '@shared/erp-types';
 import type { ListObjectsOptions } from '../types';
@@ -337,4 +339,144 @@ export function parseFieldsFromKernelXml(xml: string): FieldMeta[] {
   }
 
   return fields;
+}
+
+// ─── listExtensions ─────────────────────────────────────────────────────
+
+const LIST_EXTENSIONS_SQL = `
+  SELECT o.FID,
+         o.FBASEOBJECTID,
+         COALESCE(ol.FNAME, o.FID) AS FNAME,
+         o.FSUPPLIERNAME,
+         o.FMODIFYDATE
+    FROM T_META_OBJECTTYPE o
+    JOIN T_META_OBJECTTYPE_E e
+      ON e.FID = o.FID
+    LEFT JOIN T_META_OBJECTTYPE_L ol
+           ON ol.FID = o.FID AND ol.FLOCALEID = @locale
+   WHERE o.FBASEOBJECTID = @parent
+   ORDER BY o.FMODIFYDATE DESC
+`;
+
+/**
+ * List every extension whose `FBASEOBJECTID` matches `parentFormId`. Joins
+ * `T_META_OBJECTTYPE_E` so we only surface genuine extensions (rows with the
+ * extension marker) rather than any record that happens to point at a parent
+ * form. Used by the agent's "create extension" decision tree to detect
+ * reusable shared extensions before creating a new one.
+ */
+export async function listExtensions(
+  pool: sql.ConnectionPool,
+  parentFormId: string,
+  locale: number = DEFAULT_LOCALE
+): Promise<ExtensionMeta[]> {
+  requireValid(LIST_EXTENSIONS_SQL);
+  const r = await pool
+    .request()
+    .input('parent', sql.VarChar(64), parentFormId)
+    .input('locale', sql.Int, locale)
+    .query<{
+      FID: string;
+      FBASEOBJECTID: string;
+      FNAME: string;
+      FSUPPLIERNAME: string | null;
+      FMODIFYDATE: Date | string | null;
+    }>(LIST_EXTENSIONS_SQL);
+  return r.recordset.map((row) => ({
+    extId: row.FID,
+    parentFormId: row.FBASEOBJECTID,
+    name: row.FNAME ?? row.FID,
+    developerCode: row.FSUPPLIERNAME ?? null,
+    modifyDate:
+      row.FMODIFYDATE instanceof Date
+        ? row.FMODIFYDATE.toISOString()
+        : row.FMODIFYDATE == null
+          ? null
+          : String(row.FMODIFYDATE)
+  }));
+}
+
+// ─── parseFormPluginsFromKernelXml ─────────────────────────────────────
+
+/**
+ * Replace every `<![CDATA[...]]>` block with a placeholder token, returning
+ * the stripped XML and the recovered values keyed by token. Used by
+ * parseFormPluginsFromKernelXml so the regex tokenizer doesn't trip on `<`
+ * followed by alpha inside Python scripts (e.g. `if x<i: pass` would
+ * otherwise be parsed as a stray `<i:` tag and corrupt depth tracking).
+ *
+ * Tokens use a sequence the tokenizer cannot accidentally produce or
+ * mistake for tag content: `CDATA<n>`.
+ */
+function stripCdataSections(xml: string): { stripped: string; values: string[] } {
+  const values: string[] = [];
+  const stripped = xml.replace(/<!\[CDATA\[([\s\S]*?)]]>/g, (_match, body: string) => {
+    const idx = values.length;
+    values.push(body);
+    return `CDATA${idx}`;
+  });
+  return { stripped, values };
+}
+
+function restoreCdata(text: string | undefined, values: string[]): string | undefined {
+  if (text === undefined) return undefined;
+  return text.replace(/CDATA(\d+)/g, (_m, n: string) => values[Number(n)] ?? '');
+}
+
+/**
+ * Extract every `<PlugIn>` child inside the first `<FormPlugins>` block.
+ * Returns empty array when there's no `<FormPlugins>` block or when it's
+ * self-closing. Classifies each plugin:
+ *   - `python` when `<PlugInType>1</PlugInType>` is present (or `<PyScript>`
+ *     exists, since BOS Designer always emits both together for Python)
+ *   - `dll` otherwise (PlugInType=0 / absent + DLL fully-qualified ClassName)
+ *
+ * Wire format reference: 2026-04-27 capture req-75 + tests/erp/rpc/dcxml.test.ts.
+ *
+ * CDATA-safe: PyScript bodies with `<` followed by alpha (e.g. `if x<i:`)
+ * get extracted before tokenizing so they can't fool the tokenizer.
+ *
+ * Exported for tests; production callers go through `K3CloudConnector.listFormPlugins`.
+ */
+export function parseFormPluginsFromKernelXml(xml: string): PluginMeta[] {
+  if (!xml) return [];
+
+  const { stripped, values } = stripCdataSections(xml);
+
+  const openIdx = stripped.indexOf('<FormPlugins>');
+  const closeIdx = stripped.indexOf('</FormPlugins>');
+  if (openIdx < 0 || closeIdx < 0 || closeIdx < openIdx) return [];
+  const body = stripped.substring(openIdx + '<FormPlugins>'.length, closeIdx);
+
+  const plugins: PluginMeta[] = [];
+  type PFrame = { tag: string; bodyStart: number; isPlugIn: boolean };
+  const stack: PFrame[] = [];
+
+  for (const tk of iterateTagTokens(body)) {
+    if (tk.isSelfClose) continue;
+    if (!tk.isClose) {
+      stack.push({ tag: tk.tag, bodyStart: tk.end, isPlugIn: tk.tag === 'PlugIn' });
+      continue;
+    }
+    const frame = stack.pop();
+    if (!frame || !frame.isPlugIn) continue;
+
+    const nodeBody = body.substring(frame.bodyStart, tk.start);
+    const className = findLastTopLevelChildText(nodeBody, 'ClassName');
+    if (!className) continue;
+    const plugInType = findLastTopLevelChildText(nodeBody, 'PlugInType');
+    const pyScript = restoreCdata(findLastTopLevelChildText(nodeBody, 'PyScript'), values);
+    const orderIdText = findLastTopLevelChildText(nodeBody, 'OrderId');
+    const isPython = plugInType === '1' || pyScript !== undefined;
+
+    plugins.push({
+      className,
+      type: isPython ? 'python' : 'dll',
+      ...(isPython ? { pyScript: pyScript ?? '' } : {}),
+      ...(orderIdText !== undefined && !isNaN(Number(orderIdText))
+        ? { orderId: Number(orderIdText) }
+        : {})
+    });
+  }
+  return plugins;
 }

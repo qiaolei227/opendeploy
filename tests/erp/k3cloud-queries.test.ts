@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { parseFieldsFromKernelXml } from '../../src/main/erp/k3cloud/queries';
+import {
+  parseFieldsFromKernelXml,
+  parseFormPluginsFromKernelXml
+} from '../../src/main/erp/k3cloud/queries';
 
 /**
  * Fixtures mirror the real K/3 Cloud FormMetadata shape: each field is an
@@ -164,5 +167,91 @@ describe('parseFieldsFromKernelXml', () => {
 
   it('skips field nodes with no <Key> child', () => {
     expect(parseFieldsFromKernelXml('<TextField><Name>orphan</Name></TextField>')).toEqual([]);
+  });
+});
+
+describe('parseFormPluginsFromKernelXml', () => {
+  it('returns empty when XML has no FormPlugins block', () => {
+    expect(parseFormPluginsFromKernelXml('<FormMetadata></FormMetadata>')).toEqual([]);
+    expect(parseFormPluginsFromKernelXml('')).toEqual([]);
+  });
+
+  it('returns empty when FormPlugins is self-closing or has only the open/close pair', () => {
+    expect(parseFormPluginsFromKernelXml('<FormPlugins/>')).toEqual([]);
+    expect(parseFormPluginsFromKernelXml('<FormPlugins></FormPlugins>')).toEqual([]);
+  });
+
+  it('parses a Python plugin (PlugInType=1 + PyScript CDATA)', () => {
+    // Matches captured req-75 shape exactly.
+    const xml =
+      '<Form><Id>ext1</Id>' +
+      '<FormPlugins>' +
+      '<PlugIn ElementType="0" ElementStyle="0">' +
+      '<ClassName>credit_warn</ClassName>' +
+      '<PlugInType>1</PlugInType>' +
+      '<PyScript><![CDATA[#py body here]]></PyScript>' +
+      '</PlugIn>' +
+      '</FormPlugins>' +
+      '</Form>';
+    const plugins = parseFormPluginsFromKernelXml(xml);
+    expect(plugins).toEqual([
+      { className: 'credit_warn', type: 'python', pyScript: '#py body here' }
+    ]);
+  });
+
+  it('parses a DLL plugin (no PyScript, classed as dll, captures OrderId)', () => {
+    const xml =
+      '<FormPlugins>' +
+      '<PlugIn ElementType="0">' +
+      '<ClassName>Kingdee.K3.SCM.Sal.Business.PlugIn.SaleOrderEdit</ClassName>' +
+      '<PlugInType>0</PlugInType>' +
+      '<OrderId>100</OrderId>' +
+      '</PlugIn>' +
+      '</FormPlugins>';
+    expect(parseFormPluginsFromKernelXml(xml)).toEqual([
+      {
+        className: 'Kingdee.K3.SCM.Sal.Business.PlugIn.SaleOrderEdit',
+        type: 'dll',
+        orderId: 100
+      }
+    ]);
+  });
+
+  it('parses multiple plugins in declaration order', () => {
+    const xml =
+      '<FormPlugins>' +
+      '<PlugIn><ClassName>first</ClassName><PlugInType>1</PlugInType><PyScript><![CDATA[#a]]></PyScript></PlugIn>' +
+      '<PlugIn><ClassName>second</ClassName><PlugInType>1</PlugInType><PyScript><![CDATA[#b]]></PyScript></PlugIn>' +
+      '</FormPlugins>';
+    const plugins = parseFormPluginsFromKernelXml(xml);
+    expect(plugins.map((p) => p.className)).toEqual(['first', 'second']);
+  });
+
+  it('CDATA-safe: PyScript with `<` followed by alpha (`if x<i:`) does not break the parser', () => {
+    // Without CDATA-stripping, `<i:` would be interpreted as a stray <i:> tag
+    // and corrupt depth tracking — losing the plugin entirely.
+    const xml =
+      '<FormPlugins>' +
+      '<PlugIn>' +
+      '<ClassName>guard</ClassName>' +
+      '<PlugInType>1</PlugInType>' +
+      '<PyScript><![CDATA[' +
+      'if x<i: pass\n' +
+      'while a<b and c<=d:\n' +
+      '    print("ok")' +
+      ']]></PyScript>' +
+      '</PlugIn>' +
+      '</FormPlugins>';
+    const plugins = parseFormPluginsFromKernelXml(xml);
+    expect(plugins).toHaveLength(1);
+    expect(plugins[0].className).toBe('guard');
+    expect(plugins[0].pyScript).toContain('if x<i:');
+    expect(plugins[0].pyScript).toContain('a<b and c<=d');
+  });
+
+  it('skips PlugIn nodes with no ClassName', () => {
+    const xml =
+      '<FormPlugins><PlugIn><PlugInType>1</PlugInType></PlugIn></FormPlugins>';
+    expect(parseFormPluginsFromKernelXml(xml)).toEqual([]);
   });
 });

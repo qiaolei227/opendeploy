@@ -20,7 +20,10 @@ export function buildK3CloudTools(connector?: K3CloudConnector): ToolHandler[] {
     getFieldsTool(c),
     listSubsystemsTool(c),
     searchMetadataTool(c),
-    describeBasedataTool(c)
+    describeBasedataTool(c),
+    listExtensionsTool(c),
+    getExtensionFieldsTool(c),
+    listFormPluginsTool(c)
   ];
 }
 
@@ -432,6 +435,129 @@ function describeBasedataTool(c: K3CloudConnector): ToolHandler {
         null,
         2
       );
+    }
+  };
+}
+
+// ─── Extension reads ────────────────────────────────────────────────────
+// These are SQL reads that surface BOS-extension state. Used by:
+//  - kingdee_create_extension's reuse decision (avoid building a duplicate)
+//  - post-write closure for kingdee_add_field / kingdee_register_python_plugin
+//    (the agent needs to verify the write actually landed)
+
+function listExtensionsTool(c: K3CloudConnector): ToolHandler {
+  return {
+    parallelSafe: true,
+    definition: {
+      name: 'kingdee_list_extensions',
+      description:
+        '列出指定原厂父单据已有的所有 BOS 扩展。**创建新扩展前必先调** —— 看是否已有可复用的扩展, 避免在同一父单据上堆叠重复扩展(BOS Designer 会变难维护)。' +
+        '\n\n返回每条扩展的 extId / 名称 / 开发商编码(FSUPPLIERNAME)/ 修改时间。' +
+        '决策建议:**`developerCode` 是 null 或匹配本项目 devCode** 的扩展可考虑挂上去;**`developerCode` 是别家(如 SAP / 友商)的别碰** —— 升级时可能被覆盖,会丢业务。',
+      parameters: {
+        type: 'object',
+        properties: {
+          parentFormId: {
+            type: 'string',
+            description: '原厂父单据 FormID, 例如 "SAL_SaleOrder"、"BD_MATERIAL"。'
+          }
+        },
+        required: ['parentFormId']
+      }
+    },
+    async execute(args) {
+      const parentFormId = args.parentFormId;
+      if (typeof parentFormId !== 'string' || parentFormId.trim() === '') {
+        throw new Error('kingdee_list_extensions requires a non-empty `parentFormId` string.');
+      }
+      const exts = await c.listExtensions(parentFormId);
+      return JSON.stringify({ count: exts.length, extensions: exts }, null, 2);
+    }
+  };
+}
+
+function getExtensionFieldsTool(c: K3CloudConnector): ToolHandler {
+  return {
+    parallelSafe: true,
+    definition: {
+      name: 'kingdee_get_extension_fields',
+      description:
+        '反查指定 BOS 扩展上已有的扩展字段(parse 扩展自己的 FKERNELXML)。**`kingdee_add_field` 写入后用本工具验证字段确实落库** — 不要用 `kingdee_get_fields` 验证扩展字段, 那个工具只看父对象原厂字段, 会返空, 容易误以为写入失败。' +
+        '\n\n返回每个字段的 key / 中文名 / type(BosFieldType, 如 TextField/DecimalField/...)/ 是否 entry 字段。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: {
+            type: 'string',
+            description: '扩展 FID(32 位 hex GUID 或带连字符 GUID)。'
+          }
+        },
+        required: ['extId']
+      }
+    },
+    async execute(args) {
+      const extId = args.extId;
+      if (typeof extId !== 'string' || extId.trim() === '') {
+        throw new Error('kingdee_get_extension_fields requires a non-empty `extId` string.');
+      }
+      // FKERNELXML on extension only contains its OWN delta — getFields
+      // parses just the new fields, exactly what we want for verification.
+      const ext = await c.getObject(extId);
+      if (!ext) {
+        return JSON.stringify(
+          { found: false, extId, message: '扩展不存在 — 检查 FID 拼写' },
+          null,
+          2
+        );
+      }
+      const fields = await c.getFields(extId);
+      return JSON.stringify(
+        {
+          found: true,
+          extId,
+          extName: ext.name,
+          parentFormId: ext.baseObjectId,
+          count: fields.length,
+          fields
+        },
+        null,
+        2
+      );
+    }
+  };
+}
+
+function listFormPluginsTool(c: K3CloudConnector): ToolHandler {
+  return {
+    parallelSafe: true,
+    definition: {
+      name: 'kingdee_list_form_plugins',
+      description:
+        '列出指定单据(原厂表单或扩展)上已注册的所有插件。可用于:' +
+        '\n1. **`kingdee_register_python_plugin` 写入后**反查验证插件已落库(看 className 是否在返回列表中、type=python、pyScript 不为空)' +
+        '\n2. **注册前查重**:同一扩展上不能挂同名插件,先调本工具看 className 是否已存在' +
+        '\n3. **排障**:看父单据原厂带了哪些 DLL 插件 + 顺序(诊断"我的 Python 没生效"时常用)' +
+        '\n\n返回每个插件的 className / type(python/dll)/ pyScript(仅 python)/ orderId(仅 DLL)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          formOrExtId: {
+            type: 'string',
+            description: '原厂单据 FormID(如 "SAL_SaleOrder")或扩展 FID(GUID)。'
+          }
+        },
+        required: ['formOrExtId']
+      }
+    },
+    async execute(args) {
+      const formOrExtId = args.formOrExtId;
+      if (typeof formOrExtId !== 'string' || formOrExtId.trim() === '') {
+        throw new Error(
+          'kingdee_list_form_plugins requires a non-empty `formOrExtId` string.'
+        );
+      }
+      const plugins = await c.listFormPlugins(formOrExtId);
+      return JSON.stringify({ count: plugins.length, plugins }, null, 2);
     }
   };
 }

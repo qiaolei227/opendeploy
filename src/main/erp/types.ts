@@ -1,7 +1,9 @@
 import type {
+  ExtensionMeta,
   FieldMeta,
   K3CloudConnectionConfig,
   ObjectMeta,
+  PluginMeta,
   SubsystemMeta,
   TestConnectionResult
 } from '@shared/erp-types';
@@ -41,6 +43,18 @@ export interface ErpConnector {
    * the form doesn't exist.
    */
   getKernelXml(formId: string): Promise<string | null>;
+  /**
+   * List BOS extensions whose parent is `parentFormId`. Joins
+   * `T_META_OBJECTTYPE_E` so only genuine extensions surface, not stray rows
+   * pointing at the parent.
+   */
+  listExtensions(parentFormId: string, locale?: number): Promise<ExtensionMeta[]>;
+  /**
+   * Parse the form (or extension) FKERNELXML and return registered plugins.
+   * Distinguishes `python` (PyScript inline) from `dll` (.NET fully-qualified
+   * ClassName).
+   */
+  listFormPlugins(formOrExtId: string): Promise<PluginMeta[]>;
 }
 
 export interface ListObjectsOptions {

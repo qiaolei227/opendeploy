@@ -4,14 +4,18 @@ import {
   getFields as qGetFields,
   getKernelXml as qGetKernelXml,
   getObject as qGetObject,
+  listExtensions as qListExtensions,
   listObjects as qListObjects,
   listSubsystems as qListSubsystems,
+  parseFormPluginsFromKernelXml,
   searchMetadata as qSearchMetadata
 } from './queries';
 import type {
+  ExtensionMeta,
   FieldMeta,
   K3CloudConnectionConfig,
   ObjectMeta,
+  PluginMeta,
   SubsystemMeta,
   TestConnectionResult
 } from '@shared/erp-types';
@@ -104,5 +108,15 @@ export class K3CloudConnector implements ErpConnector {
 
   async getKernelXml(formId: string): Promise<string | null> {
     return qGetKernelXml(await this.requirePool(), formId);
+  }
+
+  async listExtensions(parentFormId: string, locale?: number): Promise<ExtensionMeta[]> {
+    return qListExtensions(await this.requirePool(), parentFormId, locale);
+  }
+
+  async listFormPlugins(formOrExtId: string): Promise<PluginMeta[]> {
+    const xml = await qGetKernelXml(await this.requirePool(), formOrExtId);
+    if (!xml) return [];
+    return parseFormPluginsFromKernelXml(xml);
   }
 }

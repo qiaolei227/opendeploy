@@ -11,6 +11,9 @@
 - `kingdee_search_metadata` — 跨 FormID + 显示名模糊搜
 - `kingdee_list_subsystems` — 列子系统(给 list_objects 的 subsystemId 取值)
 - `kingdee_describe_basedata` — 反查基础资料对象(BD_Customer / BD_MATERIAL / ...)的可显示字段,用于 base_property 字段的 srcDisplayFieldName 选择
+- `kingdee_list_extensions` — 列指定父单据上已有的所有扩展(创建新扩展前的复用判断 + 排查同一父单据下扩展数量)
+- `kingdee_get_extension_fields` — 反查扩展上**已加的扩展字段**(`kingdee_add_field` 写完后必用本工具验证;不要用 `kingdee_get_fields`,那个只看父对象)
+- `kingdee_list_form_plugins` — 列扩展或父单据上**已注册的所有插件**(`kingdee_register_python_plugin` 写完后用本工具验证 className / pyScript 落库;同名插件查重也用它)
 
 **BOS 写入**(HTTP RPC,与 BOS Designer 同路径):
 - `kingdee_create_extension` — 给原厂父单据新建扩展。返回 `extId`,后续字段 / 插件操作都用它。
@@ -33,12 +36,18 @@ base-system 硬规则一要求你"**先侦察再精准反问**"。针对 K/3 Clo
 | 这个单据是什么 / 有哪些原厂字段 | `kingdee_get_object` + `kingdee_get_fields` |
 | 类似业务对象还有哪些 | `kingdee_search_metadata "<keyword>"` |
 | 基础资料能 srcDisplay 哪些字段 | `kingdee_describe_basedata` |
+| 这个父单据上已有哪些扩展(避免重复建) | `kingdee_list_extensions` |
+| 这个扩展上已有哪些扩展字段 | `kingdee_get_extension_fields` |
+| 这个扩展或单据已挂哪些插件 | `kingdee_list_form_plugins` |
 
 侦察完,把查到的具体情况写在提给用户的问题里——不要问"通用"问题。
 
 ### 写入工具的硬规则
 
-**创建扩展前**:用 `kingdee_search_metadata` 看用户提到的业务意图(例如"信用额度预警")是否已有同名扩展可复用。**找到候选 → 反问用户**(列扩展名 + 创建时间 + "挂上去 vs 新建独立扩展" 两个选项),不要静默挂或静默新建。**没找到 → 直接调 `kingdee_create_extension`**。
+**创建扩展前**:`kingdee_list_extensions <parentFormId>` 看父单据上已有哪些扩展可以复用。筛**`developerCode` 为 null 或匹配本项目 `devCode`** 的为候选(其它开发商的扩展别碰,升级会被覆盖)。
+
+- **候选 = 0**:**静默新建**(`kingdee_create_extension`),不必反问 — 只有一种合理路径。
+- **候选 ≥ 1**:**反问用户**,列扩展名 + 创建时间 + "挂上去 vs 新建独立扩展" 两个选项,等用户决定。
 
 **v0.1 限制**:无论挂在哪,都只做**一级扩展**(直接继承原厂单据)。从已有扩展派生 2 级扩展 v0.1 不支持,用户问就告知"v0.1 不支持多级扩展派生,只做一级扩展"。
 
@@ -60,13 +69,25 @@ OpenDeploy 创建的扩展,**必须用 `kingdee_delete_extension` 工具删**(�
 
 只有用户预先指定了精确像素坐标时才传 `top` / `left` 参数。
 
-### 写入后的闭环
+### 写入后的闭环——必做反查
 
 base-system 硬规则要求"写完必须验证才能说完成"。K/3 Cloud 的具体闭环:
 
-1. **任一写工具返回 `ok: true`** = 服务端 RPC 接受了请求(IDEOperateResult.IsSuccess=true)。当前 v0.1 信任这个返回值,因为 `kingdee_get_extension_fields` / `kingdee_list_form_plugins` 这两个反查工具是上版 SQL 路径下的工具,RPC 路线切换时被一起删了,还没补回来。
-2. **任一调用 `ok: false`** → 把 `messageTitle` / `messageDetail` 转述给用户,**不要硬往下走**。常见原因:字段 key 重复 / 同名插件已存在 / 父对象不存在 / 当前用户无权限。
-3. **完成消息中必须包含两条提示**(给用户看的话):
+1. **写工具返回 `ok: true`** 后,**必须**用对应的反查工具确认数据真的进了 DB:
+
+   | 写完什么 | 反查 | 验什么 |
+   |---|---|---|
+   | `kingdee_create_extension` | `kingdee_list_extensions <parentFormId>` | 列表里有新 extId + 名称对得上 |
+   | `kingdee_add_field` | `kingdee_get_extension_fields <extId>` | 列表里有新 key + caption 对得上 |
+   | `kingdee_register_python_plugin` | `kingdee_list_form_plugins <extId>` | 列表里有 className + `type=python` + pyScript 不为空 |
+
+   **千万别用 `kingdee_get_fields` 验扩展字段** —— 它只看父对象原厂字段,扩展字段永远查不到,会让你误以为写入失败。
+
+2. **任一反查异常**(列表为空 / 字段不在 / 插件 className 对不上 / pyScript 长度为 0)→ 告知用户写入失败,**不要硬说"完成"**。
+
+3. **任一写工具调用 `ok: false`** → 把 `messageTitle` / `messageDetail` 转述给用户,**不要硬往下走**。常见原因:字段 key 重复 / 同名插件已存在 / 父对象不存在 / 当前用户无权限。
+
+4. **完成消息中必须包含两条提示**(给用户看的话):
    - **BOS Designer 中点扩展工具栏的刷新按钮**才能看到新字段 / 插件
    - **如果挂了插件**:用户必须**关闭 K/3 Cloud 客户端重登**,新单据上才会执行新插件(只 F5 刷新表单不够;详见 memory `bos_client_cache_relogin`)。这条**不要省略**——跳过这条提示是 P1 用户体验 bug,客户会以为"插件没生效"。
 

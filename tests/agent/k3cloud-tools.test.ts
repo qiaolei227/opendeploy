@@ -1,14 +1,31 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildK3CloudTools } from '../../src/main/agent/k3cloud-tools';
 import type { K3CloudConnector } from '../../src/main/erp/k3cloud/connector';
-import type { FieldMeta, ObjectMeta, SubsystemMeta } from '@shared/erp-types';
+import type {
+  ExtensionMeta,
+  FieldMeta,
+  ObjectMeta,
+  PluginMeta,
+  SubsystemMeta
+} from '@shared/erp-types';
 
 /**
  * Minimal stand-in for K3CloudConnector — only the methods the tool layer
  * calls, plus a config block so activeProjectTag can read the database name.
  */
 function makeFake(
-  overrides: Partial<Pick<K3CloudConnector, 'listObjects' | 'getObject' | 'getFields' | 'listSubsystems' | 'searchMetadata'>> = {}
+  overrides: Partial<
+    Pick<
+      K3CloudConnector,
+      | 'listObjects'
+      | 'getObject'
+      | 'getFields'
+      | 'listSubsystems'
+      | 'searchMetadata'
+      | 'listExtensions'
+      | 'listFormPlugins'
+    >
+  > = {}
 ): K3CloudConnector {
   return {
     config: {
@@ -25,17 +42,22 @@ function makeFake(
     getFields: vi.fn(async () => [] as FieldMeta[]),
     listSubsystems: vi.fn(async () => [] as SubsystemMeta[]),
     searchMetadata: vi.fn(async () => [] as ObjectMeta[]),
+    listExtensions: vi.fn(async () => [] as ExtensionMeta[]),
+    listFormPlugins: vi.fn(async () => [] as PluginMeta[]),
     ...overrides
   } as unknown as K3CloudConnector;
 }
 
 describe('buildK3CloudTools', () => {
-  it('returns 6 tools when a connector is present', () => {
+  it('returns 9 tools when a connector is present', () => {
     const tools = buildK3CloudTools(makeFake());
     expect(tools.map((t) => t.definition.name).sort()).toEqual([
       'kingdee_describe_basedata',
+      'kingdee_get_extension_fields',
       'kingdee_get_fields',
       'kingdee_get_object',
+      'kingdee_list_extensions',
+      'kingdee_list_form_plugins',
       'kingdee_list_objects',
       'kingdee_list_subsystems',
       'kingdee_search_metadata'
@@ -329,3 +351,150 @@ describe('kingdee_describe_basedata tool (Plan 5.12.1 Task 6)', () => {
     expect(tool.parallelSafe).toBe(true);
   });
 });
+
+describe('kingdee_list_extensions tool', () => {
+  const findTool = (fake: K3CloudConnector) =>
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_list_extensions')!;
+
+  it('forwards parentFormId to connector and returns count + extensions', async () => {
+    const exts: ExtensionMeta[] = [
+      {
+        extId: 'aaa1',
+        parentFormId: 'SAL_SaleOrder',
+        name: 'OpenDeploy 信用预警',
+        developerCode: 'PAIJ',
+        modifyDate: '2026-04-27T00:00:00Z'
+      },
+      {
+        extId: 'bbb2',
+        parentFormId: 'SAL_SaleOrder',
+        name: '友商扩展',
+        developerCode: 'OTHER_ISV',
+        modifyDate: '2026-03-15T00:00:00Z'
+      }
+    ];
+    const fake = makeFake({ listExtensions: vi.fn(async () => exts) });
+    const tool = findTool(fake);
+
+    const parsed = JSON.parse(await tool.execute({ parentFormId: 'SAL_SaleOrder' }));
+
+    expect(fake.listExtensions).toHaveBeenCalledWith('SAL_SaleOrder');
+    expect(parsed.count).toBe(2);
+    expect(parsed.extensions).toEqual(exts);
+  });
+
+  it('returns count=0 when no extensions exist', async () => {
+    const fake = makeFake({ listExtensions: vi.fn(async () => []) });
+    const tool = findTool(fake);
+
+    const parsed = JSON.parse(await tool.execute({ parentFormId: 'SAL_SaleOrder' }));
+
+    expect(parsed.count).toBe(0);
+    expect(parsed.extensions).toEqual([]);
+  });
+
+  it('throws on empty parentFormId', async () => {
+    const tool = findTool(makeFake());
+    await expect(tool.execute({})).rejects.toThrow(/parentFormId/);
+    await expect(tool.execute({ parentFormId: '   ' })).rejects.toThrow(/parentFormId/);
+  });
+
+  it('marked parallelSafe', () => {
+    expect(findTool(makeFake()).parallelSafe).toBe(true);
+  });
+});
+
+describe('kingdee_get_extension_fields tool', () => {
+  const findTool = (fake: K3CloudConnector) =>
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_get_extension_fields')!;
+
+  it('returns fields when extension exists', async () => {
+    const fake = makeFake({
+      getObject: vi.fn(async (id: string) =>
+        id === 'ext1'
+          ? {
+              id: 'ext1',
+              name: 'OpenDeploy 信用预警',
+              modelTypeId: 100,
+              subsystemId: '23',
+              baseObjectId: 'SAL_SaleOrder',
+              isTemplate: false,
+              modifyDate: null
+            }
+          : null
+      ),
+      getFields: vi.fn(async () => [
+        { key: 'F_PAIJ_Warn', name: '预警标记', type: 'CheckBoxField', isEntryField: false }
+      ] as FieldMeta[])
+    });
+    const tool = findTool(fake);
+
+    const parsed = JSON.parse(await tool.execute({ extId: 'ext1' }));
+
+    expect(parsed.found).toBe(true);
+    expect(parsed.extId).toBe('ext1');
+    expect(parsed.parentFormId).toBe('SAL_SaleOrder');
+    expect(parsed.count).toBe(1);
+    expect(parsed.fields[0].key).toBe('F_PAIJ_Warn');
+  });
+
+  it('returns found=false when extension is missing (does not call getFields)', async () => {
+    const fake = makeFake({ getObject: vi.fn(async () => null) });
+    const tool = findTool(fake);
+
+    const parsed = JSON.parse(await tool.execute({ extId: 'ghost' }));
+
+    expect(parsed.found).toBe(false);
+    expect(fake.getFields).not.toHaveBeenCalled();
+  });
+
+  it('throws on empty extId', async () => {
+    const tool = findTool(makeFake());
+    await expect(tool.execute({})).rejects.toThrow(/extId/);
+  });
+
+  it('marked parallelSafe', () => {
+    expect(findTool(makeFake()).parallelSafe).toBe(true);
+  });
+});
+
+describe('kingdee_list_form_plugins tool', () => {
+  const findTool = (fake: K3CloudConnector) =>
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_list_form_plugins')!;
+
+  it('returns python + dll plugins from connector', async () => {
+    const plugins: PluginMeta[] = [
+      { className: 'credit_warn', type: 'python', pyScript: '#stub' },
+      {
+        className: 'Kingdee.K3.SCM.Sal.Business.PlugIn.SaleOrderEdit',
+        type: 'dll',
+        orderId: 100
+      }
+    ];
+    const fake = makeFake({ listFormPlugins: vi.fn(async () => plugins) });
+    const tool = findTool(fake);
+
+    const parsed = JSON.parse(await tool.execute({ formOrExtId: 'ext1' }));
+
+    expect(fake.listFormPlugins).toHaveBeenCalledWith('ext1');
+    expect(parsed.count).toBe(2);
+    expect(parsed.plugins[0].type).toBe('python');
+    expect(parsed.plugins[1].type).toBe('dll');
+  });
+
+  it('returns count=0 when no plugins exist', async () => {
+    const fake = makeFake({ listFormPlugins: vi.fn(async () => []) });
+    const parsed = JSON.parse(await findTool(fake).execute({ formOrExtId: 'SAL_SaleOrder' }));
+    expect(parsed.count).toBe(0);
+  });
+
+  it('throws on empty formOrExtId', async () => {
+    const tool = findTool(makeFake());
+    await expect(tool.execute({})).rejects.toThrow(/formOrExtId/);
+  });
+
+  it('marked parallelSafe', () => {
+    expect(findTool(makeFake()).parallelSafe).toBe(true);
+  });
+});
+
