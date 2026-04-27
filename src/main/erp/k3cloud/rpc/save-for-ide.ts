@@ -29,9 +29,14 @@ export function buildParas(req: SaveExtensionRequest): string {
     DevCode: ext.isv.devCode,
   };
   const nameJson = JSON.stringify(ext.name.map((n) => ({ Key: n.localeId, Value: n.value })));
+  // OldId semantics observed in capture: null on first save (isNew),
+  // equals current Id on subsequent saves of the same extension. Used by
+  // server to detect rename (where it would differ from Id). Override via
+  // ext.oldId when explicitly renaming.
+  const oldId = ext.oldId !== undefined ? ext.oldId : (req.isNew ? null : ext.formId);
   const paras = {
     Id: ext.formId,
-    OldId: ext.oldId ?? null,
+    OldId: oldId,
     ModelTypeId: ext.modelTypeId,
     BaseObjectId: ext.baseObjectId,
     DevType: 2,
