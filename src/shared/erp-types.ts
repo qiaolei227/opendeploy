@@ -64,11 +64,43 @@ export interface ListDatabasesResult {
   error?: string;
 }
 
+/**
+ * BOS RPC credentials — what's needed to call SaveForIDEV9 / Delete on the
+ * K/3 Cloud Web Server (the same path BOS Designer uses). Distinct from
+ * `K3CloudConnectionConfig` because:
+ *
+ *  - `K3CloudConnectionConfig` is a SQL Server account hitting `T_META_*`
+ *    tables for *reads*. The login is a DB user (`sa` or similar), the
+ *    transport is mssql/TDS on port 1433.
+ *  - `BosRpcCredentials` is a K/3 Cloud user-account login (the same one
+ *    the user types into BOS Designer's login dialog), the transport is
+ *    HTTP(S) on the IIS-hosted Web Server (port 80/443), and the wire
+ *    format is the proprietary base64+zlib + DCXML envelope.
+ *
+ * Optional on `Project` so existing read-only projects keep working —
+ * write tools refuse with a clear "creds missing" message rather than
+ * crashing at boot.
+ */
+export interface BosRpcCredentials {
+  /** K/3 Cloud Web Server root, e.g. `http://localhost/k3cloud` (no trailing slash). */
+  baseUrl: string;
+  /** Account-set ID — 32-hex GUID matching the SQL `database` field's account-set. */
+  acctId: string;
+  /** K/3 Cloud user (the `demo` / consultant login, NOT the SQL user). */
+  username: string;
+  /** Stored plaintext per the SQL password decision; Enterprise build will move to keychain. */
+  password: string;
+  /** Developer code, e.g. `PAIJ` — stamped on extensions for ownership. Defaults to `PAIJ`. */
+  devCode: string;
+}
+
 export interface Project {
   id: string;
   name: string;
   erpProvider: ErpProvider;
   connection: K3CloudConnectionConfig;
+  /** Optional BOS RPC creds — required for any write tool, ignored for reads. */
+  bos?: BosRpcCredentials;
   /** ISO timestamps; written by the store on create / update. */
   createdAt: string;
   updatedAt: string;
