@@ -15,6 +15,7 @@ import { ToolRegistry } from './agent/tools';
 import { BUILTIN_TOOLS } from './agent/builtin-tools';
 import { buildSkillsContext } from './agent/skills-integration';
 import { activeProjectTag, buildK3CloudTools } from './agent/k3cloud-tools';
+import { buildBosRpcTools } from './agent/bos-rpc-tools';
 import { erpRulesFragment } from './agent/erp-rules';
 import { getConnectionState } from './erp/active';
 import { getProject } from './projects/store';
@@ -113,6 +114,7 @@ export function registerLlmIpc(getMainWindow: () => BrowserWindow | null): void 
         registry.register(loadSkillTool);
         registry.register(loadSkillFileTool);
         for (const t of buildK3CloudTools()) registry.register(t);
+        for (const t of await buildBosRpcTools()) registry.register(t);
         for (const t of buildPluginTools()) registry.register(t);
         for (const t of buildPlanTools()) registry.register(t);
 
