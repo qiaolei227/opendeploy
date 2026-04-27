@@ -18,6 +18,7 @@ export {
   parseJsonResponse,
 } from './http-client';
 export type { KdSession, KdsvcCallOptions, KdsvcResponse } from './http-client';
-export { login, getAuthPublicKey } from './login';
+export { login, fetchPublicKeyInfo } from './login';
 export type { LoginCredentials, LoginResult } from './login';
+export { obfuscatePassword, deobfuscatePassword, rsaEncryptForJava, cipherPasswordForLogin } from './password';
 export { saveExtension, buildParas, buildAp0Plain } from './save-for-ide';

@@ -1,141 +1,185 @@
 /**
- * BOS Login flow orchestration (skeleton — RSA password encryption TODO).
+ * BOS Login flow — local-account direct login (frmLogin path).
  *
- * Captured login sequence (REQ #9-#11 in 2026-04-27 session):
+ * Mirrors the C# `UserServiceProxy.ValidateUser(string ServerUrl, LoginInfo info)`
+ * (Kingdee.BOS.ServiceFacade.KDServiceClient.dll line 7449) which:
+ *   1. Calls `GetPublicKeyInfo(acctID)` over RPC — returns an obfuscated
+ *      public key, or empty when password encryption is disabled server-side.
+ *   2. If non-empty: deobfuscates the key and RSA-PKCS#1-v1.5 encrypts the
+ *      plaintext password.
+ *      If empty: falls back to single-arg `CipherText` obfuscation (NOT
+ *      real encryption — matches `ConfidentialDataSecurityUtil.CipherText(string)`,
+ *      Kingdee.BOS.dll line 68547).
+ *   3. Submits `ValidateLoginInfo` with the cooked password.
  *
- *   #9  GetAuthPublicKey
- *       ap0  = AcctID (plain string, e.g. "69a531ee82525a")
- *       resp = base64-encoded X.509 SubjectPublicKeyInfo (3072-bit RSA)
+ * NOT implemented: frmCloudLogin path (KingdeeCloud-mediated, requires
+ * `cp.GetKingdeeTokenByUserEx` against cloud.kingdee.com — we don't want
+ * to depend on Kingdee Cloud for OpenDeploy). Local-account login covers
+ * the consultant-friendly use case: BOS account `demo` / `admin` / etc.
  *
- *   #10 GetPublicKeyInfo
- *       ap0  = AcctID
- *       resp = empty (probably a cache prime — investigate if not strictly needed)
- *
- *   #11 ValidateLoginInfo  ← the actual login
- *       ap1  = LoginInfo JSON {
- *         AcctID, Username, Password, Lcid, AuthenticateType, EncyptType,
- *         LoginType, PasswordIsEncrypted, ClientInfo, UserToken, ...
- *       }
- *       (note: ap0 is empty; the LoginInfo argument occupies ap1 because
- *        the C# method signature reserves ap0 for the user/AcctID position)
- *       resp = LoginResult { LoginResultType, Context: {SessionId, ...},
- *                            KDSVCSessionId, AccessToken, ... }
- *       Set-Cookie: ASP.NET_SessionId=...; kdservice-sessionid=...
- *
- * UNRESOLVED: The Password field in ap1 contained 6 CJK chars
- * ("丠伊丠伊丠伊丠伊丠伊丠伊") rather than ~512 chars of base64 RSA
- * ciphertext. Meanwhile UserToken was a ~1380-char base64 blob. We need
- * to confirm whether:
- *   (a) UserToken contains the encrypted password and Password is just a
- *       placeholder/marker for "encrypted", OR
- *   (b) Password uses some non-standard encoding (e.g. "fake CJK" form
- *       of base64 to obfuscate from log scrubbers), OR
- *   (c) Some other LoginCryptography routine in the client.
- *
- * Path forward: capture a fresh login with a known plaintext password
- * (e.g. "test1234") and reverse the mapping; OR decompile
- * Kingdee.BOS.WinForm.Login.dll to find the plaintext → wire transform.
+ * Captured reference: `.scratch/captures/decoded/req-11/request-ap1.dec.txt`
+ * is a frmCloudLogin sample — same RPC endpoint, slightly different field
+ * population (UserToken populated, Password="******" obfuscated, AuthType=8).
  */
 
 import { KdSession, callKdsvc, encodeApField, encodeApFieldRaw, parseJsonResponse, applySetCookieToSession } from './http-client';
-import { decodeAppLayerString } from './codec';
 import { buildClientInfo } from './clientinfo';
+import { cipherPasswordForLogin } from './password';
+
+const USER_SERVICE = 'Kingdee.BOS.ServiceFacade.ServicesStub.User.UserService';
 
 export interface LoginCredentials {
+  /** K/3 Cloud Web Server URL, e.g. "http://localhost/k3cloud". No trailing slash. */
   baseUrl: string;
+  /** Data center / account ID, e.g. "69a531ee82525a". From LoginSetting.xml `<DataCenterID>`. */
   acctId: string;
+  /** Local account name (NOT cloud phone number), e.g. "demo" / "Administrator". */
   username: string;
+  /** Plaintext password — encrypted on the wire by GetPublicKeyInfo flow. */
   password: string;
+  /** Locale for messages. Default 2052 (zh-CN). */
   lcid?: number;
 }
 
 export interface LoginResult {
   session: KdSession;
-  userId: number;
-  userName: string;
-  customName: string;
-  /** True for happy path; false means look at the message for reason. */
   isSuccess: boolean;
+  /** Set when Login succeeds. */
+  userId?: number;
+  /** Internal name (e.g. "demo"). */
+  userName?: string;
+  /** Display name (Chinese). */
+  customName?: string;
+  /** Server-issued token, useful for re-login / cross-service calls. */
+  accessToken?: string;
+  /** When isSuccess=false. */
   message?: string;
+  messageCode?: string;
 }
 
-const ACCOUNT_SERVICE = 'Kingdee.BOS.ServiceFacade.ServicesStub.Account.AccountService';
-const USER_SERVICE = 'Kingdee.BOS.ServiceFacade.ServicesStub.User.UserService';
-
-export async function getAuthPublicKey(baseUrl: string, acctId: string): Promise<string> {
-  const session: KdSession = { baseUrl };
-  const res = await callKdsvc(session, USER_SERVICE, 'GetAuthPublicKey', {
+/**
+ * Step 1: pull the (obfuscated) public key for password encryption.
+ * Returns empty string when server has password encryption disabled — caller
+ * must fall back to obfuscation (cipherPasswordForLogin handles this).
+ */
+export async function fetchPublicKeyInfo(session: KdSession, acctId: string): Promise<string> {
+  const res = await callKdsvc(session, USER_SERVICE, 'GetPublicKeyInfo', {
     apFields: { ap0: encodeApFieldRaw(acctId) },
   });
-  // Response is base64-encoded X.509 SubjectPublicKeyInfo, optionally
-  // wrapped in JSON quoting depending on the deserializer behavior.
-  return res.bodyText.replace(/^"|"$/g, '');
+  applySetCookieToSession(session, res.setCookieHeaders);
+  // Response is a JSON-quoted string (or empty). Strip outer quotes if present.
+  const text = res.bodyText.trim();
+  if (!text) return '';
+  if (text.startsWith('"') && text.endsWith('"')) return text.slice(1, -1);
+  return text;
 }
 
 /**
- * RSA-encrypt password using the X.509 public key returned by GetAuthPublicKey.
+ * Full Login orchestration for local-account auth.
  *
- * TODO(login): determine PKCS#1 v1.5 vs OAEP padding — capture sample with
- * known plaintext to reverse. For now this throws.
- */
-export function encryptPassword(_publicKeyBase64: string, _password: string): string {
-  throw new Error(
-    'rpc/login.encryptPassword: NOT IMPLEMENTED — see TODO in module docstring; ' +
-      'requires reversing BOS Designer LoginCryptography (likely RSA + base64), ' +
-      'cross-checked against a fresh capture with a known plaintext password.',
-  );
-}
-
-/**
- * Full Login orchestration.
- *
- * SKELETON: signature is final, body is incomplete. Wire it up after
- * resolving the password encryption transform.
+ * Returns {session, isSuccess: true, ...} on success — pass `session` into
+ * subsequent RPC calls (e.g. saveExtension). Cookie state is mutated on
+ * `session` in-place.
  */
 export async function login(creds: LoginCredentials): Promise<LoginResult> {
   const session: KdSession = { baseUrl: creds.baseUrl };
-
-  const publicKey = await getAuthPublicKey(creds.baseUrl, creds.acctId);
-  const encryptedPassword = encryptPassword(publicKey, creds.password);
+  const obfuscatedKey = await fetchPublicKeyInfo(session, creds.acctId);
+  const cookedPassword = cipherPasswordForLogin(creds.password, obfuscatedKey);
 
   const loginInfo = {
     AcctID: creds.acctId,
     Username: creds.username,
-    Password: encryptedPassword,
+    Password: cookedPassword,
+    AuthSign: null,
     Lcid: creds.lcid ?? 2052,
-    AuthenticateType: 8,
+    /**
+     * AuthenticationType enum (BOS): observed values
+     *   0 = Simple / default local account
+     *   8 = IDECloudEntryAuthentication (frmCloudLogin path, capture sample)
+     * For local-account direct login, 0 is what frmLogin sends.
+     */
+    AuthenticateType: 0,
+    ValidationCode: null,
     EncyptType: 0,
     LoginType: 0,
+    /**
+     * True when Password field carries server-cooked content (obfuscated or
+     * RSA). False would mean raw plaintext — server may reject. We always
+     * pass cooked-form so this stays true.
+     */
     PasswordIsEncrypted: true,
+    IpAddress: null,
+    ComputerName: null,
+    RawSignData: null,
+    SignedData: null,
+    OpenToken: null,
     ClientInfo: buildClientInfo(),
-    // UserToken: TODO — observed format unclear, see module docstring.
+    EntryRole: null,
+    LoginMethod: 0,
+    SessionId: null,
+    UserToken: null,
+    AppId: null,
+    AppSecret: null,
+    Timestamp: 0,
+    RequstIP: null,
+    IgnoreVer: false,
+    IsShowLoggedInMessage: false,
+    IsSameUserToken: false,
+    KickoutFlag: 0,
+    CustomizationParameter: null,
+    OrgNumber: null,
+    OriginalClientIP: null,
+    SMSCode: null,
+    LoginIden: null,
+    LoginAgain: null,
   };
 
+  // ValidateLoginInfo signature is `(string ServerUrl, LoginInfo info)` so
+  // the LoginInfo argument occupies ap1 (ap0 is the ServerUrl, empty here).
   const res = await callKdsvc(session, USER_SERVICE, 'ValidateLoginInfo', {
     apFields: { ap0: '', ap1: encodeApField(loginInfo) },
   });
   applySetCookieToSession(session, res.setCookieHeaders);
 
+  if (!res.bodyText) {
+    return { session, isSuccess: false, message: 'empty response from ValidateLoginInfo' };
+  }
+
   const parsed = parseJsonResponse<{
     LoginResultType: number;
     Message?: string | null;
-    Context?: { SessionId?: string; UserId?: number; UserName?: string; CustomName?: string; AccessToken?: string };
+    MessageCode?: string | null;
+    Context?: {
+      SessionId?: string;
+      UserId?: number;
+      UserName?: string;
+      CustomName?: string;
+      AccessToken?: string;
+    };
     KDSVCSessionId?: string;
+    AccessToken?: string;
   }>(res.bodyText);
 
-  if (parsed.Context?.SessionId) session.aspNetSessionId = parsed.Context.SessionId;
-  if (parsed.KDSVCSessionId) session.kdServiceSessionId = parsed.KDSVCSessionId;
-  if (parsed.Context?.AccessToken) session.accessToken = parsed.Context.AccessToken;
+  // Server sets cookies on the response too; primary source is Set-Cookie
+  // headers (already applied above). The LoginResult body fields below are
+  // a backup for environments where cookie handling is finicky.
+  if (parsed.Context?.SessionId && !session.aspNetSessionId) {
+    session.aspNetSessionId = parsed.Context.SessionId;
+  }
+  if (parsed.KDSVCSessionId && !session.kdServiceSessionId) {
+    session.kdServiceSessionId = parsed.KDSVCSessionId;
+  }
+  const accessToken = parsed.AccessToken ?? parsed.Context?.AccessToken;
+  if (accessToken) session.accessToken = accessToken;
 
   return {
     session,
-    userId: parsed.Context?.UserId ?? 0,
-    userName: parsed.Context?.UserName ?? '',
-    customName: parsed.Context?.CustomName ?? '',
     isSuccess: parsed.LoginResultType === 1,
+    userId: parsed.Context?.UserId,
+    userName: parsed.Context?.UserName,
+    customName: parsed.Context?.CustomName,
+    accessToken,
     message: parsed.Message ?? undefined,
+    messageCode: parsed.MessageCode ?? undefined,
   };
 }
-
-// Suppress unused-import warning until login is fully wired.
-void decodeAppLayerString;

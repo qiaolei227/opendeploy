@@ -61,7 +61,8 @@ same wire protocol BOS Designer uses to talk to the K/3 Cloud Web Server.
 | `clientinfo.ts` | ✅ working + tested |
 | `dcxml.ts` | ✅ all 12 field types + 12 appearance types + remove + Form root |
 | `http-client.ts` | 🟡 working but cookie persistence not exercised in real call |
-| `login.ts` | 🔴 password encryption blocked — see module docstring |
+| `login.ts` | 🟢 frmLogin (local-account) path implemented; needs end-to-end smoke against real server |
+| `password.ts` | ✅ obfuscate / deobfuscate / RSA-PKCS#1-v1.5; round-trip + capture-match tested |
 | `save-for-ide.ts` | 🟡 composed shell, depends on Login + first integration test |
 
 ## Adding a new field type
@@ -92,10 +93,12 @@ same wire protocol BOS Designer uses to talk to the K/3 Cloud Web Server.
 
 ## Known TODOs (in priority order)
 
-1. **Login password encryption** (`login.ts`) — BLOCKING for any real call.
-   Need a fresh capture with known plaintext password to reverse the
-   transform; OR decompile `Kingdee.BOS.WinForm.Login.dll` /
-   `Kingdee.BOS.UserService.Web.dll` for `LoginCryptography`-class.
+1. **End-to-end Login smoke** — drive `login()` against the real local server
+   to confirm `AuthenticateType=0` is accepted (frmLogin path). If rejected,
+   capture an actual frmLogin-mode session (toggle LoginSetting.xml
+   `<CloudEntry>False</CloudEntry>` + restart BOS Designer + log in with
+   local account `demo`) and diff the captured wire format against what
+   `login()` produces.
 2. **`__paras__.FuncInterfaces`** (`save-for-ide.ts`) — currently null;
    may need population to inherit parent's function interfaces (e.g.
    `UpdateCreditAmount` for SAL_SaleOrder). Test on first integration
