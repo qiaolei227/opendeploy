@@ -35,6 +35,12 @@ export interface ErpConnector {
   listSubsystems(locale?: number): Promise<SubsystemMeta[]>;
   /** Fuzzy search across id + localized name. */
   searchMetadata(keyword: string, locale?: number): Promise<ObjectMeta[]>;
+  /**
+   * Raw `T_META_OBJECTTYPE.FKERNELXML` for `formId`, used by BOS write tools
+   * to discover layout view OIDs for the LayoutInfo delta. Returns null when
+   * the form doesn't exist.
+   */
+  getKernelXml(formId: string): Promise<string | null>;
 }
 
 export interface ListObjectsOptions {

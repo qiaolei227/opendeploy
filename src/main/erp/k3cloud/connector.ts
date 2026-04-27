@@ -2,6 +2,7 @@ import sql from 'mssql';
 import { openPool as defaultOpenPool } from '../pool';
 import {
   getFields as qGetFields,
+  getKernelXml as qGetKernelXml,
   getObject as qGetObject,
   listObjects as qListObjects,
   listSubsystems as qListSubsystems,
@@ -99,5 +100,9 @@ export class K3CloudConnector implements ErpConnector {
 
   async searchMetadata(keyword: string, locale?: number): Promise<ObjectMeta[]> {
     return qSearchMetadata(await this.requirePool(), keyword, locale);
+  }
+
+  async getKernelXml(formId: string): Promise<string | null> {
+    return qGetKernelXml(await this.requirePool(), formId);
   }
 }

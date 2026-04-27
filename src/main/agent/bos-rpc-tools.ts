@@ -23,6 +23,10 @@ import type { K3CloudConnector } from '../erp/k3cloud/connector';
 import { getActiveConnector, getConnectionState } from '../erp/active';
 import { bosSessionManager } from '../erp/k3cloud/rpc/session-manager';
 import { deleteExtension as deleteExtensionRpc } from '../erp/k3cloud/rpc/delete-extension';
+import { saveExtension as saveExtensionRpc } from '../erp/k3cloud/rpc/save-for-ide';
+import { extractLayoutInfoOid } from '../erp/k3cloud/rpc/layout-discovery';
+import { newCompactGuid } from '../erp/k3cloud/rpc/dcxml';
+import type { SaveExtensionRequest } from '../erp/k3cloud/rpc/types';
 import { getProject } from '../projects/store';
 
 /**
@@ -50,7 +54,10 @@ export async function buildBosRpcTools(
   const project = await getProject(pid).catch(() => null);
   if (!project?.bos) return [];
 
-  return [deleteExtensionTool(pid, sessionMgr)];
+  return [
+    createExtensionTool(c, pid, sessionMgr),
+    deleteExtensionTool(pid, sessionMgr),
+  ];
 }
 
 // ─── Individual tools ─────────────────────────────────────────────────
@@ -58,6 +65,131 @@ export async function buildBosRpcTools(
 interface SessionMgrLike {
   getOrLogin(projectId: string): Promise<import('../erp/k3cloud/rpc/http-client').KdSession>;
   invalidate(projectId: string): void;
+}
+
+function createExtensionTool(
+  connector: K3CloudConnector,
+  projectId: string,
+  sessionMgr: SessionMgrLike,
+): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_create_extension',
+      description:
+        '在 K/3 Cloud 上为指定父单据(原厂表单)新建一个 BOS 扩展。扩展是在父对象上挂字段 / 插件 / 业务规则等定制内容的容器,本身不带任何字段或插件。\n' +
+        '\n创建后调用方拿到的 `extId` 用于后续:\n' +
+        '- `kingdee_add_field` 添加扩展字段\n' +
+        '- `kingdee_register_python_plugin` 挂 Python 表单插件\n' +
+        '- `kingdee_delete_extension` 不要时整个删掉\n' +
+        '\n创建前**先调 `kingdee_list_extensions <parentFormId>`** 看是否已有可复用的扩展(同一父单据上多个扩展会变 BOS Designer 的负担)。' +
+        '`layoutInfoOid` 通常会自动从父单据的元数据里查出来,只在自动发现失败时才手动传。',
+      parameters: {
+        type: 'object',
+        properties: {
+          parentFormId: {
+            type: 'string',
+            description: '原厂父单据 FormID,如 "SAL_SaleOrder"(销售订单)、"BD_MATERIAL"(物料)。',
+          },
+          extName: {
+            type: 'string',
+            description: '扩展中文名,描述业务意图,例如 "信用额度预警"。客户在 BOS Designer 中能看到。',
+          },
+          layoutInfoOid: {
+            type: 'string',
+            description:
+              '(可选)父单据的主布局视图 OID(8-4-4-4-12 格式 GUID)。一般从父对象 FKERNELXML 自动发现,只在自动发现失败时才传。',
+          },
+        },
+        required: ['parentFormId', 'extName'],
+      },
+    },
+    async execute(args) {
+      const parentFormId = String(args.parentFormId ?? '').trim();
+      const extName = String(args.extName ?? '').trim();
+      if (!parentFormId) throw new Error('kingdee_create_extension 需要 parentFormId 参数。');
+      if (!extName) throw new Error('kingdee_create_extension 需要 extName 参数。');
+
+      const project = await getProject(projectId);
+      if (!project?.bos) {
+        throw new Error('当前项目未配置 BOS 写入凭据,请到项目设置中补全。');
+      }
+
+      // Look up parent's modelTypeId / subsystemId — both required by
+      // SaveForIDEV9 paras. Returns null when the form doesn't exist.
+      const parent = await connector.getObject(parentFormId);
+      if (!parent) {
+        throw new Error(`父单据 ${parentFormId} 不存在。请先用 kingdee_search_metadata 确认 FormID 拼写。`);
+      }
+      if (parent.modelTypeId == null || parent.subsystemId == null) {
+        throw new Error(
+          `父单据 ${parentFormId} 元数据不完整(modelTypeId=${parent.modelTypeId}, subsystemId=${parent.subsystemId}),无法创建扩展。`,
+        );
+      }
+
+      // Discover layoutInfoOid from parent FKERNELXML unless agent overrode.
+      let layoutInfoOid = typeof args.layoutInfoOid === 'string' ? args.layoutInfoOid.trim() : '';
+      if (!layoutInfoOid) {
+        const xml = await connector.getKernelXml(parentFormId);
+        if (!xml) {
+          throw new Error(`父单据 ${parentFormId} 无 FKERNELXML,无法自动发现 layoutInfoOid。`);
+        }
+        const oid = extractLayoutInfoOid(xml);
+        if (!oid) {
+          throw new Error(
+            `父单据 ${parentFormId} FKERNELXML 中未找到 <LayoutInfo oid="...">,请手动指定 layoutInfoOid 参数。`,
+          );
+        }
+        layoutInfoOid = oid;
+      }
+
+      const formId = newCompactGuid();
+      const req: SaveExtensionRequest = {
+        extension: {
+          formId,
+          baseObjectId: parentFormId,
+          modelTypeId: parent.modelTypeId,
+          subSystemId: parent.subsystemId,
+          name: [{ localeId: 2052, value: extName }],
+          isv: { devCode: project.bos.devCode },
+        },
+        isNew: true,
+        layoutInfoOid,
+      };
+
+      const session = await sessionMgr.getOrLogin(projectId);
+      const result = await saveExtensionRpc(session, req);
+
+      if (!result.isSuccess) {
+        return JSON.stringify(
+          {
+            ok: false,
+            parentFormId,
+            extName,
+            messageTitle: result.messageTitle,
+            messageDetail: result.messageDetail,
+            hint: '服务端拒绝了创建。看 messageDetail 里的具体原因。',
+          },
+          null,
+          2,
+        );
+      }
+
+      return JSON.stringify(
+        {
+          ok: true,
+          extId: formId,
+          parentFormId,
+          extName,
+          layoutInfoOid,
+          reminder:
+            '扩展已创建。后续添加字段 / 插件请把上面的 extId 传给 kingdee_add_field / kingdee_register_python_plugin。' +
+            'BOS Designer 中需点工具栏刷新按钮才能在扩展列表里看到新建的扩展。',
+        },
+        null,
+        2,
+      );
+    },
+  };
 }
 
 function deleteExtensionTool(projectId: string, sessionMgr: SessionMgrLike): ToolHandler {

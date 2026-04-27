@@ -165,6 +165,23 @@ const GET_FIELDS_SQL = `
 `;
 
 /**
+ * Raw FKERNELXML — used by BOS write tools that need to extract data the
+ * field-only parser doesn't surface (layout OIDs, function interfaces, ...).
+ * Same SQL as getFields; we return the unparsed blob.
+ */
+export async function getKernelXml(
+  pool: sql.ConnectionPool,
+  formId: string
+): Promise<string | null> {
+  requireValid(GET_FIELDS_SQL);
+  const result = await pool
+    .request()
+    .input('id', sql.VarChar(36), formId)
+    .query<{ xml: string | null }>(GET_FIELDS_SQL);
+  return result.recordset[0]?.xml ?? null;
+}
+
+/**
  * K/3 Cloud stores full form metadata — fields, plugins, layout, validations —
  * as a single FKERNELXML blob in `T_META_OBJECTTYPE`. Unlike the attribute-
  * style one might expect, K/3 Cloud declares each field's identity via CHILD
