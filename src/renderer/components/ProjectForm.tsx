@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  BosRpcCredentials,
   DatabaseCandidate,
   ErpProvider,
   K3CloudConnectionConfig,
@@ -24,6 +25,8 @@ interface ProjectFormProps {
     name: string;
     erpProvider: ErpProvider;
     connection: K3CloudConnectionConfig;
+    /** Undefined when the user left every BOS field blank — Project.bos stays unset. */
+    bos?: BosRpcCredentials;
   }) => void | Promise<void>;
   onCancel: () => void;
   /**
@@ -44,6 +47,14 @@ const DEFAULT_CONNECTION: K3CloudConnectionConfig = {
   password: '',
   encrypt: true,
   trustServerCertificate: true
+};
+
+const DEFAULT_BOS: BosRpcCredentials = {
+  baseUrl: 'http://localhost/k3cloud',
+  acctId: '',
+  username: '',
+  password: '',
+  devCode: 'PAIJ'
 };
 
 /** Fields whose values invalidate a prior successful connect-and-discover. */
@@ -78,6 +89,7 @@ export function ProjectForm({
   const [c, setC] = useState<K3CloudConnectionConfig>(
     initial?.connection ?? DEFAULT_CONNECTION
   );
+  const [bos, setBos] = useState<BosRpcCredentials>(initial?.bos ?? DEFAULT_BOS);
   // Edit mode opens with the connection assumed valid; creating a new project
   // starts unverified so section 3 stays locked until the user clicks discover.
   const [connectionVerified, setConnectionVerified] = useState(isEdit);
@@ -150,7 +162,30 @@ export function ProjectForm({
 
   const submit = (): void => {
     if (!canSubmit || submitting) return;
-    void onSubmit({ name: name.trim(), erpProvider, connection: c });
+    // BOS creds are entirely optional. We only persist `bos` when the user
+    // entered enough to actually attempt a write — username + password +
+    // acctId are the truly indispensable fields. If any are missing, drop
+    // the whole block so write tools surface "creds missing" cleanly
+    // instead of half-failing on login.
+    const bosFilled =
+      bos.baseUrl.trim().length > 0 &&
+      bos.acctId.trim().length > 0 &&
+      bos.username.trim().length > 0 &&
+      bos.password.length > 0;
+    void onSubmit({
+      name: name.trim(),
+      erpProvider,
+      connection: c,
+      bos: bosFilled
+        ? {
+            baseUrl: bos.baseUrl.trim(),
+            acctId: bos.acctId.trim(),
+            username: bos.username.trim(),
+            password: bos.password,
+            devCode: bos.devCode.trim() || 'PAIJ'
+          }
+        : undefined
+    });
   };
 
   return (
@@ -343,6 +378,63 @@ export function ProjectForm({
         </Row>
       </div>
 
+      {/* ─── Section 4: BOS RPC credentials (optional) ──────────────── */}
+      <SectionTitle>{t('projects.sectionBos')}</SectionTitle>
+      <p
+        className="muted"
+        style={{ margin: '0 0 4px 112px', fontSize: 12, lineHeight: 1.5 }}
+      >
+        {t('projects.bosIntro')}
+      </p>
+      <Row label={t('projects.bosBaseUrl')}>
+        <input
+          type="text"
+          value={bos.baseUrl}
+          onChange={(e) => setBos({ ...bos, baseUrl: e.target.value })}
+          placeholder="http://localhost/k3cloud"
+          style={{ flex: 1, padding: '6px 10px', fontSize: 13 }}
+        />
+      </Row>
+      <Hint>{t('projects.bosBaseUrlHint')}</Hint>
+      <Row label={t('projects.bosAcctId')}>
+        <input
+          type="text"
+          value={bos.acctId}
+          onChange={(e) => setBos({ ...bos, acctId: e.target.value })}
+          placeholder="69a531ee82525a"
+          style={{ flex: 1, padding: '6px 10px', fontSize: 13 }}
+        />
+      </Row>
+      <Hint>{t('projects.bosAcctIdHint')}</Hint>
+      <Row label={t('projects.bosUsername')}>
+        <input
+          type="text"
+          value={bos.username}
+          onChange={(e) => setBos({ ...bos, username: e.target.value })}
+          placeholder="demo"
+          style={{ flex: 1, padding: '6px 10px', fontSize: 13 }}
+        />
+      </Row>
+      <Hint>{t('projects.bosUsernameHint')}</Hint>
+      <Row label={t('projects.bosPassword')}>
+        <input
+          type="password"
+          value={bos.password}
+          onChange={(e) => setBos({ ...bos, password: e.target.value })}
+          style={{ flex: 1, padding: '6px 10px', fontSize: 13 }}
+        />
+      </Row>
+      <Row label={t('projects.bosDevCode')}>
+        <input
+          type="text"
+          value={bos.devCode}
+          onChange={(e) => setBos({ ...bos, devCode: e.target.value })}
+          placeholder="PAIJ"
+          style={{ width: 160, padding: '6px 10px', fontSize: 13 }}
+        />
+      </Row>
+      <Hint>{t('projects.bosDevCodeHint')}</Hint>
+
       {/* ─── Actions ─────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
         <button type="button" className="btn" onClick={onCancel} disabled={submitting}>
@@ -357,6 +449,17 @@ export function ProjectForm({
           {submitting ? t('projects.saving') : t('projects.save')}
         </button>
       </div>
+    </div>
+  );
+}
+
+function Hint({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="muted"
+      style={{ marginLeft: 112, fontSize: 11, marginTop: -2, marginBottom: 2 }}
+    >
+      {children}
     </div>
   );
 }
