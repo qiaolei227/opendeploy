@@ -32,6 +32,7 @@ const SAL_PARENT_OBJECT: ObjectMeta = {
   name: '销售订单',
   modelTypeId: 100,
   subsystemId: '23',
+  baseObjectId: null,
   isTemplate: false,
   modifyDate: null,
 };
@@ -92,10 +93,11 @@ beforeEach(() => {
 });
 
 describe('buildBosRpcTools', () => {
-  it('returns create + delete tools when project has bos creds', async () => {
+  it('returns create + add-field + delete tools when project has bos creds', async () => {
     mockedGetProject.mockResolvedValue(makeProject(true));
     const tools = await buildBosRpcTools(makeFakeConnector(), 'p1', makeSessionMgr());
     expect(tools.map((t) => t.definition.name).sort()).toEqual([
+      'kingdee_add_field',
       'kingdee_create_extension',
       'kingdee_delete_extension',
     ]);
@@ -316,5 +318,219 @@ describe('kingdee_create_extension', () => {
     await expect(
       tool.execute({ parentFormId: 'BROKEN_FORM', extName: '测试' }),
     ).rejects.toThrow(/元数据不完整/);
+  });
+});
+
+describe('kingdee_add_field', () => {
+  const EXT_ID = 'ee0011223344556677889900aabbccdd';
+  const EXTENSION_OBJECT: ObjectMeta = {
+    id: EXT_ID,
+    name: '信用额度预警',
+    modelTypeId: 100,
+    subsystemId: '23',
+    baseObjectId: 'SAL_SaleOrder',
+    isTemplate: false,
+    modifyDate: null,
+  };
+
+  const findAddField = async (
+    connector?: K3CloudConnector,
+    session = makeSessionMgr(),
+  ) => {
+    mockedGetProject.mockResolvedValue(makeProject(true));
+    const c =
+      connector ??
+      makeFakeConnector({
+        // getObject returns extension when extId queried, parent when SAL_SaleOrder queried.
+        getObject: async (id: string) =>
+          id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+      });
+    const tools = await buildBosRpcTools(c, 'p1', session);
+    const tool = tools.find((t) => t.definition.name === 'kingdee_add_field');
+    if (!tool) throw new Error('kingdee_add_field not in tool list');
+    return { tool };
+  };
+
+  beforeEach(() => {
+    mockedSave.mockResolvedValue({
+      isSuccess: true,
+      funcResult: true,
+      messageTitle: null,
+      messageDetail: null,
+    });
+  });
+
+  it('looks up extension parent + layoutInfoOid, sends saveExtension as edit (isNew=false)', async () => {
+    const { tool } = await findAddField();
+
+    const out = JSON.parse(
+      await tool.execute({
+        extId: EXT_ID,
+        type: 'text',
+        key: 'F_PAIJ_Note',
+        caption: '备注',
+      }),
+    );
+
+    expect(out.ok).toBe(true);
+    expect(out.fieldKey).toBe('F_PAIJ_Note');
+    expect(out.fieldType).toBe('TextField');
+
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.isNew).toBe(false);
+    expect(req.extension.formId).toBe(EXT_ID);
+    expect(req.extension.baseObjectId).toBe('SAL_SaleOrder');
+    expect(req.layoutInfoOid).toBe(SAL_LAYOUT_OID);
+    expect(req.addFields).toHaveLength(1);
+    expect(req.addAppearances).toHaveLength(1);
+    expect(req.addFields![0]).toEqual({
+      type: 'TextField',
+      key: 'F_PAIJ_Note',
+      caption: '备注',
+      listTabIndex: 9000,
+    });
+    expect(req.addAppearances![0]).toMatchObject({
+      type: 'TextField',
+      key: 'F_PAIJ_Note',
+      caption: '备注',
+      container: 'FTAB_P0',
+      left: 10,
+      top: 10,
+    });
+  });
+
+  it('rejects extId pointing to a non-extension (no FBASEOBJECTID)', async () => {
+    const { tool } = await findAddField(
+      makeFakeConnector({
+        getObject: async () => ({ ...SAL_PARENT_OBJECT, baseObjectId: null }),
+      }),
+    );
+    await expect(
+      tool.execute({ extId: 'X', type: 'text', key: 'F_X', caption: 'X' }),
+    ).rejects.toThrow(/不是 BOS 扩展/);
+  });
+
+  it('builds DecimalField with default scale/precision', async () => {
+    const { tool } = await findAddField();
+    await tool.execute({
+      extId: EXT_ID,
+      type: 'decimal',
+      key: 'F_PAIJ_Amt',
+      caption: '金额',
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addFields![0]).toMatchObject({
+      type: 'DecimalField',
+      fieldScale: 2,
+      fieldPrecision: 23,
+    });
+  });
+
+  it('passes through agent-supplied scale/precision', async () => {
+    const { tool } = await findAddField();
+    await tool.execute({
+      extId: EXT_ID,
+      type: 'amount',
+      key: 'F_PAIJ_Amt',
+      caption: '金额',
+      fieldScale: 4,
+      fieldPrecision: 28,
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addFields![0]).toMatchObject({
+      type: 'AmountField',
+      fieldScale: 4,
+      fieldPrecision: 28,
+    });
+  });
+
+  it('qty type requires controlFieldKey', async () => {
+    const { tool } = await findAddField();
+    await expect(
+      tool.execute({ extId: EXT_ID, type: 'qty', key: 'F_X', caption: 'X' }),
+    ).rejects.toThrow(/controlFieldKey/);
+  });
+
+  it('base_data builds with refBaseDataObjectKey as lookUpObjectId', async () => {
+    const { tool } = await findAddField();
+    await tool.execute({
+      extId: EXT_ID,
+      type: 'base_data',
+      key: 'F_PAIJ_Cust',
+      caption: '客户',
+      refBaseDataObjectKey: 'BD_Customer',
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addFields![0]).toMatchObject({
+      type: 'BaseDataField',
+      lookUpObjectId: 'BD_Customer',
+    });
+  });
+
+  it('base_property requires sourceField', async () => {
+    const { tool } = await findAddField();
+    await expect(
+      tool.execute({
+        extId: EXT_ID,
+        type: 'base_property',
+        key: 'F_X',
+        caption: 'X',
+      }),
+    ).rejects.toThrow(/sourceField/);
+  });
+
+  it('base_property maps sourceField → controlFieldKey on the BasePropertyField', async () => {
+    const { tool } = await findAddField();
+    await tool.execute({
+      extId: EXT_ID,
+      type: 'base_property',
+      key: 'F_PAIJ_CustName',
+      caption: '客户名',
+      sourceField: 'FCustId',
+      srcDisplayFieldName: 'FName',
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addFields![0]).toMatchObject({
+      type: 'BasePropertyField',
+      controlFieldKey: 'FCustId',
+      srcDisplayFieldName: 'FName',
+    });
+  });
+
+  it('rejects unknown type', async () => {
+    const { tool } = await findAddField();
+    await expect(
+      tool.execute({ extId: EXT_ID, type: 'fake_type', key: 'F_X', caption: 'X' }),
+    ).rejects.toThrow(/不支持的字段类型/);
+  });
+
+  it('agent-supplied position overrides default left/top', async () => {
+    const { tool } = await findAddField();
+    await tool.execute({
+      extId: EXT_ID,
+      type: 'text',
+      key: 'F_X',
+      caption: 'X',
+      top: 200,
+      left: 50,
+      width: 400,
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addAppearances![0]).toMatchObject({ left: 50, top: 200, width: 400 });
+  });
+
+  it('surfaces server-side rejection as ok=false', async () => {
+    mockedSave.mockResolvedValue({
+      isSuccess: false,
+      funcResult: false,
+      messageTitle: '校验失败',
+      messageDetail: '字段 key 已存在',
+    });
+    const { tool } = await findAddField();
+    const out = JSON.parse(
+      await tool.execute({ extId: EXT_ID, type: 'text', key: 'F_DUP', caption: 'X' }),
+    );
+    expect(out.ok).toBe(false);
+    expect(out.messageDetail).toBe('字段 key 已存在');
   });
 });

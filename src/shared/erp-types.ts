@@ -147,6 +147,13 @@ export interface ObjectMeta {
   modelTypeId: number | null;
   /** `FSUBSYSID` → T_META_SUBSYSTEM.FID. */
   subsystemId: string | null;
+  /**
+   * `FBASEOBJECTID` — for BOS extensions, the FormID of the parent object
+   * being extended (e.g. `'SAL_SaleOrder'`). Null for primary objects that
+   * aren't extensions. Surfaced because write tools need it to resolve the
+   * parent's layout OID when adding fields / plugins to an extension.
+   */
+  baseObjectId: string | null;
   /** Whether this is a template / base object (usually hidden from consultants). */
   isTemplate: boolean;
   /** `FMODIFYDATE`. ISO string. */

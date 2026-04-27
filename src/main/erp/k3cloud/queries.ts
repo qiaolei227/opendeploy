@@ -34,6 +34,10 @@ function rowToObjectMeta(row: Record<string, unknown>): ObjectMeta {
     name: String(row.FNAME ?? row.FID ?? ''),
     modelTypeId: row.FMODELTYPEID == null ? null : Number(row.FMODELTYPEID),
     subsystemId: row.FSUBSYSID == null ? null : String(row.FSUBSYSID),
+    baseObjectId:
+      row.FBASEOBJECTID == null || row.FBASEOBJECTID === ''
+        ? null
+        : String(row.FBASEOBJECTID),
     isTemplate: Number(row.FISTEMPLATE ?? 0) === 1,
     modifyDate:
       modifyDate instanceof Date
@@ -51,6 +55,7 @@ const LIST_OBJECTS_SQL = `
          COALESCE(ol.FNAME, o.FID) AS FNAME,
          o.FMODELTYPEID,
          o.FSUBSYSID,
+         o.FBASEOBJECTID,
          o.FISTEMPLATE,
          o.FMODIFYDATE
     FROM T_META_OBJECTTYPE o
@@ -93,6 +98,7 @@ const GET_OBJECT_SQL = `
          COALESCE(ol.FNAME, o.FID) AS FNAME,
          o.FMODELTYPEID,
          o.FSUBSYSID,
+         o.FBASEOBJECTID,
          o.FISTEMPLATE,
          o.FMODIFYDATE
     FROM T_META_OBJECTTYPE o

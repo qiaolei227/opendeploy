@@ -26,7 +26,11 @@ import { deleteExtension as deleteExtensionRpc } from '../erp/k3cloud/rpc/delete
 import { saveExtension as saveExtensionRpc } from '../erp/k3cloud/rpc/save-for-ide';
 import { extractLayoutInfoOid } from '../erp/k3cloud/rpc/layout-discovery';
 import { newCompactGuid } from '../erp/k3cloud/rpc/dcxml';
-import type { SaveExtensionRequest } from '../erp/k3cloud/rpc/types';
+import type {
+  BosFieldAppearance,
+  BosFieldElement,
+  SaveExtensionRequest,
+} from '../erp/k3cloud/rpc/types';
 import { getProject } from '../projects/store';
 
 /**
@@ -56,6 +60,7 @@ export async function buildBosRpcTools(
 
   return [
     createExtensionTool(c, pid, sessionMgr),
+    addFieldTool(c, pid, sessionMgr),
     deleteExtensionTool(pid, sessionMgr),
   ];
 }
@@ -248,6 +253,381 @@ function deleteExtensionTool(projectId: string, sessionMgr: SessionMgrLike): Too
           reminder:
             '扩展已从服务端删除。客户端 BOS Designer 中的扩展列表需点工具栏刷新按钮才能更新;' +
             '已打开的客户端表单缓存可能需关闭客户端重登才能消失。',
+        },
+        null,
+        2,
+      );
+    },
+  };
+}
+
+// ─── kingdee_add_field ───────────────────────────────────────────────────
+//
+// Friendly type names → BOS RPC element types. The agent picks the friendly
+// name; this map keeps the BOS internals out of the tool's parameter schema.
+
+const FRIENDLY_TYPES = [
+  'text',
+  'int',
+  'date',
+  'decimal',
+  'price',
+  'amount',
+  'qty',
+  'checkbox',
+  'base_data',
+  'base_property',
+  'unit',
+] as const;
+type FriendlyFieldType = (typeof FRIENDLY_TYPES)[number];
+
+const DEFAULT_LIST_TAB_INDEX_BASE = 9000;
+const DEFAULT_CONTAINER = 'FTAB_P0';
+
+interface AddFieldArgs {
+  extId: string;
+  type: FriendlyFieldType;
+  key: string;
+  caption: string;
+  // Numeric-typed extras
+  fieldScale?: number;
+  fieldPrecision?: number;
+  // QtyField extras
+  controlFieldKey?: string;
+  // BaseDataField extras
+  refBaseDataObjectKey?: string;
+  srcFindFieldName?: string;
+  srcDisplayFieldName?: string;
+  // BasePropertyField extras (sourceField = parent base data field key)
+  sourceField?: string;
+  // UnitField extras
+  unitTypeKey?: string;
+  // Layout extras
+  container?: string;
+  top?: number;
+  left?: number;
+  width?: number;
+  labelWidth?: number;
+  zOrderIndex?: number;
+  tabindex?: number;
+  listTabIndex?: number;
+  // Optional layout override (rare)
+  layoutInfoOid?: string;
+}
+
+function buildFieldElement(args: AddFieldArgs): BosFieldElement {
+  const { type, key, caption, listTabIndex } = args;
+  const lti = listTabIndex ?? DEFAULT_LIST_TAB_INDEX_BASE;
+  switch (type) {
+    case 'text':
+      return { type: 'TextField', key, caption, listTabIndex: lti };
+    case 'int':
+      return { type: 'IntegerField', key, caption, listTabIndex: lti };
+    case 'date':
+      return { type: 'DateField', key, caption, listTabIndex: lti };
+    case 'decimal':
+      return {
+        type: 'DecimalField',
+        key,
+        caption,
+        listTabIndex: lti,
+        fieldScale: args.fieldScale ?? 2,
+        fieldPrecision: args.fieldPrecision ?? 23,
+      };
+    case 'price':
+      return {
+        type: 'PriceField',
+        key,
+        caption,
+        listTabIndex: lti,
+        fieldScale: args.fieldScale ?? 4,
+        fieldPrecision: args.fieldPrecision ?? 23,
+      };
+    case 'amount':
+      return {
+        type: 'AmountField',
+        key,
+        caption,
+        listTabIndex: lti,
+        fieldScale: args.fieldScale ?? 2,
+        fieldPrecision: args.fieldPrecision ?? 23,
+      };
+    case 'qty':
+      if (!args.controlFieldKey) {
+        throw new Error('qty 字段必须指定 controlFieldKey(关联的 UnitField key)。');
+      }
+      return {
+        type: 'QtyField',
+        key,
+        caption,
+        listTabIndex: lti,
+        fieldScale: args.fieldScale ?? 6,
+        fieldPrecision: args.fieldPrecision ?? 23,
+        controlFieldKey: args.controlFieldKey,
+      };
+    case 'checkbox':
+      return { type: 'CheckBoxField', key, caption, listTabIndex: lti };
+    case 'base_data':
+      if (!args.refBaseDataObjectKey) {
+        throw new Error('base_data 字段必须指定 refBaseDataObjectKey(基础资料 FormID,如 BD_Customer)。');
+      }
+      return {
+        type: 'BaseDataField',
+        key,
+        caption,
+        listTabIndex: lti,
+        lookUpObjectId: args.refBaseDataObjectKey,
+        srcFindFieldName: args.srcFindFieldName,
+        srcDisplayFieldName: args.srcDisplayFieldName,
+      };
+    case 'base_property':
+      if (!args.sourceField) {
+        throw new Error('base_property 字段必须指定 sourceField(同单据上的源 BaseDataField key)。');
+      }
+      return {
+        type: 'BasePropertyField',
+        key,
+        caption,
+        listTabIndex: lti,
+        controlFieldKey: args.sourceField,
+        srcDisplayFieldName: args.srcDisplayFieldName,
+      };
+    case 'unit':
+      if (!args.unitTypeKey) {
+        throw new Error('unit 字段必须指定 unitTypeKey。');
+      }
+      if (!args.refBaseDataObjectKey) {
+        throw new Error('unit 字段必须指定 refBaseDataObjectKey(单位组 BD_UnitGroup)。');
+      }
+      return {
+        type: 'UnitField',
+        key,
+        caption,
+        listTabIndex: lti,
+        unitTypeKey: args.unitTypeKey,
+        lookUpObjectId: args.refBaseDataObjectKey,
+      };
+  }
+}
+
+function buildAppearance(args: AddFieldArgs, elementType: BosFieldElement['type']): BosFieldAppearance {
+  return {
+    type: elementType,
+    key: args.key,
+    caption: args.caption,
+    container: args.container ?? DEFAULT_CONTAINER,
+    zOrderIndex: args.zOrderIndex ?? 99,
+    tabindex: args.tabindex ?? args.listTabIndex ?? DEFAULT_LIST_TAB_INDEX_BASE,
+    left: args.left ?? 10,
+    top: args.top ?? 10,
+    width: args.width,
+    labelWidth: args.labelWidth,
+  };
+}
+
+function addFieldTool(
+  connector: K3CloudConnector,
+  projectId: string,
+  sessionMgr: SessionMgrLike,
+): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_add_field',
+      description:
+        '给已有 BOS 扩展添加一个业务字段(写 FKERNELXML + 同步落库)。' +
+        '\n\n字段类型(`type` 参数):' +
+        '\n- text — 单行文本' +
+        '\n- int — 整数' +
+        '\n- decimal — 小数(可选 fieldScale / fieldPrecision)' +
+        '\n- price — 单价' +
+        '\n- amount — 金额' +
+        '\n- qty — 数量(必带 controlFieldKey 指向同单据上的 UnitField)' +
+        '\n- date — 日期 / 日期时间' +
+        '\n- checkbox — 复选框' +
+        '\n- base_data — 基础资料引用(必带 refBaseDataObjectKey,如 "BD_Customer" / "BD_MATERIAL"。可选 srcFindFieldName / srcDisplayFieldName)' +
+        '\n- base_property — 基础资料属性带值(必带 sourceField 指向同单据已有的 BaseDataField key,如 "FCustId";可选 srcDisplayFieldName 选源字段名,如 "FName")。**用前先调 kingdee_describe_basedata** 反查目标基础资料能 srcDisplay 哪些字段。' +
+        '\n- unit — 计量单位(必带 unitTypeKey + refBaseDataObjectKey)' +
+        '\n\n**默认坐标 left=10 top=10(左上角)** — 会和原厂字段视觉重叠,用户必须在 BOS Designer 里拖到合适位置。' +
+        '只在你确实知道目标坐标时才传 top / left 参数。' +
+        '\n\n**写入后必反查闭环**:调 `kingdee_get_extension_fields <extId>` 验证字段已落库;' +
+        '不要用 `kingdee_get_fields`(那个只看父对象的原厂字段,扩展字段永远查不到)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展 FID(32 位 hex GUID)。' },
+          type: {
+            type: 'string',
+            enum: [...FRIENDLY_TYPES],
+            description: '字段类型。',
+          },
+          key: {
+            type: 'string',
+            description:
+              '字段 Key, 如 "F_PAIJ_CreditWarn"。BOS 约定 F_ 开头, 仅字母 / 数字 / 下划线。这是表单绑定和 BOS Designer 显示的唯一标识。',
+          },
+          caption: {
+            type: 'string',
+            description: '中文显示标签, 如 "信用额度预警"。用户在表单上看到的就是这个。',
+          },
+          // numeric extras
+          fieldScale: { type: 'number', description: '(decimal/price/amount/qty)小数位数。' },
+          fieldPrecision: { type: 'number', description: '(decimal/price/amount/qty)总位数。' },
+          // qty
+          controlFieldKey: { type: 'string', description: '(qty)关联的 UnitField key。' },
+          // base_data / unit
+          refBaseDataObjectKey: {
+            type: 'string',
+            description:
+              '(base_data 必填 / unit 必填)关联基础资料 FormID,如 "BD_Customer" / "BD_MATERIAL" / "BD_Department" / "BD_UnitGroup"。',
+          },
+          srcFindFieldName: { type: 'string', description: '(base_data 可选)源对象查找字段名,默认 "FNUMBER"。' },
+          srcDisplayFieldName: { type: 'string', description: '(base_data 可选 / base_property 推荐)源字段显示名,默认 "FNAME"。' },
+          // base_property
+          sourceField: {
+            type: 'string',
+            description: '(base_property 必填)同单据已有的 BaseDataField key,如 "FCustId"。',
+          },
+          // unit
+          unitTypeKey: { type: 'string', description: '(unit 必填)单位类型 key。' },
+          // appearance
+          container: { type: 'string', description: '(可选)容器 key,默认 "FTAB_P0"(主页签)。' },
+          top: { type: 'number', description: '(可选)Top 像素,默认 10。' },
+          left: { type: 'number', description: '(可选)Left 像素,默认 10。' },
+          width: { type: 'number', description: '(可选)控件宽度像素,默认 300。' },
+          labelWidth: { type: 'number', description: '(可选)标签宽度像素,默认 100。' },
+          zOrderIndex: { type: 'number', description: '(可选)容器内排序,默认 99。' },
+          tabindex: { type: 'number', description: '(可选)tab 顺序,默认 9000。' },
+          listTabIndex: { type: 'number', description: '(可选)列表序号,默认 9000。' },
+          layoutInfoOid: {
+            type: 'string',
+            description: '(高级)父单据布局 OID,通常自动发现,只在自动发现失败时手传。',
+          },
+        },
+        required: ['extId', 'type', 'key', 'caption'],
+      },
+    },
+    async execute(args) {
+      const extId = String(args.extId ?? '').trim();
+      const type = String(args.type ?? '') as FriendlyFieldType;
+      const key = String(args.key ?? '').trim();
+      const caption = String(args.caption ?? '').trim();
+      if (!extId) throw new Error('kingdee_add_field 需要 extId 参数。');
+      if (!FRIENDLY_TYPES.includes(type)) {
+        throw new Error(`不支持的字段类型 "${type}"。可选: ${FRIENDLY_TYPES.join(' / ')}。`);
+      }
+      if (!key) throw new Error('kingdee_add_field 需要 key 参数。');
+      if (!caption) throw new Error('kingdee_add_field 需要 caption 参数。');
+
+      const project = await getProject(projectId);
+      if (!project?.bos) {
+        throw new Error('当前项目未配置 BOS 写入凭据,请到项目设置中补全。');
+      }
+
+      // Look up the extension to discover its parent FormID.
+      const ext = await connector.getObject(extId);
+      if (!ext) {
+        throw new Error(`扩展 ${extId} 不存在。先用 kingdee_list_extensions 确认。`);
+      }
+      if (!ext.baseObjectId) {
+        throw new Error(
+          `${extId} 不是 BOS 扩展(FBASEOBJECTID 为空)。kingdee_add_field 只能用于扩展,不能直接改原厂表单。`,
+        );
+      }
+      if (ext.modelTypeId == null || ext.subsystemId == null) {
+        throw new Error(`扩展 ${extId} 元数据不完整(modelTypeId=${ext.modelTypeId}, subsystemId=${ext.subsystemId})。`);
+      }
+
+      // Resolve layoutInfoOid — agent override → parent FKERNELXML discovery.
+      let layoutInfoOid =
+        typeof args.layoutInfoOid === 'string' ? args.layoutInfoOid.trim() : '';
+      if (!layoutInfoOid) {
+        const xml = await connector.getKernelXml(ext.baseObjectId);
+        if (!xml) {
+          throw new Error(`父单据 ${ext.baseObjectId} 无 FKERNELXML,无法自动发现 layoutInfoOid。`);
+        }
+        const oid = extractLayoutInfoOid(xml);
+        if (!oid) {
+          throw new Error(
+            `父单据 ${ext.baseObjectId} FKERNELXML 中未找到 <LayoutInfo oid="...">,请手动指定 layoutInfoOid。`,
+          );
+        }
+        layoutInfoOid = oid;
+      }
+
+      // Build the typed AST node.
+      const fieldArgs: AddFieldArgs = {
+        extId,
+        type,
+        key,
+        caption,
+        fieldScale: args.fieldScale != null ? Number(args.fieldScale) : undefined,
+        fieldPrecision: args.fieldPrecision != null ? Number(args.fieldPrecision) : undefined,
+        controlFieldKey:
+          args.controlFieldKey != null ? String(args.controlFieldKey) : undefined,
+        refBaseDataObjectKey:
+          args.refBaseDataObjectKey != null ? String(args.refBaseDataObjectKey) : undefined,
+        srcFindFieldName:
+          args.srcFindFieldName != null ? String(args.srcFindFieldName) : undefined,
+        srcDisplayFieldName:
+          args.srcDisplayFieldName != null ? String(args.srcDisplayFieldName) : undefined,
+        sourceField: args.sourceField != null ? String(args.sourceField) : undefined,
+        unitTypeKey: args.unitTypeKey != null ? String(args.unitTypeKey) : undefined,
+        container: args.container != null ? String(args.container) : undefined,
+        top: args.top != null ? Number(args.top) : undefined,
+        left: args.left != null ? Number(args.left) : undefined,
+        width: args.width != null ? Number(args.width) : undefined,
+        labelWidth: args.labelWidth != null ? Number(args.labelWidth) : undefined,
+        zOrderIndex: args.zOrderIndex != null ? Number(args.zOrderIndex) : undefined,
+        tabindex: args.tabindex != null ? Number(args.tabindex) : undefined,
+        listTabIndex: args.listTabIndex != null ? Number(args.listTabIndex) : undefined,
+      };
+
+      const fieldEl = buildFieldElement(fieldArgs);
+      const appearance = buildAppearance(fieldArgs, fieldEl.type);
+
+      const req: SaveExtensionRequest = {
+        extension: {
+          formId: extId,
+          baseObjectId: ext.baseObjectId,
+          modelTypeId: ext.modelTypeId,
+          subSystemId: ext.subsystemId,
+          name: [{ localeId: 2052, value: ext.name }],
+          isv: { devCode: project.bos.devCode },
+        },
+        isNew: false,
+        layoutInfoOid,
+        addFields: [fieldEl],
+        addAppearances: [appearance],
+      };
+
+      const session = await sessionMgr.getOrLogin(projectId);
+      const result = await saveExtensionRpc(session, req);
+
+      if (!result.isSuccess) {
+        return JSON.stringify(
+          {
+            ok: false,
+            extId,
+            fieldKey: key,
+            messageTitle: result.messageTitle,
+            messageDetail: result.messageDetail,
+          },
+          null,
+          2,
+        );
+      }
+
+      return JSON.stringify(
+        {
+          ok: true,
+          extId,
+          fieldKey: key,
+          fieldType: fieldEl.type,
+          caption,
+          reminder:
+            '字段已写入。BOS Designer 里需点扩展工具栏的刷新按钮才能看到;客户端表单缓存可能需要关闭客户端重登才会更新。' +
+            '**字段默认落在容器左上角(left=10 top=10)会和原厂字段视觉重叠 — 这是预期的,客户在 BOS Designer 中手动拖到合适位置。**' +
+            '验证字段已落库:调 kingdee_get_extension_fields(不是 kingdee_get_fields)。',
         },
         null,
         2,
