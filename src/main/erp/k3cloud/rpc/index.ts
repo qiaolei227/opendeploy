@@ -22,3 +22,5 @@ export { login, fetchPublicKeyInfo } from './login';
 export type { LoginCredentials, LoginResult } from './login';
 export { obfuscatePassword, deobfuscatePassword, rsaEncryptForJava, cipherPasswordForLogin } from './password';
 export { saveExtension, buildParas, buildAp0Plain } from './save-for-ide';
+export { deleteExtension } from './delete-extension';
+export type { DeleteExtensionResult } from './delete-extension';
