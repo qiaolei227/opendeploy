@@ -93,12 +93,18 @@ export async function login(creds: LoginCredentials): Promise<LoginResult> {
     AuthSign: null,
     Lcid: creds.lcid ?? 2052,
     /**
-     * AuthenticationType enum (BOS): observed values
-     *   0 = Simple / default local account
-     *   8 = IDECloudEntryAuthentication (frmCloudLogin path, capture sample)
-     * For local-account direct login, 0 is what frmLogin sends.
+     * AuthenticationType enum (Kingdee.BOS.dll line 915):
+     *   0 = DomainAuthentication               (Windows domain / AD — DON'T USE for local accounts)
+     *   1 = PwdAuthentication                   ← OpenDeploy default: local account + password
+     *   2 = DynamicPwdAuthentication
+     *   3 = CAAuthentication
+     *   8 = IDECloudEntryAuthentication        (cloud entry, requires UserToken)
+     *   ...
+     * Empirical (smoke test 2026-04-27): AuthType=0 with `15197395239` got
+     *   "应用服务器不能访问域"15197395239"，请联系管理员！" (msgCode 002005030013399)
+     *   — server tried to do AD/LDAP lookup. Switching to 1 (PwdAuthentication).
      */
-    AuthenticateType: 0,
+    AuthenticateType: 1,
     ValidationCode: null,
     EncyptType: 0,
     LoginType: 0,
