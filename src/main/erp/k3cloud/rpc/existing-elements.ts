@@ -33,6 +33,21 @@ export interface ExistingExtensionElements {
   appearances: string[];
   /** Raw `<PlugIn>...</PlugIn>` chunks (CDATA-preserved). */
   plugins: string[];
+  // ─── Plan 5.14 — entry / tab-page / tab-control raw chunks ──────────
+  // Same baseline-diff requirement: every Save must include all the
+  // extension's existing entries / tabs verbatim or BOS treats them as
+  // deleted. Captured here for the create / delete / rename tools to
+  // pass through.
+  /** Raw `<EntryEntity>...</EntryEntity>` chunks. SubEntryEntity NOT captured
+   * — Plan 5.14 supports single-level only. */
+  entries: string[];
+  /** Raw `<EntryEntityAppearance>...</EntryEntityAppearance>` chunks. */
+  entryAppearances: string[];
+  /** Raw `<TabPageAppearance>...</TabPageAppearance>` chunks (any parent —
+   * original-vendor TabControl like FTab1 *or* extension-built TabControl). */
+  tabPages: string[];
+  /** Raw `<TabControlAppearance>...</TabControlAppearance>` chunks. */
+  tabControls: string[];
 }
 
 /**
@@ -118,15 +133,28 @@ function* iterateDepth1Children(body: string): Generator<{ tag: string; raw: str
 export function extractExistingExtensionElements(
   kernelXml: string,
 ): ExistingExtensionElements {
-  if (!kernelXml) return { fields: [], appearances: [], plugins: [] };
+  const empty: ExistingExtensionElements = {
+    fields: [],
+    appearances: [],
+    plugins: [],
+    entries: [],
+    entryAppearances: [],
+    tabPages: [],
+    tabControls: [],
+  };
+  if (!kernelXml) return empty;
 
   const { stripped, values } = stripCdataSections(kernelXml);
 
   const fields: string[] = [];
   const plugins: string[] = [];
   const appearances: string[] = [];
+  const entries: string[] = [];
+  const entryAppearances: string[] = [];
+  const tabPages: string[] = [];
+  const tabControls: string[] = [];
 
-  // Fields + plugins live under <Elements>.
+  // Fields + plugins + entries live under <Elements>.
   const elementsBody = findFirstBlockBody(stripped, 'Elements', 'Elements');
   if (elementsBody) {
     for (const child of iterateDepth1Children(elementsBody)) {
@@ -141,6 +169,12 @@ export function extractExistingExtensionElements(
         }
         continue;
       }
+      // EntryEntity — single-level only (SubEntryEntity skipped for v0.1).
+      if (child.tag === 'EntryEntity') {
+        if (child.raw.endsWith('/>')) continue;
+        entries.push(child.raw);
+        continue;
+      }
       // Anything else ending in "Field" is a field element.
       if (/Field$/.test(child.tag)) {
         // Skip remove-action self-closers — those are deletion commands.
@@ -150,15 +184,25 @@ export function extractExistingExtensionElements(
     }
   }
 
-  // Appearances live under <Appearances> inside <LayoutInfo>.
+  // Appearances live under <Appearances> inside <LayoutInfo>. Mixed bag —
+  // *FieldAppearance / TabPageAppearance / TabControlAppearance /
+  // EntryEntityAppearance / WaterMark / ... — sorted into separate buckets
+  // so each kind can be re-emitted in its proper section.
   const appearancesBody = findFirstBlockBody(stripped, 'Appearances', 'Appearances');
   if (appearancesBody) {
     for (const child of iterateDepth1Children(appearancesBody)) {
+      if (child.raw.endsWith('/>')) continue;
       if (/FieldAppearance$/.test(child.tag)) {
         appearances.push(child.raw);
+      } else if (child.tag === 'EntryEntityAppearance') {
+        entryAppearances.push(child.raw);
+      } else if (child.tag === 'TabPageAppearance') {
+        tabPages.push(child.raw);
+      } else if (child.tag === 'TabControlAppearance') {
+        tabControls.push(child.raw);
       }
     }
   }
 
-  return { fields, appearances, plugins };
+  return { fields, appearances, plugins, entries, entryAppearances, tabPages, tabControls };
 }

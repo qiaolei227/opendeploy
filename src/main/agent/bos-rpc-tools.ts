@@ -205,7 +205,15 @@ async function loadExtensionForSave(
 
   const existing = extXml
     ? extractExistingExtensionElements(extXml)
-    : { fields: [], appearances: [], plugins: [] };
+    : {
+        fields: [],
+        appearances: [],
+        plugins: [],
+        entries: [],
+        entryAppearances: [],
+        tabPages: [],
+        tabControls: [],
+      };
 
   return {
     ext,

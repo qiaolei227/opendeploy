@@ -7,6 +7,10 @@ describe('extractExistingExtensionElements', () => {
       fields: [],
       appearances: [],
       plugins: [],
+      entries: [],
+      entryAppearances: [],
+      tabPages: [],
+      tabControls: [],
     });
   });
 
@@ -16,6 +20,10 @@ describe('extractExistingExtensionElements', () => {
       fields: [],
       appearances: [],
       plugins: [],
+      entries: [],
+      entryAppearances: [],
+      tabPages: [],
+      tabControls: [],
     });
   });
 
@@ -144,6 +152,85 @@ describe('extractExistingExtensionElements', () => {
     expect(result.plugins[0]).toContain('<![CDATA[for i in range(10): if x<i: pass]]>');
     expect(result.fields).toHaveLength(1);
     expect(result.fields[0]).toContain('<Key>F_X</Key>');
+  });
+
+  // ─── Plan 5.14 — entry / tab-page / tab-control extraction ──────────
+  // These four collections are what `kingdee_create_entry`,
+  // `kingdee_create_tab_*`, and the delete/rename tools read & re-emit so the
+  // baseline-diff DCXML keeps cumulative state. Wire format reference:
+  // memory `bos_entry_creation_wire_format.md`.
+
+  it('extracts EntryEntity raw chunks from <Elements>', () => {
+    const xml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+      <Form><Id>ext1</Id></Form>
+      <EntryEntity ElementType="35" ElementStyle="0">
+        <EntryName>UNW_Cust_Entry100002</EntryName>
+        <EntryPkFieldName>FEntryID</EntryPkFieldName>
+        <Seq>14</Seq>
+        <TableName>UNW_t_Cust_Entry100002</TableName>
+        <Name>测试体</Name>
+        <Id>0144d058</Id>
+        <Key>F_UNW_Entity_rnk</Key>
+      </EntryEntity>
+    </Elements></BusinessInfo></BusinessInfo></FormMetadata>`;
+
+    const result = extractExistingExtensionElements(xml);
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]).toContain('<EntryEntity ');
+    expect(result.entries[0]).toContain('<Key>F_UNW_Entity_rnk</Key>');
+    expect(result.entries[0]).toContain('</EntryEntity>');
+  });
+
+  it('does NOT capture SubEntryEntity as an entry (v0.1 single-level only)', () => {
+    const xml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+      <EntryEntity><Key>F_E1</Key></EntryEntity>
+      <SubEntryEntity><Key>F_SUB</Key></SubEntryEntity>
+    </Elements></BusinessInfo></BusinessInfo></FormMetadata>`;
+
+    const result = extractExistingExtensionElements(xml);
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]).toContain('<Key>F_E1</Key>');
+    expect(result.entries[0]).not.toContain('<SubEntryEntity');
+  });
+
+  it('extracts TabPage / TabControl / EntryEntity appearances from <Appearances>', () => {
+    const xml = `<FormMetadata>
+      <LayoutInfos><LayoutInfo>
+        <Appearances>
+          <TextFieldAppearance><Key>F_A</Key></TextFieldAppearance>
+          <TabControlAppearance ElementType="1005" ElementStyle="1">
+            <Container>FSPLITECONTAINER~Panel2</Container>
+            <Caption>页签控件</Caption>
+            <Key>F_UNW_Tab_8mg</Key>
+          </TabControlAppearance>
+          <TabPageAppearance ElementType="1004" ElementStyle="1">
+            <Container>F_UNW_Tab_8mg</Container>
+            <Caption>页签</Caption>
+            <Key>F_UNW_Tab_8mg_P0_8mg</Key>
+          </TabPageAppearance>
+          <TabPageAppearance ElementType="1004" ElementStyle="1">
+            <Container>FTab1</Container>
+            <Caption>页签</Caption>
+            <Key>FTab1_UNW_P_o9w</Key>
+          </TabPageAppearance>
+          <EntryEntityAppearance ElementType="35" ElementStyle="1">
+            <Caption>测试体</Caption>
+            <Container>FTab1_UNW_P_o9w</Container>
+            <Key>F_UNW_Entity_rnk</Key>
+          </EntryEntityAppearance>
+        </Appearances>
+      </LayoutInfo></LayoutInfos>
+    </FormMetadata>`;
+
+    const result = extractExistingExtensionElements(xml);
+    expect(result.appearances).toHaveLength(1); // TextFieldAppearance only
+    expect(result.tabControls).toHaveLength(1);
+    expect(result.tabControls[0]).toContain('<Key>F_UNW_Tab_8mg</Key>');
+    expect(result.tabPages).toHaveLength(2);
+    expect(result.tabPages[0]).toContain('<Key>F_UNW_Tab_8mg_P0_8mg</Key>');
+    expect(result.tabPages[1]).toContain('<Key>FTab1_UNW_P_o9w</Key>');
+    expect(result.entryAppearances).toHaveLength(1);
+    expect(result.entryAppearances[0]).toContain('<Key>F_UNW_Entity_rnk</Key>');
   });
 
   it('extracts fields, appearances, and plugins together from a realistic save echo', () => {
