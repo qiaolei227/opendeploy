@@ -72,12 +72,16 @@ function renderFormRoot(
   out: XmlWriter,
   formId: string,
   plugins: BosPluginElement[] | undefined,
+  existingPluginsRaw: string[] | undefined,
 ): void {
   out.push(`<Form action="edit" oid="BOS_BillModel" ElementType="100" ElementStyle="0">`);
   out.push(`<Id>${formId}</Id>`);
-  if (plugins && plugins.length > 0) {
+  const hasExisting = existingPluginsRaw && existingPluginsRaw.length > 0;
+  const hasNew = plugins && plugins.length > 0;
+  if (hasExisting || hasNew) {
     out.push(`<FormPlugins>`);
-    for (const p of plugins) renderPluginElement(out, p);
+    if (hasExisting) for (const raw of existingPluginsRaw!) out.push(raw);
+    if (hasNew) for (const p of plugins!) renderPluginElement(out, p);
     out.push(`</FormPlugins>`);
   }
   out.push(`</Form>`);
@@ -249,12 +253,14 @@ export function buildDcxmlSource(req: SaveExtensionRequest): string {
   out.push(`<?xml version="1.0" encoding="utf-16"?>`);
   out.push(`<FormMetadata>`);
   out.push(`<BusinessInfo><BusinessInfo><Elements>`);
-  renderFormRoot(out, req.extension.formId, req.addPlugins);
+  renderFormRoot(out, req.extension.formId, req.addPlugins, req.existingPluginsRaw);
+  for (const raw of req.existingFieldsRaw ?? []) out.push(raw);
   for (const f of req.addFields ?? []) renderFieldElement(out, f);
   for (const r of req.removeFields ?? []) renderRemoveElement(out, r);
   out.push(`</Elements></BusinessInfo></BusinessInfo>`);
   out.push(`<LayoutInfos><LayoutInfo action="edit" oid="${xmlEscape(req.layoutInfoOid)}">`);
   out.push(`<Appearances>`);
+  for (const raw of req.existingAppearancesRaw ?? []) out.push(raw);
   for (const a of req.addAppearances ?? []) renderAppearance(out, a);
   out.push(`</Appearances>`);
   out.push(`</LayoutInfo></LayoutInfos>`);

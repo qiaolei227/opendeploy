@@ -21,9 +21,11 @@ export function buildK3CloudTools(connector?: K3CloudConnector): ToolHandler[] {
     listSubsystemsTool(c),
     searchMetadataTool(c),
     describeBasedataTool(c),
+    listEnumTypesTool(c),
     listExtensionsTool(c),
     getExtensionFieldsTool(c),
-    listFormPluginsTool(c)
+    listFormPluginsTool(c),
+    getFormLayoutTool(c)
   ];
 }
 
@@ -54,7 +56,8 @@ export function activeProjectTag(template: string): string {
   const productName =
     (state.erpProvider && PRODUCT_DISPLAY_NAMES[state.erpProvider]) ?? state.erpProvider ?? '';
   const values: Record<string, string> = {
-    database: c.config.database,
+    acctId: c.config.acctId,
+    baseUrl: c.config.baseUrl,
     productName
   };
   return template
@@ -328,7 +331,7 @@ function searchMetadataTool(c: K3CloudConnector): ToolHandler {
  *
  * Confirmed via 2026-04-26 recon:
  * - BD_Customer.FID is literally the string "BD_Customer" (not a GUID), so
- *   `kingdee_add_field` accepts the same key directly as `refBaseDataObjectKey`
+ *   `kingdee_add_fields` accepts the same key directly as `refBaseDataObjectKey`
  *   for base_data fields. The XML emits `<LookUpObjectID>BD_Customer</LookUpObjectID>`
  *   and BOS resolves it (verified via real SAL_SaleOrder where some
  *   LookUpObjectIDs are FID-keys like "BOS_ItemClass" rather than GUIDs).
@@ -439,10 +442,66 @@ function describeBasedataTool(c: K3CloudConnector): ToolHandler {
   };
 }
 
+function listEnumTypesTool(c: K3CloudConnector): ToolHandler {
+  return {
+    parallelSafe: true,
+    definition: {
+      name: 'kingdee_list_enum_types',
+      description:
+        '列出当前账套上所有已注册的下拉枚举类型(combo / 枚举字段引用源)。' +
+        '\n\n何时用:' +
+        '\n- **`kingdee_add_fields` 加 combo 类型字段前**:必先调本工具看有没有现成的枚举可复用,再决定是引用现有还是 `kingdee_create_enum_type` 新建。' +
+        '\n- 想知道金蝶预置了哪些常用下拉(审核状态 / 单据状态 / 优先级 / 是否启用 / 性别 / ...)' +
+        '\n\n参数 `keyword` 模糊匹配枚举名(zh-CN),留空返回全量(共 ~3500 条,会折叠分页给前 N 条)。' +
+        '\n\n返回:`{ count, total, enums: [{ id, name, category, isSysPreset }] }`。`isSysPreset === "1"` 是金蝶预置的(改不了),其它都可用 `kingdee_delete_enum_type` 删除/重命名。',
+      parameters: {
+        type: 'object',
+        properties: {
+          keyword: {
+            type: 'string',
+            description: '名称模糊匹配关键字。留空返回前 100 条(全量太多)。',
+          },
+          limit: {
+            type: 'number',
+            description: '返回最大条数,默认 100。'
+          }
+        },
+        required: []
+      }
+    },
+    async execute(args) {
+      const keyword = typeof args.keyword === 'string' ? args.keyword.trim() : '';
+      const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 100;
+      const all = await c.listEnumObjects();
+      let filtered = all;
+      if (keyword) {
+        const kw = keyword.toLowerCase();
+        filtered = all.filter((e) => e.name.toLowerCase().includes(kw));
+      }
+      const slice = filtered.slice(0, limit);
+      return JSON.stringify(
+        {
+          count: slice.length,
+          total: filtered.length,
+          truncated: filtered.length > slice.length,
+          enums: slice.map((e) => ({
+            id: e.id,
+            name: e.name,
+            category: e.category,
+            isSysPreset: e.isSysPreset
+          }))
+        },
+        null,
+        2
+      );
+    }
+  };
+}
+
 // ─── Extension reads ────────────────────────────────────────────────────
 // These are SQL reads that surface BOS-extension state. Used by:
 //  - kingdee_create_extension's reuse decision (avoid building a duplicate)
-//  - post-write closure for kingdee_add_field / kingdee_register_python_plugin
+//  - post-write closure for kingdee_add_fields / kingdee_register_python_plugins
 //    (the agent needs to verify the write actually landed)
 
 function listExtensionsTool(c: K3CloudConnector): ToolHandler {
@@ -482,7 +541,7 @@ function getExtensionFieldsTool(c: K3CloudConnector): ToolHandler {
     definition: {
       name: 'kingdee_get_extension_fields',
       description:
-        '反查指定 BOS 扩展上已有的扩展字段(parse 扩展自己的 FKERNELXML)。**`kingdee_add_field` 写入后用本工具验证字段确实落库** — 不要用 `kingdee_get_fields` 验证扩展字段, 那个工具只看父对象原厂字段, 会返空, 容易误以为写入失败。' +
+        '反查指定 BOS 扩展上已有的扩展字段(parse 扩展自己的 FKERNELXML)。**`kingdee_add_fields` 写入后用本工具验证字段确实落库** — 不要用 `kingdee_get_fields` 验证扩展字段, 那个工具只看父对象原厂字段, 会返空, 容易误以为写入失败。' +
         '\n\n返回每个字段的 key / 中文名 / type(BosFieldType, 如 TextField/DecimalField/...)/ 是否 entry 字段。',
       parameters: {
         type: 'object',
@@ -534,7 +593,7 @@ function listFormPluginsTool(c: K3CloudConnector): ToolHandler {
       name: 'kingdee_list_form_plugins',
       description:
         '列出指定单据(原厂表单或扩展)上已注册的所有插件。可用于:' +
-        '\n1. **`kingdee_register_python_plugin` 写入后**反查验证插件已落库(看 className 是否在返回列表中、type=python、pyScript 不为空)' +
+        '\n1. **`kingdee_register_python_plugins` 写入后**反查验证插件已落库(看 className 是否在返回列表中、type=python、pyScript 不为空)' +
         '\n2. **注册前查重**:同一扩展上不能挂同名插件,先调本工具看 className 是否已存在' +
         '\n3. **排障**:看父单据原厂带了哪些 DLL 插件 + 顺序(诊断"我的 Python 没生效"时常用)' +
         '\n\n返回每个插件的 className / type(python/dll)/ pyScript(仅 python)/ orderId(仅 DLL)。',
@@ -558,6 +617,79 @@ function listFormPluginsTool(c: K3CloudConnector): ToolHandler {
       }
       const plugins = await c.listFormPlugins(formOrExtId);
       return JSON.stringify({ count: plugins.length, plugins }, null, 2);
+    }
+  };
+}
+
+/**
+ * Plan 5.13.x — surface the parent form's tab + entry catalog so the agent
+ * can ask the user "which tab / which entry?" before defaulting to FTAB_P0.
+ *
+ * Returns:
+ *   - tabs: every TabPage (head and entry-area) with key + caption + parentControl
+ *   - entries: every EntryEntity / SubEntryEntity with key + name + tableName
+ *
+ * The agent flow before kingdee_add_fields should be:
+ *   1. kingdee_get_form_layout(parentFormId)
+ *   2. List tab captions (head: 基本信息 / 客户信息 / ...) and entry names
+ *      (订单条款 / 明细信息 / ...) to the user
+ *   3. User picks one — that container key goes into each field's `container` arg
+ */
+function getFormLayoutTool(c: K3CloudConnector): ToolHandler {
+  return {
+    parallelSafe: true,
+    definition: {
+      name: 'kingdee_get_form_layout',
+      description:
+        '反查父单据的容器目录 —— 头有几个 tab(基本信息 / 客户信息 / 财务信息 ...)、几个单据体(订单条款 / 明细信息 / ...),返回每个容器的 key + 中文名,方便在 `kingdee_add_fields` 之前向用户确认目标容器。' +
+        '\n\n**`kingdee_add_fields` 之前必调**:头页签 / 单据体多于 1 个时,不能默认 FTAB_P0,要把所有选项列给用户(用 caption 让人看懂),问完再决定每个字段的 `container` 参数。' +
+        '\n\n返回:`{ formId, formName, tabs: [{ key, caption, parentControl }], entries: [{ key, name, tableName, kind }] }`。' +
+        '`parentControl` 标识 tab 归属:`FTab` 通常是头部 TabControl,`FTab1` 通常是单据体附属 TabControl(同一 caption 重名时拿这个区分)。`kind` 是 "entry"(单据体)或 "sub-entry"(子单据体)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          formId: {
+            type: 'string',
+            description: '父单据 FormID,如 "SAL_SaleOrder"、"BD_MATERIAL"。'
+          }
+        },
+        required: ['formId']
+      }
+    },
+    async execute(args) {
+      const formId = args.formId;
+      if (typeof formId !== 'string' || formId.trim() === '') {
+        throw new Error('kingdee_get_form_layout requires a non-empty `formId` string.');
+      }
+      const obj = await c.getObject(formId);
+      if (!obj) {
+        return JSON.stringify(
+          { found: false, formId, message: '单据不存在,先用 kingdee_search_metadata 确认拼写。' },
+          null,
+          2
+        );
+      }
+      const layout = await c.getFormLayout(formId);
+      if (!layout) {
+        return JSON.stringify(
+          { found: false, formId, message: '取不到父单据 FKERNELXML,无法解析容器目录。' },
+          null,
+          2
+        );
+      }
+      return JSON.stringify(
+        {
+          found: true,
+          formId,
+          formName: obj.name,
+          tabs: layout.tabs,
+          entries: layout.entries,
+          hint:
+            '用 tabs[*].caption / entries[*].name 给用户列选项,然后把对应的 key 传给 kingdee_add_fields 每个 field 的 container 参数(头字段 → tab key,单据体字段 → entry key)。'
+        },
+        null,
+        2
+      );
     }
   };
 }

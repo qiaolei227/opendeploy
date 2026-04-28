@@ -213,6 +213,93 @@ describe('rpc/dcxml emitter', () => {
     expect(xml).not.toContain('<PlugIn ');
   });
 
+  it('emits existingFieldsRaw chunks before new addFields inside <Elements>', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      existingFieldsRaw: [
+        '<TextField ElementType="1" ElementStyle="0"><Key>F_OLD</Key><Name>旧</Name><Id>old1</Id></TextField>',
+      ],
+      addFields: [
+        {
+          type: 'IntegerField',
+          key: 'F_NEW',
+          caption: '新',
+          listTabIndex: 9001,
+          id: '55555555555555555555555555555555',
+        },
+      ],
+    });
+    expect(xml).toContain('<Key>F_OLD</Key>');
+    expect(xml).toContain('<Key>F_NEW</Key>');
+    // Existing must come BEFORE new so the read-back order is preserved.
+    expect(xml.indexOf('<Key>F_OLD</Key>')).toBeLessThan(xml.indexOf('<Key>F_NEW</Key>'));
+  });
+
+  it('emits existingAppearancesRaw before new addAppearances under <Appearances>', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      existingAppearancesRaw: [
+        '<TextFieldAppearance ElementType="1" ElementStyle="1"><Key>F_OLD</Key><Container>FTAB_P0</Container></TextFieldAppearance>',
+      ],
+      addAppearances: [
+        {
+          type: 'IntegerField',
+          key: 'F_NEW',
+          caption: '新',
+          container: 'FTAB_P0',
+          zOrderIndex: 99,
+          tabindex: 9001,
+          left: 10,
+          top: 10,
+          id: '66666666666666666666666666666666',
+        },
+      ],
+    });
+    expect(xml).toContain('<TextFieldAppearance');
+    expect(xml).toContain('<IntegerFieldAppearance');
+    expect(xml.indexOf('<TextFieldAppearance')).toBeLessThan(
+      xml.indexOf('<IntegerFieldAppearance'),
+    );
+  });
+
+  it('merges existingPluginsRaw with new addPlugins under one FormPlugins wrapper', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      existingPluginsRaw: [
+        '<PlugIn ElementType="0" ElementStyle="0"><ClassName>old_plug</ClassName><PlugInType>1</PlugInType><PyScript><![CDATA[#old]]></PyScript></PlugIn>',
+      ],
+      addPlugins: [
+        { className: 'new_plug', type: 'python', pyScript: '#new' },
+      ],
+    });
+    // Exactly one FormPlugins wrapper; both plugins inside.
+    expect((xml.match(/<FormPlugins>/g) ?? [])).toHaveLength(1);
+    expect(xml).toContain('<ClassName>old_plug</ClassName>');
+    expect(xml).toContain('<ClassName>new_plug</ClassName>');
+    expect(xml.indexOf('<ClassName>old_plug</ClassName>')).toBeLessThan(
+      xml.indexOf('<ClassName>new_plug</ClassName>'),
+    );
+  });
+
+  it('emits FormPlugins block when only existing plugins are provided (no new ones)', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      existingPluginsRaw: [
+        '<PlugIn ElementType="0" ElementStyle="0"><ClassName>only_old</ClassName><PlugInType>1</PlugInType><PyScript><![CDATA[#x]]></PyScript></PlugIn>',
+      ],
+    });
+    expect(xml).toContain('<FormPlugins>');
+    expect(xml).toContain('<ClassName>only_old</ClassName>');
+  });
+
   it('xml-escapes special chars in user-controlled values', () => {
     const xml = buildDcxmlSource({
       extension: baselineExt,

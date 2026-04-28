@@ -24,6 +24,7 @@ function makeFake(
       | 'searchMetadata'
       | 'listExtensions'
       | 'listFormPlugins'
+      | 'getFormLayout'
     >
   > = {}
 ): K3CloudConnector {
@@ -44,18 +45,21 @@ function makeFake(
     searchMetadata: vi.fn(async () => [] as ObjectMeta[]),
     listExtensions: vi.fn(async () => [] as ExtensionMeta[]),
     listFormPlugins: vi.fn(async () => [] as PluginMeta[]),
+    getFormLayout: vi.fn(async () => null),
     ...overrides
   } as unknown as K3CloudConnector;
 }
 
 describe('buildK3CloudTools', () => {
-  it('returns 9 tools when a connector is present', () => {
+  it('returns 11 tools when a connector is present', () => {
     const tools = buildK3CloudTools(makeFake());
     expect(tools.map((t) => t.definition.name).sort()).toEqual([
       'kingdee_describe_basedata',
       'kingdee_get_extension_fields',
       'kingdee_get_fields',
+      'kingdee_get_form_layout',
       'kingdee_get_object',
+      'kingdee_list_enum_types',
       'kingdee_list_extensions',
       'kingdee_list_form_plugins',
       'kingdee_list_objects',
@@ -495,6 +499,78 @@ describe('kingdee_list_form_plugins tool', () => {
 
   it('marked parallelSafe', () => {
     expect(findTool(makeFake()).parallelSafe).toBe(true);
+  });
+});
+
+describe('kingdee_get_form_layout tool', () => {
+  const findTool = (fake: K3CloudConnector) =>
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_get_form_layout')!;
+
+  function makeLayoutFake(
+    overrides: Partial<Pick<K3CloudConnector, 'getObject' | 'getFormLayout'>> = {}
+  ): K3CloudConnector {
+    const base = makeFake();
+    return Object.assign(base, overrides);
+  }
+
+  it('returns tabs + entries from connector', async () => {
+    const fake = makeLayoutFake({
+      getObject: vi.fn(async () => ({
+        id: 'SAL_SaleOrder',
+        name: '销售订单',
+        modelTypeId: 1,
+        subsystemId: 'SAL',
+        baseObjectId: null,
+        isTemplate: false,
+        modifyDate: null
+      }) as ObjectMeta),
+      getFormLayout: vi.fn(async () => ({
+        tabs: [
+          { key: 'FTab_P0', caption: '基本信息', parentControl: 'FTab' },
+          { key: 'FTab_P1', caption: '客户信息', parentControl: 'FTab' }
+        ],
+        entries: [
+          {
+            key: 'FSaleOrderEntry',
+            name: '明细信息',
+            tableName: 'T_SAL_ORDERENTRY',
+            kind: 'entry'
+          }
+        ]
+      }))
+    });
+    const parsed = JSON.parse(await findTool(fake).execute({ formId: 'SAL_SaleOrder' }));
+    expect(parsed.found).toBe(true);
+    expect(parsed.formName).toBe('销售订单');
+    expect(parsed.tabs).toHaveLength(2);
+    expect(parsed.entries[0].kind).toBe('entry');
+  });
+
+  it('returns found=false when object missing', async () => {
+    const fake = makeLayoutFake({ getObject: vi.fn(async () => null) });
+    const parsed = JSON.parse(await findTool(fake).execute({ formId: 'NoSuch' }));
+    expect(parsed.found).toBe(false);
+  });
+
+  it('returns found=false when kernel xml missing', async () => {
+    const fake = makeLayoutFake({
+      getObject: vi.fn(async () => ({
+        id: 'X', name: 'x', modelTypeId: 1, subsystemId: null,
+        baseObjectId: null, isTemplate: false, modifyDate: null
+      }) as ObjectMeta),
+      getFormLayout: vi.fn(async () => null)
+    });
+    const parsed = JSON.parse(await findTool(fake).execute({ formId: 'X' }));
+    expect(parsed.found).toBe(false);
+  });
+
+  it('throws on empty formId', async () => {
+    const tool = findTool(makeLayoutFake());
+    await expect(tool.execute({})).rejects.toThrow(/formId/);
+  });
+
+  it('marked parallelSafe', () => {
+    expect(findTool(makeLayoutFake()).parallelSafe).toBe(true);
   });
 });
 

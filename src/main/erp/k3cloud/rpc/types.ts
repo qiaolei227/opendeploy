@@ -222,6 +222,18 @@ export interface SaveExtensionRequest {
   /** Plugins to register on this Form. Rendered inside `<Form><FormPlugins>...`. */
   addPlugins?: BosPluginElement[];
   /**
+   * Pre-serialized chunks of the extension's currently-saved fields (typically
+   * obtained via `extractExistingExtensionElements`). DCXML is a baseline
+   * diff: every save must re-include all elements the extension already owns,
+   * or the server treats their absence as removal. Emitted ahead of
+   * `addFields` so element order matches the natural read-back ordering.
+   */
+  existingFieldsRaw?: string[];
+  /** Same baseline-diff requirement as existingFieldsRaw, for appearances. */
+  existingAppearancesRaw?: string[];
+  /** Same baseline-diff requirement as existingFieldsRaw, for plugins. CDATA-preserved. */
+  existingPluginsRaw?: string[];
+  /**
    * Existing layout's oid in the parent object. Required for non-new
    * extensions. Each Save creates / edits this single LayoutInfo node.
    */

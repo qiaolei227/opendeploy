@@ -12,16 +12,41 @@
 - `kingdee_list_subsystems` — 列子系统(给 list_objects 的 subsystemId 取值)
 - `kingdee_describe_basedata` — 反查基础资料对象(BD_Customer / BD_MATERIAL / ...)的可显示字段,用于 base_property 字段的 srcDisplayFieldName 选择
 - `kingdee_list_extensions` — 列指定父单据上已有的所有扩展(创建新扩展前的复用判断 + 排查同一父单据下扩展数量)
-- `kingdee_get_extension_fields` — 反查扩展上**已加的扩展字段**(`kingdee_add_field` 写完后必用本工具验证;不要用 `kingdee_get_fields`,那个只看父对象)
-- `kingdee_list_form_plugins` — 列扩展或父单据上**已注册的所有插件**(`kingdee_register_python_plugin` 写完后用本工具验证 className / pyScript 落库;同名插件查重也用它)
+- `kingdee_get_extension_fields` — 反查扩展上**已加的扩展字段**(`kingdee_add_fields` 写完后必用本工具验证;不要用 `kingdee_get_fields`,那个只看父对象)
+- `kingdee_list_form_plugins` — 列扩展或父单据上**已注册的所有插件**(`kingdee_register_python_plugins` 写完后用本工具验证 className / pyScript 落库;同名插件查重也用它)
+- `kingdee_list_enum_types` — 列账套上已注册的下拉枚举(combo 字段引用源)。加 combo 字段前必先用本工具找现成的可复用,**找不到再 `kingdee_create_enum_type` 新建**
+- `kingdee_get_form_layout` — 反查父单据的容器目录(头有几个 tab、几个单据体)+ 中文标题。**`kingdee_add_fields` 之前必先用本工具,把目标容器选项列给用户**
 
 **BOS 写入**(HTTP RPC,与 BOS Designer 同路径):
 - `kingdee_create_extension` — 给原厂父单据新建扩展。返回 `extId`,后续字段 / 插件操作都用它。
-- `kingdee_add_field` — 给已有扩展加业务字段(11 类型:text / int / decimal / price / amount / qty / date / checkbox / base_data / base_property / unit)
-- `kingdee_register_python_plugin` — 给已有扩展挂 Python 表单插件(写到扩展 `<Form><FormPlugins>`)
+- `kingdee_add_fields` — 给已有扩展**批量**加业务字段(`fields: [...]`,12 类型:text / int / decimal / price / amount / qty / date / checkbox / **combo** / base_data / base_property / unit)。**这一轮要加的字段全部塞进数组里,一次保存,不要拆多次**——BOS 服务端把每次 Save 当扩展的"完整差异",拆调用会让前面的字段消失。
+- `kingdee_register_python_plugins` — 给已有扩展**批量**挂 Python 表单插件(`plugins: [...]`,写到扩展 `<Form><FormPlugins>`)。同样**一次性把要挂的全部塞数组里**,理由同上。
+- `kingdee_create_enum_type` — 在账套上新建一个下拉枚举(`name` + `items: [{value, caption}, ...]`),返回 `enumTypeId`。**只在 `kingdee_list_enum_types` 找不到合适现成枚举时才用**,避免账套里堆同义重复。
+- `kingdee_delete_enum_type` — 软删除一个枚举(进回收站可恢复)。金蝶预置枚举(isSysPreset="1")删不了。
 - `kingdee_delete_extension` — 删整个扩展(连带其上字段 / 插件)
 
-**v0.1 限制**:DLL 插件注册暂不支持(只支持 Python 表单插件);多 locale 名称暂时只写中文(2052)。
+**v0.1 限制**:
+- DLL 插件注册暂不支持(只支持 Python 表单插件)
+- 多 locale 名称暂时只写中文(2052)
+
+### base_data / unit / combo 字段:传 friendly 名即可,不要传 GUID
+
+`kingdee_add_fields` 工具内部会:
+- **base_data 字段** 的 `refBaseDataObjectKey` 自动从 friendly FormID(如 `BD_Customer` / `BD_MATERIAL` / `BD_Department`)翻成内部 lookup-class GUID,大小写不敏感
+- **unit 字段** 默认引用 `BD_UNIT`(标准计量单位)+ `unitTypeKey="1"`,99% 场景不用传任何额外参数。罕见特殊单位字典才传 `refBaseDataObjectKey`
+- **combo 字段** 的 `enumTypeName` 自动从友好名(如 `审核状态` / `单据状态` / 自建枚举的 name)翻成内部 enum GUID,大小写不敏感
+
+**不要**自己写 GUID 当这些参数传 —— 你拿不到,工具替你翻。**也不要**用 `BD_UnitGroup` 当 unit 字段的 ref —— 那是单位组,UnitField 应该指向 `BD_UNIT`。
+
+### Combo 字段决策流(找现成 → 没有再建)
+
+需求里看到下拉时:
+1. **先 `kingdee_list_enum_types <keyword>`** —— 用客户描述的关键字搜(如客户说"质量等级"就搜"质量"),看有没有现成可用的枚举。账套里有 ~3500 条预置 + 客户化枚举,**复用永远比新建好**。
+2. **找到合适的** → `kingdee_add_fields` 加 combo 字段,`enumTypeName` 传那个枚举的 name。
+3. **没合适的** → `kingdee_create_enum_type(name, items[])` 新建,服务端返回 `enumTypeId`。然后 `kingdee_add_fields` 加 combo 字段引用它(传新枚举的 name 即可,工具会刷缓存)。
+4. **预置枚举(isSysPreset="1")** 别试图改 / 删 —— 服务端会拒。
+
+测试 / 拆除:`kingdee_delete_enum_type` 软删(进回收站,可恢复;只对自建枚举有效)。
 
 ### 决策框架
 
@@ -39,6 +64,7 @@ base-system 硬规则一要求你"**先侦察再精准反问**"。针对 K/3 Clo
 | 这个父单据上已有哪些扩展(避免重复建) | `kingdee_list_extensions` |
 | 这个扩展上已有哪些扩展字段 | `kingdee_get_extension_fields` |
 | 这个扩展或单据已挂哪些插件 | `kingdee_list_form_plugins` |
+| 父单据有几个头页签 / 几个单据体(加字段前定位置必看) | `kingdee_get_form_layout` |
 
 侦察完,把查到的具体情况写在提给用户的问题里——不要问"通用"问题。
 
@@ -63,11 +89,23 @@ OpenDeploy 创建的扩展,**必须用 `kingdee_delete_extension` 工具删**(�
 1. (推荐) 让 agent 用 `kingdee_delete_extension` 删,SVN 工作区里残留的 `.dym` 文件放着不管(运行时不读)
 2. 或者用户去 SVN 工作区 `svn revert <FID>.dym` / 直接删那个 `.dym`,然后再 BOS Designer 删一次会过
 
-### `kingdee_add_field` 默认坐标 = 左上角(必须告知用户去拖)
+### `kingdee_add_fields` 之前必须问清目标容器
 
-新字段默认 `Top=10 / Left=10`(容器左上角)→ 视觉上会和原厂字段重叠。**这是预期的**——客户必须在 BOS Designer 里把字段拖到合适位置。给用户的反馈消息中**必须**显式提一句"字段默认落在容器左上角,会和原厂字段重叠,请在 BOS Designer 中拖到合适位置"。
+**头页签 / 单据体多于 1 个时,不能默认 FTAB_P0 直接写**——SAL_SaleOrder 头就有 5 个 tab(基本信息/客户信息/财务信息/订单条款/其他)+ 多个单据体(订单条款/明细信息/财务信息/计划信息/...),不同业务字段应落到对应容器。
 
-只有用户预先指定了精确像素坐标时才传 `top` / `left` 参数。
+流程:
+1. 调 `kingdee_get_form_layout <parentFormId>` 拿到 `tabs` + `entries` 列表。
+2. 容器只有 1 个(罕见,纯基础资料类)→ 静默用那个容器,不必问。
+3. 容器多于 1 个 → 用 caption / name **把选项列给用户**,问"你想把字段加到哪个容器?",等用户决定。
+4. 用户选定后,把对应的 `tabs[*].key` 或 `entries[*].key` 传给每个 field 的 `container` 参数。
+
+**头字段** → 用某个 tab 的 key(如 `FTAB_P0` 基本信息);**单据体字段** → 用 entry 的 key(如 `FSaleOrderEntry` 明细信息)。
+
+### `kingdee_add_fields` 自动排版(无需手传坐标)
+
+新字段会自动贴在原厂字段最右边界右侧一列,纵向顺排;多次调用之间会接着排,不会撞已有的扩展字段。**不要再传 `top` / `left` 参数**——除非用户明确要求精确像素位置。
+
+给用户的完成消息里**不再说**"默认在左上角,请去拖"——改说"已按规则排在原厂字段右侧一列,如视觉位置不理想可在 BOS Designer 中微调"。
 
 ### 写入后的闭环——必做反查
 
@@ -78,8 +116,8 @@ base-system 硬规则要求"写完必须验证才能说完成"。K/3 Cloud 的�
    | 写完什么 | 反查 | 验什么 |
    |---|---|---|
    | `kingdee_create_extension` | `kingdee_list_extensions <parentFormId>` | 列表里有新 extId + 名称对得上 |
-   | `kingdee_add_field` | `kingdee_get_extension_fields <extId>` | 列表里有新 key + caption 对得上 |
-   | `kingdee_register_python_plugin` | `kingdee_list_form_plugins <extId>` | 列表里有 className + `type=python` + pyScript 不为空 |
+   | `kingdee_add_fields` | `kingdee_get_extension_fields <extId>` | 列表里**所有**新 key + caption 都对得上,count = 你刚加的数量 |
+   | `kingdee_register_python_plugins` | `kingdee_list_form_plugins <extId>` | 列表里**所有**新 className + `type=python` + pyScript 不为空 |
 
    **千万别用 `kingdee_get_fields` 验扩展字段** —— 它只看父对象原厂字段,扩展字段永远查不到,会让你误以为写入失败。
 
