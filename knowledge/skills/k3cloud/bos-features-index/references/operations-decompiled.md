@@ -481,7 +481,7 @@ def AfterDoOperation(e):
 当前 `bos-write-tools.ts`（Plan 5.5）已有 7 个工具：
 - `kingdee_create_extension` — 创建扩展对象（写 8 张表）
 - `kingdee_add_form_plugin` / `kingdee_update_python_plugin` — 写/更新 Python 表单插件
-- `kingdee_add_field` — 添加扩展字段
+- `kingdee_add_fields` — 添加扩展字段
 - `kingdee_list_extensions` / `kingdee_get_extension_fields` — 只读工具
 - `kingdee_restore_from_backup` — 回滚
 

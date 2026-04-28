@@ -133,7 +133,7 @@ OpenDeploy 的 `kingdee_create_extension_with_python_plugin` 已封装这套事�
 
 ### 症状
 
-对同一扩展第二次调 `kingdee_register_python_plugin` 传同 `pluginName`:
+对同一扩展第二次调 `kingdee_register_python_plugins` 传同 `className`:
 
 - ✅ 当前实现:覆盖原 `<PlugIn>` 节点的 `<PyScript>`,不新增节点
 - ⚠️ 用户预期可能是"再加一个" → 明确告知"同名覆盖,不同名追加"

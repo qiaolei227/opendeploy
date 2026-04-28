@@ -1,11 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { AppSettings, IpcApi, LlmChatRequest, LlmStreamEvent } from '@shared/types';
 import type { KnowledgeSource } from '@shared/skill-types';
-import type {
-  ErpConnectionState,
-  K3CloudDiscoveryConfig,
-  Project
-} from '@shared/erp-types';
+import type { ErpConnectionState, Project } from '@shared/erp-types';
 
 const api: IpcApi = {
   getSettings: () => ipcRenderer.invoke('settings:get'),
@@ -39,8 +35,8 @@ const api: IpcApi = {
     ipcRenderer.invoke('projects:update', id, patch),
   projectsDelete: (id: string) => ipcRenderer.invoke('projects:delete', id),
   projectsSetActive: (id: string | null) => ipcRenderer.invoke('projects:set-active', id),
-  projectsListDatabases: (config: K3CloudDiscoveryConfig) =>
-    ipcRenderer.invoke('projects:list-databases', config),
+  projectsListDataCenters: (baseUrl: string) =>
+    ipcRenderer.invoke('projects:list-data-centers', baseUrl),
   projectsConnectionState: () => ipcRenderer.invoke('projects:connection-state'),
   erpOnConnectionState: (cb: (s: ErpConnectionState) => void) => {
     const listener = (_event: unknown, s: ErpConnectionState) => cb(s);

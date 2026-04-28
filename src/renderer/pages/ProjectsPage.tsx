@@ -21,7 +21,6 @@ export function ProjectsPage() {
     update,
     remove,
     setActive,
-    listDatabases,
     clearError
   } = useProjectsStore();
 
@@ -41,8 +40,7 @@ export function ProjectsPage() {
   const onSubmit = async (input: {
     name: string;
     erpProvider: Project['erpProvider'];
-    connection: Project['connection'];
-    bos?: Project['bos'];
+    bos: Project['bos'];
   }) => {
     setSubmitting(true);
     try {
@@ -50,16 +48,11 @@ export function ProjectsPage() {
         await create({
           name: input.name,
           erpProvider: input.erpProvider,
-          connection: input.connection,
-          ...(input.bos ? { bos: input.bos } : {})
+          bos: input.bos
         });
       } else if (editing) {
-        // Patch with `bos` set explicitly — including `undefined` so a user
-        // who clears the BOS section actually drops the field. The store /
-        // settings layer treats `undefined` as "remove key" via spread.
         await update(editing.id, {
           name: input.name,
-          connection: input.connection,
           bos: input.bos
         });
       }
@@ -166,7 +159,7 @@ export function ProjectsPage() {
                         }}
                       >
                         <span>
-                          {p.connection.server}:{p.connection.port ?? 1433}/{p.connection.database}
+                          {p.bos.acctId} @ {p.bos.baseUrl}
                         </span>
                         <span className="chip" style={{ fontSize: 10 }}>
                           {t(`projects.products.${p.erpProvider}`)}
@@ -223,7 +216,6 @@ export function ProjectsPage() {
               initial={editing}
               onCancel={() => setView('list')}
               onSubmit={onSubmit}
-              onListDatabases={listDatabases}
               submitting={submitting}
             />
           </section>

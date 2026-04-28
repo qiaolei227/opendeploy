@@ -149,19 +149,24 @@ describe('runAgentLoop', () => {
     expect(maxInFlight).toBe(1);
   });
 
-  it('halts after max iterations', async () => {
+  it('halts after max iterations with a soft cap message instead of throwing', async () => {
+    // Iteration cap is a soft signal — the loop appends a synthetic assistant
+    // message ("回复继续我接着干完") and returns normally. Throwing would
+    // surface a red error in the chat and lose the user's progress.
     const client = fakeClient([
       [{ type: 'tool_call', toolCall: { id: 't', name: 'nope', arguments: {} } }, { type: 'done', finishReason: 'tool_calls' }],
       [{ type: 'tool_call', toolCall: { id: 't', name: 'nope', arguments: {} } }, { type: 'done', finishReason: 'tool_calls' }],
       [{ type: 'tool_call', toolCall: { id: 't', name: 'nope', arguments: {} } }, { type: 'done', finishReason: 'tool_calls' }]
     ]);
-    await expect(
-      runAgentLoop({
-        client, tools: new ToolRegistry(), providerId: 't', apiKey: 'k',
-        initialMessages: [{ id: 'u', role: 'user', content: 'go', createdAt: '' }],
-        maxIterations: 2
-      })
-    ).rejects.toThrow(/max iterations/i);
+    const result = await runAgentLoop({
+      client, tools: new ToolRegistry(), providerId: 't', apiKey: 'k',
+      initialMessages: [{ id: 'u', role: 'user', content: 'go', createdAt: '' }],
+      maxIterations: 2
+    });
+    const last = result[result.length - 1];
+    expect(last.role).toBe('assistant');
+    expect(last.content).toMatch(/已运行 2 轮/);
+    expect(last.content).toMatch(/继续/);
   });
 
   it('accumulates reasoning_delta into assistant message.reasoningContent and emits events', async () => {

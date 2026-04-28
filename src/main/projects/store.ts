@@ -12,8 +12,27 @@ export type NewProjectInput = Omit<Project, 'id' | 'createdAt' | 'updatedAt'>;
  * frequency.
  */
 
+/**
+ * Projects loaded from settings.json. Pre-migration entries (alpha builds
+ * before the BOS-only switch) carry a SQL `connection` field but no `bos`
+ * — they're stale and would crash the renderer that now reads `p.bos.acctId`
+ * unconditionally. Drop them on load with a console warning so the user
+ * sees an empty list and re-creates with the new BOS-only flow.
+ */
 export async function listProjects(): Promise<Project[]> {
-  return (await loadSettings()).projects ?? [];
+  const all = (await loadSettings()).projects ?? [];
+  const valid: Project[] = [];
+  for (const p of all) {
+    if (p.bos && typeof p.bos.acctId === 'string' && typeof p.bos.baseUrl === 'string') {
+      valid.push(p);
+    } else {
+      console.warn(
+        `[projects] dropping project "${p.name}" (${p.id}) — missing BOS credentials. ` +
+          'It was created in the SQL-direct era; please re-create with the new BOS-only form.'
+      );
+    }
+  }
+  return valid;
 }
 
 export async function getProject(id: string): Promise<Project | null> {

@@ -40,7 +40,7 @@ category: workflow
 
 | ❌ 模糊 | ✅ 具体可核查 |
 |---|---|
-| "插件不工作" | "`kingdee_register_python_plugin` 返回 success + backupFile,但 `kingdee_list_form_plugins('<extId>')` 返回空数组" |
+| "插件不工作" | "`kingdee_register_python_plugins` 返回 success + backupFile,但 `kingdee_list_form_plugins('<extId>')` 返回空数组" |
 | "查不到字段" | "对 `SAL_SaleOrder` 调 `kingdee_get_fields`,返回 0 条;但 BOS Designer 里能看到大量字段" |
 | "报错了" | "`kingdee_create_extension_with_python_plugin` 返回 error: `not_initialized: FSUPPLIERNAME 未绑定`" |
 
@@ -86,7 +86,7 @@ category: workflow
 
 ## 简短示例(精简到 4 行,完整走例见 `python-plugin-index/prompts/debugging`)
 
-- **症状**:`kingdee_register_python_plugin` 返回 success,客户端无反应
+- **症状**:`kingdee_register_python_plugins` 返回 success,客户端无反应
 - **假设 A/B/C**:挂错父扩展 / 事件签名错 / 客户端缓存
 - **证据**:先查 A/B(只读工具能查),再问用户测 C
 - **锁定**:B 命中(签名 `BeforeSave_1` 错别字)→ 改 + 重注册 + 反查 + 让用户复测

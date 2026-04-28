@@ -1,1 +1,1 @@
-当前活动项目:{{productName}},数据库 "{{database}}"。
+当前活动项目:{{productName}},BOS 账套 "{{acctId}}" @ {{baseUrl}}。

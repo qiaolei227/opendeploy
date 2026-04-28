@@ -50,7 +50,7 @@
 - **动作**:
   1. `kingdee_list_extensions('SAL_SaleOrder')` 看现有扩展
   2. 生成 pyBody,挂 `BeforeSave` 拦截,读 `F_IsBlacklisted` 决定 hard block / soft warn
-  3. 调 `kingdee_register_python_plugin` 或 `kingdee_create_extension_with_python_plugin`
+  3. 调 `kingdee_register_python_plugins`(plugins 数组,一次保存)
 - **验证**:
   - `kingdee_list_form_plugins` 反查插件落库
   - 建一个测试黑名单客户,手工试保存一单,应阻断

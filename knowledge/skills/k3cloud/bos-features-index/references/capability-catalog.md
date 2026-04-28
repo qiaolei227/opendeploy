@@ -75,7 +75,7 @@ public class BasePropertyField : TextField    // ElementType = 14
 
 **XML 形态**：`<TextField key="..." ...>` / `<IntegerField .../>` 等，**类名 = XML 标签名**。
 
-**OpenDeploy 当前覆盖**：`kingdee_add_field`（仅 type=text）→ Plan 5.12 P0：扩到 8 主流类型 + BaseDataField 子类。
+**OpenDeploy 当前覆盖**：`kingdee_add_fields`（仅 type=text）→ Plan 5.12 P0：扩到 8 主流类型 + BaseDataField 子类。
 
 **反编译位置**：line 11974（基类）+ 上述子类各自的 line 号。
 
@@ -108,10 +108,10 @@ Entity（line 54067, 含常量 HEAD_TYPE=0 / ENTRY_TYPE=1 / LINK_TYPE=2）
 
 **XML 形态**：`<Entity>` / `<EntryEntity>` / `<SubEntryEntity>`，每个含自己的 `<Fields>` 集合。
 
-**OpenDeploy 当前覆盖**：❌ 当前 `kingdee_add_field` 默认加到 head，没法指定 entity；`kingdee_get_extension_fields` 也按 head 维度返回。
+**OpenDeploy 当前覆盖**：❌ 当前 `kingdee_add_fields` 默认加到 head，没法指定 entity；`kingdee_get_extension_fields` 也按 head 维度返回。
 
 **Plan 5.12 必做**：
-- `kingdee_list_entities` + `kingdee_add_field` 加 `entityKey` 参数
+- `kingdee_list_entities` + `kingdee_add_fields` 加 `entityKey` 参数
 - `kingdee_add_entry_entity`（创建新 1:N 子表，含 SQL CREATE TABLE + XML 节点 + tracker 行）
 
 ---
@@ -499,7 +499,7 @@ BillTrackerElement（line 267029, 单据跟踪表元数据）
 
 | 能力 | 反编译位置 | OpenDeploy 工具 |
 |---|---|---|
-| 字段类型（仅 text）| #1 | `kingdee_add_field` ⚠️ 部分 |
+| 字段类型（仅 text）| #1 | `kingdee_add_fields` ⚠️ 部分 |
 | 字段反查 | #1 | `kingdee_get_extension_fields` / `_get_fields` ✅ |
 | 实体查询 / 操作 | #2 | ❌ Plan 5.12 必做 |
 | 表单插件注册 | (Python plugin, FKERNELXML `<FormPlugins>`) | `kingdee_register_plugin` ✅ |

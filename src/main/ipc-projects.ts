@@ -13,12 +13,8 @@ import {
   setActiveProject,
   subscribe
 } from './erp/active';
-import { listAccountDatabases } from './erp/k3cloud/discover';
-import type {
-  ErpConnectionState,
-  K3CloudDiscoveryConfig,
-  Project
-} from '@shared/erp-types';
+import { getDataCenterList } from './erp/k3cloud/rpc/data-center';
+import type { ErpConnectionState, Project } from '@shared/erp-types';
 
 /**
  * Projects & live-connection IPC.
@@ -70,8 +66,13 @@ export function registerProjectsIpc(getMainWindow: () => BrowserWindow | null): 
 
   ipcMain.handle('projects:connection-state', async () => getConnectionState());
 
+  // Pre-login data-center discovery — replicates BOS Designer's flow where
+  // the user enters only a server URL and the client fetches available
+  // account-sets before asking for credentials. Returns whatever the K/3
+  // Cloud Web Server publishes (no auth needed). Errors propagate via
+  // ipc rejection — renderer wraps them in a user-facing message.
   ipcMain.handle(
-    'projects:list-databases',
-    async (_e, config: K3CloudDiscoveryConfig) => listAccountDatabases(config)
+    'projects:list-data-centers',
+    async (_e, baseUrl: string) => getDataCenterList(baseUrl)
   );
 }

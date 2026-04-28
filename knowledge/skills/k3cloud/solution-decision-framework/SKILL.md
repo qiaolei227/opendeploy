@@ -78,7 +78,7 @@ Python 插件是 OpenDeploy 的**主力支持方向**。
 1. 先用 `kingdee_list_extensions` 查父单据有没有现成扩展可复用
 2. 参考 `k3cloud/python-plugin-index` skill 生成 `pyBody`
 3. **出 design,等用户签字**(base-system 硬规则一)
-4. 调 `kingdee_register_python_plugin`(挂到已有扩展)**或** `kingdee_create_extension_with_python_plugin`(新建扩展 + 挂插件)
+4. 调 `kingdee_register_python_plugins`(挂到已有扩展;数组,一次保存)
 5. **反查验证**(base-system 硬规则四 + erp-rules/k3cloud.md 写入闭环)
 6. 告知用户:`backupFile` 路径 + BOS Designer F5 刷新 + 客户端重登 + SVN 同步(如适用)
 

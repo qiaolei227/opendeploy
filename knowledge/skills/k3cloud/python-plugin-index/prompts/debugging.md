@@ -24,7 +24,7 @@
   └─ 看有没有你注册的 ClassName
 ```
 
-没有 → 注册压根没成功,重试 `kingdee_register_python_plugin` 或 `kingdee_create_extension_with_python_plugin`,看工具返回的错误消息。
+没有 → 注册压根没成功,重试 `kingdee_register_python_plugins`,看工具返回的错误消息。
 
 有 → §2。
 
@@ -72,7 +72,7 @@ def AfterBindData(self, e):
 3. **中文字符串没 `u`**——`"客户"` 可能乱码,要 `u"客户"`
 4. **缩进不对齐**——哪怕只差 1 空格也错
 
-**修复**:改代码 → `kingdee_unregister_plugin` 再 `kingdee_register_python_plugin`(或调 `kingdee_create_extension_with_python_plugin` 覆盖)→ §6 刷缓存 → 重测。
+**修复**:改代码 → `kingdee_delete_extension` 重建,或直接覆盖式再调 `kingdee_register_python_plugins`(本工具 read-merge,会保留其他插件)→ §6 刷缓存 → 重测。
 
 ---
 

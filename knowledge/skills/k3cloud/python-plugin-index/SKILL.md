@@ -67,7 +67,7 @@ class MyPlugIn(AbstractBillPlugIn):
 
 ```
 kingdee_list_extensions         # 查父单据有无现成扩展可复用
-  ├─ 有 → kingdee_register_python_plugin(挂到已有扩展)
+  ├─ 有 → kingdee_register_python_plugins(挂到已有扩展)
   └─ 无 → kingdee_create_extension_with_python_plugin(建新扩展 + 挂插件)
 ```
 

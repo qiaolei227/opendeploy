@@ -289,7 +289,7 @@ public const string ALIAS_PREFIX = "t";  // SQL 表别名前缀
 - Head 字段 → `<Container>FTAB_P0</Container>`（或 `FTAB_Head` 等 head panel）
 - Entry 字段 → `<Container>FSaleOrderEntry</Container>`（直接是 EntryEntity 的 Key）
 
-`kingdee_add_field` 在写 TextField 节点时，`FieldName` 对应 EntryEntity 下表的实际列名（如 `T_SAL_ORDERENTRY.F_MY_TEXT`），`PropertyName` 同列名。
+`kingdee_add_fields` 在写 TextField 节点时，`FieldName` 对应 EntryEntity 下表的实际列名（如 `T_SAL_ORDERENTRY.F_MY_TEXT`），`PropertyName` 同列名。
 
 ---
 
@@ -338,7 +338,7 @@ CREATE TABLE T_EXT_MYENTRY (
 );
 ```
 
-> **注意**：BOS v0.1 现有工具不支持创建新 entry entity（需新建物理表 + 注册 T_META_TRACKERBILLTABLE + 修改 FKERNELXML 添加 `<EntryEntity>` 节点）。`kingdee_add_field` 目前只支持向**已有** head entity 添加扩展字段（写入 TextField/ComboField 节点到已有扩展的 FKERNELXML）。
+> **注意**：BOS v0.1 现有工具不支持创建新 entry entity（需新建物理表 + 注册 T_META_TRACKERBILLTABLE + 修改 FKERNELXML 添加 `<EntryEntity>` 节点）。`kingdee_add_fields` 目前只支持向**已有** head entity 添加扩展字段（写入 TextField/ComboField 节点到已有扩展的 FKERNELXML）。
 
 🟡 蓝图基于 T_SAL_ORDERENTRY 实证推断，**新建 entry entity 未经 UAT 验证**。
 
@@ -537,9 +537,9 @@ WHERE FID = @objectFid
 
 ---
 
-### 6.2 `kingdee_add_field` 的 `entityKey` 参数
+### 6.2 `kingdee_add_fields` 的 `entityKey` 参数
 
-当前 `kingdee_add_field` 写字段到 head（默认）。新增 `entityKey` 可选参数：
+当前 `kingdee_add_fields` 写字段到 head（默认）。新增 `entityKey` 可选参数：
 
 - 不传或 `entityKey = "FBillHead"` → 当前行为（Head 字段）
 - `entityKey = "FSaleOrderEntry"` → 字段放到该 EntryEntity 对应的面板

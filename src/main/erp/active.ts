@@ -62,7 +62,14 @@ export async function setActiveProject(project: Project | null): Promise<void> {
     error: undefined,
     erpProvider: project.erpProvider
   });
-  const next = new K3CloudConnector(project.connection);
+  if (!project.bos) {
+    updateState({
+      status: 'error',
+      error: 'project has no BOS credentials — configure BOS endpoint + login in the project settings'
+    });
+    return;
+  }
+  const next = new K3CloudConnector(project.bos);
   try {
     await next.connect();
     connector = next;

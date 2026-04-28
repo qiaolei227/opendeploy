@@ -1,7 +1,7 @@
 import type {
+  BosRpcCredentials,
   ExtensionMeta,
   FieldMeta,
-  K3CloudConnectionConfig,
   ObjectMeta,
   PluginMeta,
   SubsystemMeta,
@@ -15,14 +15,14 @@ import type {
  * data shapes.
  */
 export interface ErpConnector {
-  readonly config: K3CloudConnectionConfig;
+  readonly config: BosRpcCredentials;
 
-  /** Open the long-lived pool. Idempotent. */
+  /** Login + heartbeat. Idempotent — second call reuses the cached session. */
   connect(): Promise<void>;
-  /** Close the long-lived pool. Idempotent. */
+  /** Drop the cached session. Idempotent. */
   disconnect(): Promise<void>;
 
-  /** Hit the server with a trivial query to confirm connectivity + auth. */
+  /** Probe the server: login + heartbeat. Used by the project form's "Test" button. */
   testConnection(): Promise<TestConnectionResult>;
 
   // ─── Metadata queries (implemented in Task 12) ────────────────────────

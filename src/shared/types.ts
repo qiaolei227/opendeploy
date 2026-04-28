@@ -1,11 +1,6 @@
 /// <reference types="node" />
 
-import type {
-  ErpConnectionState,
-  K3CloudDiscoveryConfig,
-  ListDatabasesResult,
-  Project
-} from './erp-types';
+import type { ErpConnectionState, Project } from './erp-types';
 import type { PluginFile, PluginWriteResult } from './plugin-types';
 import type { KnowledgeSource, LoadedSkill, SkillMeta } from './skill-types';
 import type { MessageBlock } from './blocks';
@@ -140,7 +135,14 @@ export interface IpcApi {
   ) => Promise<Project>;
   projectsDelete: (id: string) => Promise<void>;
   projectsSetActive: (id: string | null) => Promise<void>;
-  projectsListDatabases: (config: K3CloudDiscoveryConfig) => Promise<ListDatabasesResult>;
+  /**
+   * Pre-login data-center discovery — given only a K/3 Cloud server URL,
+   * fetch the list of account-sets the server hosts. Mirrors BOS Designer's
+   * flow (URL → pick account-set → credentials). No auth required.
+   */
+  projectsListDataCenters: (
+    baseUrl: string
+  ) => Promise<Array<{ id: string; number: string; name: string }>>;
   projectsConnectionState: () => Promise<ErpConnectionState>;
   /** Subscribe to live connection-state changes. Returns an unsubscribe fn. */
   erpOnConnectionState: (cb: (s: ErpConnectionState) => void) => () => void;

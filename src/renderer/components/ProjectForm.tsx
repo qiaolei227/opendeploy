@@ -1,14 +1,12 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type {
-  BosRpcCredentials,
-  DatabaseCandidate,
-  ErpProvider,
-  K3CloudConnectionConfig,
-  K3CloudDiscoveryConfig,
-  ListDatabasesResult,
-  Project
-} from '@shared/erp-types';
+import type { BosRpcCredentials, ErpProvider, Project } from '@shared/erp-types';
+
+interface DataCenter {
+  id: string;
+  number: string;
+  name: string;
+}
 
 /**
  * Products the user can pick from when creating a project. MVP ships a single
@@ -24,30 +22,11 @@ interface ProjectFormProps {
   onSubmit: (input: {
     name: string;
     erpProvider: ErpProvider;
-    connection: K3CloudConnectionConfig;
-    /** Undefined when the user left every BOS field blank — Project.bos stays unset. */
-    bos?: BosRpcCredentials;
+    bos: BosRpcCredentials;
   }) => void | Promise<void>;
   onCancel: () => void;
-  /**
-   * Combined connect-and-discover. Logs into `master` on the target server,
-   * verifies credentials, returns server version + account-set candidates in
-   * one round-trip. Drives the progressive-disclosure flow: until this
-   * succeeds, the "target database" section is locked.
-   */
-  onListDatabases: (config: K3CloudDiscoveryConfig) => Promise<ListDatabasesResult>;
   submitting?: boolean;
 }
-
-const DEFAULT_CONNECTION: K3CloudConnectionConfig = {
-  server: 'localhost',
-  port: 1433,
-  database: '',
-  user: 'sa',
-  password: '',
-  encrypt: true,
-  trustServerCertificate: true
-};
 
 const DEFAULT_BOS: BosRpcCredentials = {
   baseUrl: 'http://localhost/k3cloud',
@@ -57,28 +36,17 @@ const DEFAULT_BOS: BosRpcCredentials = {
   devCode: 'PAIJ'
 };
 
-/** Fields whose values invalidate a prior successful connect-and-discover. */
-type CredentialField = 'server' | 'port' | 'user' | 'password' | 'encrypt' | 'trustServerCertificate';
-
 /**
- * Project form with three progressive sections:
- *   1. Identity — project name.
- *   2. Server connection — credentials + a single "Connect & discover" button
- *      that verifies the server and lists account-sets in one round-trip.
- *   3. Target database — locked until step 2 succeeds; populated with the
- *      account-set dropdown returned by the discovery call.
+ * Project form — three sections:
+ *   1. Product (just K/3 Cloud for now)
+ *   2. Identity — project name
+ *   3. BOS login — server URL → discover account-sets → pick one → user/password
  *
- * Edit mode starts with the connection pre-verified so the user can save
- * without reconnecting. Changing any credential field in step 2 invalidates
- * that state and forces a re-verify before save.
+ * Mirrors BOS Designer's login flow: the user enters only an HTTP endpoint
+ * and a credential; we never need SQL Server reachability. Production
+ * deployments where the SQL host is firewalled work the same as local dev.
  */
-export function ProjectForm({
-  initial,
-  onSubmit,
-  onCancel,
-  onListDatabases,
-  submitting
-}: ProjectFormProps) {
+export function ProjectForm({ initial, onSubmit, onCancel, submitting }: ProjectFormProps) {
   const { t } = useTranslation();
   const isEdit = !!initial;
 
@@ -86,112 +54,78 @@ export function ProjectForm({
   const [erpProvider, setErpProvider] = useState<ErpProvider>(
     initial?.erpProvider ?? PRODUCT_OPTIONS[0].id
   );
-  const [c, setC] = useState<K3CloudConnectionConfig>(
-    initial?.connection ?? DEFAULT_CONNECTION
-  );
   const [bos, setBos] = useState<BosRpcCredentials>(initial?.bos ?? DEFAULT_BOS);
-  // Edit mode opens with the connection assumed valid; creating a new project
-  // starts unverified so section 3 stays locked until the user clicks discover.
-  const [connectionVerified, setConnectionVerified] = useState(isEdit);
-  const [discovering, setDiscovering] = useState(false);
-  const [discoverError, setDiscoverError] = useState<string | null>(null);
-  const [databases, setDatabases] = useState<DatabaseCandidate[]>([]);
-  const [serverVersion, setServerVersion] = useState<string | null>(null);
 
-  const credentialsFilled =
-    c.server.trim().length > 0 && c.user.trim().length > 0 && c.password.length > 0;
+  // Edit mode keeps the saved acctId visible (as a single-entry dropdown
+  // option) so the picker renders with the current value pre-selected;
+  // clicking discover replaces the list with the live server result.
+  const [bosDataCenters, setBosDataCenters] = useState<DataCenter[]>(
+    initial?.bos?.acctId
+      ? [{ id: initial.bos.acctId, number: '', name: initial.bos.acctId }]
+      : []
+  );
+  const [discoveringBos, setDiscoveringBos] = useState(false);
+  const [discoverBosError, setDiscoverBosError] = useState<string | null>(null);
 
   /**
-   * Update a credential field and invalidate the verified flag so section 3
-   * re-locks; user must reconnect before saving. Non-credential fields
-   * (database / name) use `setC` directly.
+   * List of currently-empty required fields, by their localized label. Used
+   * to drive an inline hint next to the Save button — telling the user what
+   * to fix is friendlier than a silently-disabled button.
    */
-  const updateCredential = <K extends CredentialField>(
-    key: K,
-    value: K3CloudConnectionConfig[K]
-  ): void => {
-    setC({ ...c, [key]: value });
-    if (connectionVerified) {
-      setConnectionVerified(false);
-      setServerVersion(null);
-      setDiscoverError(null);
-    }
-  };
+  const missingFields: string[] = [];
+  if (name.trim().length === 0) missingFields.push(t('projects.name'));
+  if (bos.baseUrl.trim().length === 0) missingFields.push(t('projects.bosBaseUrl'));
+  if (bos.acctId.trim().length === 0) missingFields.push(t('projects.bosAcctId'));
+  if (bos.username.trim().length === 0) missingFields.push(t('projects.bosUsername'));
+  if (bos.password.length === 0) missingFields.push(t('projects.bosPassword'));
 
-  const discover = async (): Promise<void> => {
-    if (!credentialsFilled) return;
-    setDiscovering(true);
-    setDiscoverError(null);
+  /**
+   * Discover the K/3 Cloud server's account-sets. Mirrors BOS Designer's
+   * pre-login flow — no auth needed, server URL only. The result populates
+   * the acctId dropdown so the user picks instead of hand-typing a 32-hex
+   * GUID.
+   */
+  const discoverBos = async (): Promise<void> => {
+    if (bos.baseUrl.trim().length === 0) return;
+    setDiscoveringBos(true);
+    setDiscoverBosError(null);
     try {
-      const r = await onListDatabases({
-        server: c.server,
-        port: c.port,
-        user: c.user,
-        password: c.password,
-        encrypt: c.encrypt,
-        trustServerCertificate: c.trustServerCertificate
-      });
-      if (r.ok && r.databases) {
-        setDatabases(r.databases);
-        setServerVersion(r.serverVersion ?? null);
-        setConnectionVerified(true);
-        if (r.databases.length === 0) {
-          setDiscoverError(t('projects.noDatabases'));
-        }
-      } else {
-        setDatabases([]);
-        setServerVersion(null);
-        setConnectionVerified(false);
-        setDiscoverError(r.error ?? t('projects.connectFailed'));
+      const dcs = await window.opendeploy.projectsListDataCenters(bos.baseUrl.trim());
+      setBosDataCenters(dcs);
+      if (dcs.length === 0) {
+        setDiscoverBosError(t('projects.bosNoAcctId'));
+      } else if (!dcs.some((d) => d.id === bos.acctId)) {
+        // Currently-typed acctId no longer matches any returned id — pre-pick
+        // the first one to avoid leaving the user with an invalid stale value.
+        setBos({ ...bos, acctId: dcs[0].id });
       }
     } catch (err) {
-      setDatabases([]);
-      setServerVersion(null);
-      setConnectionVerified(false);
-      setDiscoverError(err instanceof Error ? err.message : String(err));
+      setBosDataCenters([]);
+      setDiscoverBosError(err instanceof Error ? err.message : String(err));
     } finally {
-      setDiscovering(false);
+      setDiscoveringBos(false);
     }
   };
 
-  const canSubmit =
-    name.trim().length > 0 &&
-    c.database.trim().length > 0 &&
-    credentialsFilled &&
-    connectionVerified;
+  const canSubmit = missingFields.length === 0;
 
   const submit = (): void => {
     if (!canSubmit || submitting) return;
-    // BOS creds are entirely optional. We only persist `bos` when the user
-    // entered enough to actually attempt a write — username + password +
-    // acctId are the truly indispensable fields. If any are missing, drop
-    // the whole block so write tools surface "creds missing" cleanly
-    // instead of half-failing on login.
-    const bosFilled =
-      bos.baseUrl.trim().length > 0 &&
-      bos.acctId.trim().length > 0 &&
-      bos.username.trim().length > 0 &&
-      bos.password.length > 0;
     void onSubmit({
       name: name.trim(),
       erpProvider,
-      connection: c,
-      bos: bosFilled
-        ? {
-            baseUrl: bos.baseUrl.trim(),
-            acctId: bos.acctId.trim(),
-            username: bos.username.trim(),
-            password: bos.password,
-            devCode: bos.devCode.trim() || 'PAIJ'
-          }
-        : undefined
+      bos: {
+        baseUrl: bos.baseUrl.trim(),
+        acctId: bos.acctId.trim(),
+        username: bos.username.trim(),
+        password: bos.password,
+        devCode: bos.devCode.trim() || 'PAIJ'
+      }
     });
   };
 
   return (
-    <div style={{ display: 'grid', gap: 8 }}>
-      {/* ─── Section 1: product ──────────────────────────────────────── */}
-      <SectionTitle>{t('projects.sectionProduct')}</SectionTitle>
+    <div style={{ display: 'grid', gap: 12 }}>
       <Row label={t('projects.product')} required>
         <select
           value={erpProvider}
@@ -207,8 +141,6 @@ export function ProjectForm({
         </select>
       </Row>
 
-      {/* ─── Section 2: identity ─────────────────────────────────────── */}
-      <SectionTitle>{t('projects.sectionIdentity')}</SectionTitle>
       <Row label={t('projects.name')} required>
         <input
           type="text"
@@ -219,174 +151,7 @@ export function ProjectForm({
         />
       </Row>
 
-      {/* ─── Section 2: server connection ────────────────────────────── */}
-      <SectionTitle>{t('projects.sectionServer')}</SectionTitle>
-      <Row label={t('projects.server')} required>
-        <input
-          type="text"
-          value={c.server}
-          onChange={(e) => updateCredential('server', e.target.value)}
-          placeholder="localhost"
-          style={{ flex: 1, padding: '6px 10px', fontSize: 13 }}
-        />
-      </Row>
-      <Row label={t('projects.port')}>
-        <input
-          type="number"
-          value={c.port ?? 1433}
-          onChange={(e) => updateCredential('port', Number(e.target.value) || 1433)}
-          style={{ width: 120, padding: '6px 10px', fontSize: 13 }}
-        />
-      </Row>
-      <Row label={t('projects.user')} required>
-        <input
-          type="text"
-          value={c.user}
-          onChange={(e) => updateCredential('user', e.target.value)}
-          placeholder="sa"
-          style={{ flex: 1, padding: '6px 10px', fontSize: 13 }}
-        />
-      </Row>
-      <Row label={t('projects.password')} required>
-        <input
-          type="password"
-          value={c.password}
-          onChange={(e) => updateCredential('password', e.target.value)}
-          style={{ flex: 1, padding: '6px 10px', fontSize: 13 }}
-        />
-      </Row>
-
-      <details style={{ marginLeft: 112, marginTop: 4 }}>
-        <summary
-          style={{ fontSize: 12, color: 'var(--muted)', cursor: 'pointer', userSelect: 'none' }}
-        >
-          {t('projects.advancedToggle')}
-        </summary>
-        <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-            <input
-              type="checkbox"
-              checked={c.encrypt ?? true}
-              onChange={(e) => updateCredential('encrypt', e.target.checked)}
-            />
-            <span>
-              {t('projects.encrypt')} —{' '}
-              <span style={{ color: 'var(--muted)' }}>{t('projects.encryptHint')}</span>
-            </span>
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-            <input
-              type="checkbox"
-              checked={c.trustServerCertificate ?? true}
-              onChange={(e) => updateCredential('trustServerCertificate', e.target.checked)}
-            />
-            <span>
-              {t('projects.trustCert')} —{' '}
-              <span style={{ color: 'var(--muted)' }}>{t('projects.trustCertHint')}</span>
-            </span>
-          </label>
-        </div>
-      </details>
-
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          marginLeft: 112,
-          marginTop: 12,
-          flexWrap: 'wrap'
-        }}
-      >
-        <button
-          type="button"
-          className="btn"
-          onClick={() => void discover()}
-          disabled={!credentialsFilled || discovering || submitting}
-        >
-          {discovering
-            ? t('projects.connecting')
-            : connectionVerified
-              ? t('projects.reconnect')
-              : t('projects.connectAndDiscover')}
-        </button>
-        {connectionVerified && (
-          <span
-            className="chip good"
-            style={{
-              fontSize: 12,
-              color: 'var(--good)',
-              padding: '4px 10px',
-              maxWidth: 400,
-              whiteSpace: 'normal',
-              wordBreak: 'break-all'
-            }}
-            title={serverVersion ?? undefined}
-          >
-            {serverVersion
-              ? t('projects.connectedWith', { version: shortenVersion(serverVersion) })
-              : t('projects.connected')}
-          </span>
-        )}
-        {discoverError && (
-          <span style={{ fontSize: 12, color: 'var(--danger)' }}>{discoverError}</span>
-        )}
-      </div>
-
-      {/* ─── Section 3: target database (locked until connected) ─────── */}
-      <SectionTitle>{t('projects.sectionTargetDatabase')}</SectionTitle>
-      <div
-        style={{
-          display: 'grid',
-          gap: 8,
-          opacity: connectionVerified ? 1 : 0.45,
-          pointerEvents: connectionVerified ? 'auto' : 'none'
-        }}
-        aria-disabled={!connectionVerified}
-      >
-        {!connectionVerified && (
-          <div
-            className="muted small"
-            style={{ marginLeft: 112, fontSize: 12, fontStyle: 'italic' }}
-          >
-            {t('projects.lockedUntilConnected')}
-          </div>
-        )}
-        <Row label={t('projects.database')} required>
-          {databases.length > 0 ? (
-            <select
-              value={c.database}
-              onChange={(e) => setC({ ...c, database: e.target.value })}
-              style={{ flex: 1, padding: '6px 10px', fontSize: 13 }}
-            >
-              <option value="">{t('projects.pickDatabase')}</option>
-              {databases.map((d) => (
-                <option key={d.name} value={d.name}>
-                  {d.isAccountSet ? `${d.name}  ·  ${t('projects.accountSet')}` : d.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              type="text"
-              value={c.database}
-              onChange={(e) => setC({ ...c, database: e.target.value })}
-              placeholder="AIS..."
-              style={{ flex: 1, padding: '6px 10px', fontSize: 13 }}
-            />
-          )}
-        </Row>
-      </div>
-
-      {/* ─── Section 4: BOS RPC credentials (optional) ──────────────── */}
-      <SectionTitle>{t('projects.sectionBos')}</SectionTitle>
-      <p
-        className="muted"
-        style={{ margin: '0 0 4px 112px', fontSize: 12, lineHeight: 1.5 }}
-      >
-        {t('projects.bosIntro')}
-      </p>
-      <Row label={t('projects.bosBaseUrl')}>
+      <Row label={t('projects.bosBaseUrl')} required>
         <input
           type="text"
           value={bos.baseUrl}
@@ -396,17 +161,47 @@ export function ProjectForm({
         />
       </Row>
       <Hint>{t('projects.bosBaseUrlHint')}</Hint>
-      <Row label={t('projects.bosAcctId')}>
-        <input
-          type="text"
-          value={bos.acctId}
-          onChange={(e) => setBos({ ...bos, acctId: e.target.value })}
-          placeholder="69a531ee82525a"
-          style={{ flex: 1, padding: '6px 10px', fontSize: 13 }}
-        />
+      <Row label={t('projects.bosAcctId')} required>
+        <div style={{ flex: 1, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {bosDataCenters.length > 0 ? (
+            <select
+              value={bos.acctId}
+              onChange={(e) => setBos({ ...bos, acctId: e.target.value })}
+              style={{ flex: 1, minWidth: 240, padding: '6px 10px', fontSize: 13 }}
+            >
+              <option value="">{t('projects.bosPickAcctId')}</option>
+              {bosDataCenters.map((dc) => (
+                <option key={dc.id} value={dc.id}>
+                  {dc.number ? `${dc.number} · ${dc.name}` : dc.name} · {dc.id}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span
+              className="muted"
+              style={{ flex: 1, fontSize: 12, fontStyle: 'italic' }}
+            >
+              {bos.baseUrl.trim().length > 0
+                ? t('projects.bosPickAcctId')
+                : t('projects.bosBaseUrlFirst')}
+            </span>
+          )}
+          <button
+            type="button"
+            className="btn"
+            onClick={() => void discoverBos()}
+            disabled={bos.baseUrl.trim().length === 0 || discoveringBos || submitting}
+          >
+            {discoveringBos ? t('projects.bosDiscovering') : t('projects.bosDiscover')}
+          </button>
+        </div>
       </Row>
-      <Hint>{t('projects.bosAcctIdHint')}</Hint>
-      <Row label={t('projects.bosUsername')}>
+      {discoverBosError && (
+        <div style={{ marginLeft: 112, fontSize: 12, color: 'var(--danger)' }}>
+          {discoverBosError}
+        </div>
+      )}
+      <Row label={t('projects.bosUsername')} required>
         <input
           type="text"
           value={bos.username}
@@ -416,7 +211,7 @@ export function ProjectForm({
         />
       </Row>
       <Hint>{t('projects.bosUsernameHint')}</Hint>
-      <Row label={t('projects.bosPassword')}>
+      <Row label={t('projects.bosPassword')} required>
         <input
           type="password"
           value={bos.password}
@@ -436,7 +231,24 @@ export function ProjectForm({
       <Hint>{t('projects.bosDevCodeHint')}</Hint>
 
       {/* ─── Actions ─────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+      <div
+        style={{
+          display: 'flex',
+          gap: 12,
+          justifyContent: 'flex-end',
+          alignItems: 'center',
+          marginTop: 16,
+          flexWrap: 'wrap'
+        }}
+      >
+        {missingFields.length > 0 && (
+          <span
+            className="muted"
+            style={{ fontSize: 12, color: 'var(--danger)' }}
+          >
+            {t('projects.missingFieldsHint', { list: missingFields.join('、') })}
+          </span>
+        )}
         <button type="button" className="btn" onClick={onCancel} disabled={submitting}>
           {t('projects.cancel')}
         </button>
@@ -460,14 +272,6 @@ function Hint({ children }: { children: React.ReactNode }) {
       style={{ marginLeft: 112, fontSize: 11, marginTop: -2, marginBottom: 2 }}
     >
       {children}
-    </div>
-  );
-}
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="section-title" style={{ margin: '20px 0 8px' }}>
-      <h3>{children}</h3>
     </div>
   );
 }
@@ -497,15 +301,4 @@ function Row({
       <div style={{ flex: 1, display: 'flex' }}>{children}</div>
     </div>
   );
-}
-
-/**
- * `@@VERSION` strings look like
- * `Microsoft SQL Server 2022 (RTM-CU13) (KB5036432) - 16.0.4125.3 (X64) ...`.
- * Trim to the product line so the chip stays readable.
- */
-function shortenVersion(v: string): string {
-  const firstLine = v.split(/\r?\n/)[0] ?? v;
-  const cut = firstLine.split(' - ')[0] ?? firstLine;
-  return cut.length > 60 ? cut.slice(0, 60) + '…' : cut;
 }

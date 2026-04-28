@@ -67,7 +67,11 @@ function makeId(): string {
 }
 
 export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[]> {
-  const maxIter = params.maxIterations ?? 10;
+  // 30 covers realistic OpenDeploy workloads — a "create extension + add 12 field
+  // types + verify each" run takes 6-10 turns; "set up SAL_SaleOrder credit guard +
+  // tests" takes 15-20. 10 was too aggressive and threw on legitimate work
+  // (2026-04-28 raw-llm dump req_1777309732518 hit it on a routine batch).
+  const maxIter = params.maxIterations ?? 30;
   const messages: Message[] = [...params.initialMessages];
   if (params.systemPrompt && params.systemPrompt.trim() !== '' && messages[0]?.role !== 'system') {
     messages.unshift({
@@ -241,7 +245,22 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
     });
   }
 
-  throw new Error(`Agent loop exceeded max iterations (${maxIter})`);
+  // Soft cap reached. Don't throw — that surfaces as a red error and the user
+  // loses the conversation context. Instead, emit a synthetic assistant
+  // message explaining the situation; the user can reply "继续" / "继续干"
+  // and the next turn picks up where we left off (the conversation state
+  // already has every tool result up to here).
+  const cap = `（已运行 ${maxIter} 轮工具调用,这次任务比较大,我先停一下避免无限跑。回复「继续」我接着干完;或者告诉我下一步该聚焦哪部分。）`;
+  emit({ type: 'delta', content: cap });
+  messages.push({
+    id: makeId(),
+    role: 'assistant',
+    content: cap,
+    createdAt: new Date().toISOString(),
+    blocks: [{ type: 'text', text: cap }],
+  });
+  emit({ type: 'done' });
+  return messages;
 }
 
 interface TurnTraceRecord {

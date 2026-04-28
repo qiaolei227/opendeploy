@@ -10,12 +10,12 @@
     {
       "id": "common/systematic-debugging",
       "version": "1.0.0",
-      "sha256": "6cb782d115c0e3215c591b10afb3f4623dbc3fd9f29c749ac3ccc3c573e962d5"
+      "sha256": "634a622ed1e632a0827cf11e961bc0cd396c4f2336a08e5bef10ad2abe5bcbcc"
     },
     {
       "id": "k3cloud/bos-features-index",
       "version": "1.0.0",
-      "sha256": "c8cc19d467de81f60c6e3a24d99b95bc1b41f9570fb8b0c5d6030c011c9e22dd"
+      "sha256": "b6e19bf33a7cf6ab19a0f0836566b1baac4a51b9d55149484bfd7e93125b0613"
     },
     {
       "id": "k3cloud/dll-plugin-index",
@@ -30,12 +30,12 @@
     {
       "id": "k3cloud/python-plugin-index",
       "version": "1.0.0",
-      "sha256": "e296a0cb3fd954ed57a9d82ee604038c94bd1bbefd5877e1357eae003bc4e9e8"
+      "sha256": "3d68443c42e4105556157b2c3a4c7c1aa1a2095df329cbb9b19be510851df647"
     },
     {
       "id": "k3cloud/solution-decision-framework",
       "version": "2.0.0",
-      "sha256": "827c71592634e36faba12d6ac201b30505fdd2f7e61d39fa81a58b117790e3d1"
+      "sha256": "25835e7692092525209e9d60fd098edbc31ec684d22efd45f12d1ff4c9a12ca4"
     },
     {
       "id": "k3cloud/troubleshooting-index",

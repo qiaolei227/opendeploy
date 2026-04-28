@@ -12,19 +12,20 @@ import {
   updateProject,
   type NewProjectInput
 } from '../../src/main/projects/store';
-import type { K3CloudConnectionConfig } from '@shared/erp-types';
+import type { BosRpcCredentials } from '@shared/erp-types';
 
-const cfg: K3CloudConnectionConfig = {
-  server: 'localhost',
-  database: 'AIS001',
-  user: 'sa',
-  password: '123'
+const bosCreds: BosRpcCredentials = {
+  baseUrl: 'http://localhost/k3cloud',
+  acctId: '69a531ee82525a',
+  username: 'demo',
+  password: 'pwd',
+  devCode: 'PAIJ'
 };
 
 const basicInput: NewProjectInput = {
   name: '川沙诚信商贸',
   erpProvider: 'k3cloud',
-  connection: cfg
+  bos: bosCreds
 };
 
 let testDir: string;

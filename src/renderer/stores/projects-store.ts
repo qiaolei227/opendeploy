@@ -1,10 +1,5 @@
 import { create } from 'zustand';
-import type {
-  ErpConnectionState,
-  K3CloudDiscoveryConfig,
-  ListDatabasesResult,
-  Project
-} from '@shared/erp-types';
+import type { ErpConnectionState, Project } from '@shared/erp-types';
 
 export type NewProjectInput = Omit<Project, 'id' | 'createdAt' | 'updatedAt'>;
 
@@ -19,7 +14,6 @@ interface ProjectsState {
   update: (id: string, patch: Partial<Omit<Project, 'id' | 'createdAt'>>) => Promise<Project>;
   remove: (id: string) => Promise<void>;
   setActive: (id: string | null) => Promise<void>;
-  listDatabases: (config: K3CloudDiscoveryConfig) => Promise<ListDatabasesResult>;
 
   /** Wire the live erp:connection-state listener. Idempotent — call once from App.tsx. */
   subscribeConnection: () => void;
@@ -72,8 +66,6 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
     await window.opendeploy.projectsSetActive(id);
     // connectionState will update via the subscription; no need to refetch here.
   },
-
-  listDatabases: async (config) => window.opendeploy.projectsListDatabases(config),
 
   subscribeConnection: () => {
     if (connectionUnsub) return;
