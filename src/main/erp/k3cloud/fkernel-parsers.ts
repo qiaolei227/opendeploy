@@ -367,11 +367,38 @@ export interface FormEntryContainer {
   tableName: string | null;
   /** "entry" (single-level) or "sub-entry" (nested). */
   kind: 'entry' | 'sub-entry';
+  // ─── Optional detail fields used by Plan 5.14 entry creation ──────────
+  // Only populated when present in the XML; never emitted as `undefined` so
+  // a `.toEqual` against minimal fixtures keeps passing.
+  /** Element-level Id (32-hex compact GUID). */
+  id?: string;
+  /** ORM internal name from `<EntryName>`, e.g. "UNW_Cust_Entry100002". */
+  entryName?: string;
+  /** Position within the form's entry list — used to compute next Seq when
+   * creating a new entry on this extension. */
+  seq?: number;
+  /** Primary key field name; conventionally "FEntryID". */
+  entryPkFieldName?: string;
+}
+
+/**
+ * TabControl is the parent UI container that holds N TabPages. Self-built
+ * extensions may add their own TabControl (placed in `FSPLITECONTAINER~Panel2`
+ * by BOS Designer) — `kingdee_create_tab_control` emits one + 3 default pages.
+ */
+export interface FormTabControlContainer {
+  /** TabControl key, e.g. "F_UNW_Tab_8mg". */
+  key: string;
+  /** Display caption (typically "页签控件" by default). */
+  caption: string;
+  /** The container the TabControl itself sits in (e.g. "FSPLITECONTAINER~Panel2"). */
+  container: string | null;
 }
 
 export interface FormLayout {
   tabs: FormTabContainer[];
   entries: FormEntryContainer[];
+  tabControls: FormTabControlContainer[];
 }
 
 /**
@@ -392,7 +419,7 @@ export interface FormLayout {
  * Key dedup — same as parseFieldsFromKernelXml.
  */
 export function parseFormLayoutContainers(xml: string): FormLayout {
-  if (!xml) return { tabs: [], entries: [] };
+  if (!xml) return { tabs: [], entries: [], tabControls: [] };
 
   // ── tabs ──
   const tabs: FormTabContainer[] = [];
@@ -407,6 +434,21 @@ export function parseFormLayoutContainers(xml: string): FormLayout {
     const parentControl = findLastTopLevelChildText(inner, 'Container') ?? null;
     seenTabKeys.add(key);
     tabs.push({ key, caption, parentControl });
+  }
+
+  // ── tab controls ──
+  const tabControls: FormTabControlContainer[] = [];
+  const seenTabControlKeys = new Set<string>();
+  const tcRe = /<TabControlAppearance\b[^>]*?>([\s\S]*?)<\/TabControlAppearance>/g;
+  let tcm: RegExpExecArray | null;
+  while ((tcm = tcRe.exec(xml)) !== null) {
+    const inner = tcm[1];
+    const key = findLastTopLevelChildText(inner, 'Key');
+    if (!key || seenTabControlKeys.has(key)) continue;
+    const caption = findLastTopLevelChildText(inner, 'Caption') ?? '';
+    const container = findLastTopLevelChildText(inner, 'Container') ?? null;
+    seenTabControlKeys.add(key);
+    tabControls.push({ key, caption, container });
   }
 
   // ── entries ──
@@ -432,14 +474,26 @@ export function parseFormLayoutContainers(xml: string): FormLayout {
     if (!key || seenEntryKeys.has(key)) continue;
     const name = findLastTopLevelChildText(inner, 'Name') ?? '';
     const tableName = findLastTopLevelChildText(inner, 'TableName') ?? null;
+    // Optional detail fields — `kingdee_create_entry` reads `seq` to compute
+    // the next entry's Seq, and `id`/`entryName`/`entryPkFieldName` are
+    // surfaced for diagnostic / closure-readback purposes.
+    const id = findLastTopLevelChildText(inner, 'Id');
+    const entryName = findLastTopLevelChildText(inner, 'EntryName');
+    const entryPkFieldName = findLastTopLevelChildText(inner, 'EntryPkFieldName');
+    const seqText = findLastTopLevelChildText(inner, 'Seq');
+    const seq = seqText !== undefined ? Number(seqText) : undefined;
     seenEntryKeys.add(key);
     entries.push({
       key,
       name,
       tableName,
+      ...(id !== undefined ? { id } : {}),
+      ...(entryName !== undefined ? { entryName } : {}),
+      ...(seq !== undefined && !Number.isNaN(seq) ? { seq } : {}),
+      ...(entryPkFieldName !== undefined ? { entryPkFieldName } : {}),
       kind: frame.tag === 'SubEntryEntity' ? 'sub-entry' : 'entry',
     });
   }
 
-  return { tabs, entries };
+  return { tabs, entries, tabControls };
 }

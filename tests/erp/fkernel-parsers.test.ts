@@ -101,7 +101,11 @@ describe('parseAppearanceGeometry', () => {
 
 describe('parseFormLayoutContainers', () => {
   it('returns empty layout for empty input', () => {
-    expect(parseFormLayoutContainers('')).toEqual({ tabs: [], entries: [] });
+    expect(parseFormLayoutContainers('')).toEqual({
+      tabs: [],
+      entries: [],
+      tabControls: [],
+    });
   });
 
   it('extracts head + entry tabs with key, caption, parentControl', () => {
@@ -195,5 +199,83 @@ describe('parseFormLayoutContainers', () => {
     expect(layout.entries).toHaveLength(1);
     expect(layout.tabs[0].key).toBe('FTAB_P0');
     expect(layout.entries[0].key).toBe('FE1');
+  });
+
+  // Plan 5.14 — entry creation needs id/entryName/seq/entryPkFieldName so
+  // a follow-up `kingdee_create_entry` can compute next Seq + emit consistent
+  // EntryEntity DCXML. Wire format reference: memory `bos_entry_creation_wire_format.md`
+  // (capture #1334 EntryEntity full body).
+  it('extracts EntryEntity detail fields (id, entryName, seq, entryPkFieldName)', () => {
+    const xml = `<Elements>
+      <EntryEntity ElementType="35" ElementStyle="0">
+        <EntryName>UNW_Cust_Entry100002</EntryName>
+        <EntryPkFieldName>FEntryID</EntryPkFieldName>
+        <Seq>14</Seq>
+        <TableName>UNW_t_Cust_Entry100002</TableName>
+        <Name>测试体B</Name>
+        <Id>0144d0583c0a4693b699607a9aa29710</Id>
+        <Key>F_UNW_Entity_rnk</Key>
+      </EntryEntity>
+    </Elements>`;
+    const layout = parseFormLayoutContainers(xml);
+    expect(layout.entries[0]).toEqual({
+      key: 'F_UNW_Entity_rnk',
+      name: '测试体B',
+      tableName: 'UNW_t_Cust_Entry100002',
+      kind: 'entry',
+      id: '0144d0583c0a4693b699607a9aa29710',
+      entryName: 'UNW_Cust_Entry100002',
+      seq: 14,
+      entryPkFieldName: 'FEntryID',
+    });
+  });
+
+  it('omits optional entry detail fields when absent (back-compat)', () => {
+    // Old tests use minimal EntryEntity — make sure new optional fields don't
+    // appear as `undefined` in output (would break .toEqual).
+    const xml = `<Elements>
+      <EntryEntity><Name>x</Name><Key>FE</Key><TableName>T_E</TableName></EntryEntity>
+    </Elements>`;
+    const e = parseFormLayoutContainers(xml).entries[0];
+    expect(e).toEqual({ key: 'FE', name: 'x', tableName: 'T_E', kind: 'entry' });
+    expect('id' in e).toBe(false);
+    expect('seq' in e).toBe(false);
+  });
+
+  // TabControl is the parent container for TabPages. Plan 5.14 supports
+  // creating one (kingdee_create_tab_control), so we need to enumerate the
+  // extension's existing TabControls + their containers.
+  it('extracts TabControlAppearance with key + caption + container', () => {
+    const xml = `<Appearances>
+      <TabControlAppearance ElementType="1005" ElementStyle="1">
+        <Container>FSPLITECONTAINER~Panel2</Container>
+        <Caption>页签控件</Caption>
+        <Id>2ceea14b-7a1a-419c-b7ca-152c9c033e56</Id>
+        <Key>F_UNW_Tab_8mg</Key>
+      </TabControlAppearance>
+    </Appearances>`;
+    expect(parseFormLayoutContainers(xml).tabControls).toEqual([
+      {
+        key: 'F_UNW_Tab_8mg',
+        caption: '页签控件',
+        container: 'FSPLITECONTAINER~Panel2',
+      },
+    ]);
+  });
+
+  it('dedups duplicate TabControl Keys', () => {
+    const xml = `<Appearances>
+      <TabControlAppearance>
+        <Container>FSPLITECONTAINER~Panel2</Container>
+        <Caption>a</Caption>
+        <Key>FTC1</Key>
+      </TabControlAppearance>
+      <TabControlAppearance>
+        <Container>FSPLITECONTAINER~Panel2</Container>
+        <Caption>a dup</Caption>
+        <Key>FTC1</Key>
+      </TabControlAppearance>
+    </Appearances>`;
+    expect(parseFormLayoutContainers(xml).tabControls).toHaveLength(1);
   });
 });
