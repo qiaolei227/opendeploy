@@ -300,6 +300,183 @@ describe('rpc/dcxml emitter', () => {
     expect(xml).toContain('<ClassName>only_old</ClassName>');
   });
 
+  // ─── Plan 5.14 — entry / tab / entry-field rendering ────────────────────
+  // Wire format reference: memory `bos_entry_creation_wire_format.md`.
+
+  it('emits EntryEntity into <Elements> with full child shape', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addEntries: [
+        {
+          key: 'F_PAIJ_Entity_abc',
+          name: '测试体',
+          entryName: 'PAIJ_Cust_Entry100050',
+          tableName: 'PAIJ_t_Cust_Entry100050',
+          seq: 13,
+          id: '06de3ec92a7b428abe0a8cf4e8f47c4b',
+          groupColumnInfoId: '052ad82f-0940-45d8-bd80-827eb9e7bc03',
+        },
+      ],
+    });
+    expect(xml).toContain('<EntryEntity ElementType="35" ElementStyle="0">');
+    expect(xml).toContain('<EntryName>PAIJ_Cust_Entry100050</EntryName>');
+    expect(xml).toContain('<EntryPkFieldName>FEntryID</EntryPkFieldName>');
+    expect(xml).toContain('<Seq>13</Seq>');
+    expect(xml).toContain('<TableName>PAIJ_t_Cust_Entry100050</TableName>');
+    expect(xml).toContain(
+      '<GroupColumnInfo><GroupColumnInfo><Id>052ad82f-0940-45d8-bd80-827eb9e7bc03</Id></GroupColumnInfo></GroupColumnInfo>',
+    );
+    expect(xml).toContain('<Name>测试体</Name>');
+    expect(xml).toContain('<Id>06de3ec92a7b428abe0a8cf4e8f47c4b</Id>');
+    expect(xml).toContain('<Key>F_PAIJ_Entity_abc</Key>');
+    expect(xml).toContain('</EntryEntity>');
+  });
+
+  it('emits EntryEntityAppearance with PageRows=100 / Dock=5 defaults', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addEntryAppearances: [
+        {
+          key: 'F_PAIJ_Entity_abc',
+          caption: '测试体',
+          container: 'FTab1_PAIJ_P_xyz',
+          left: 336,
+          top: 90,
+          width: 300,
+          height: 65,
+          id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        },
+      ],
+    });
+    expect(xml).toContain('<EntryEntityAppearance ElementType="35" ElementStyle="1">');
+    expect(xml).toContain('<Caption>测试体</Caption>');
+    expect(xml).toContain('<PageRows>100</PageRows>');
+    expect(xml).toContain('<Dock>5</Dock>');
+    expect(xml).toContain('<Container>FTab1_PAIJ_P_xyz</Container>');
+    expect(xml).toContain('<Left>336</Left>');
+    expect(xml).toContain('<Top>90</Top>');
+    expect(xml).toContain('<Height>65</Height>');
+    expect(xml).toContain('<Width>300</Width>');
+    expect(xml).toContain('<Key>F_PAIJ_Entity_abc</Key>');
+  });
+
+  it('emits TabControlAppearance for self-built TabControls', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addTabControls: [
+        {
+          key: 'F_PAIJ_Tab_8mg',
+          caption: '页签控件',
+          container: 'FSPLITECONTAINER~Panel2',
+          id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        },
+      ],
+    });
+    expect(xml).toContain('<TabControlAppearance ElementType="1005" ElementStyle="1">');
+    expect(xml).toContain('<Container>FSPLITECONTAINER~Panel2</Container>');
+    expect(xml).toContain('<Caption>页签控件</Caption>');
+    expect(xml).toContain('<Key>F_PAIJ_Tab_8mg</Key>');
+  });
+
+  it('emits TabPageAppearance with parent TabControl as Container', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addTabPages: [
+        {
+          key: 'FTab1_PAIJ_P_xyz',
+          caption: '质检明细',
+          container: 'FTab1',
+          id: 'cccccccccccccccccccccccccccccccc',
+        },
+      ],
+    });
+    expect(xml).toContain('<TabPageAppearance ElementType="1004" ElementStyle="1">');
+    expect(xml).toContain('<Container>FTab1</Container>');
+    expect(xml).toContain('<Caption>质检明细</Caption>');
+    expect(xml).toContain('<Key>FTab1_PAIJ_P_xyz</Key>');
+  });
+
+  it('renders entry-field element with <EntityKey> after PropertyName', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addFields: [
+        {
+          type: 'TextField',
+          key: 'F_PAIJ_EntryNote',
+          caption: '备注',
+          listTabIndex: 9005,
+          id: 'dddddddddddddddddddddddddddddddd',
+          entityKey: 'F_PAIJ_Entity_abc',
+        },
+      ],
+    });
+    // EntityKey must appear AFTER PropertyName, BEFORE FieldName.
+    const order = xml.indexOf('<PropertyName>F_PAIJ_EntryNote</PropertyName>');
+    const ekIdx = xml.indexOf('<EntityKey>F_PAIJ_Entity_abc</EntityKey>');
+    const fnIdx = xml.indexOf('<FieldName>F_PAIJ_ENTRYNOTE</FieldName>');
+    expect(order).toBeGreaterThan(0);
+    expect(ekIdx).toBeGreaterThan(order);
+    expect(fnIdx).toBeGreaterThan(ekIdx);
+  });
+
+  it('renders entry-field appearance without Container/Top/Left/ZOrderIndex', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addAppearances: [
+        {
+          type: 'TextField',
+          key: 'F_PAIJ_EntryNote',
+          caption: '备注',
+          tabindex: 1,
+          entityKey: 'F_PAIJ_Entity_abc',
+          id: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+        } as never, // existing interface still requires container/top/left; the
+                    // entry-field appearance shape allows them undefined
+      ],
+    });
+    expect(xml).toContain('<TextFieldAppearance ElementType="1" ElementStyle="1">');
+    expect(xml).toContain('<EntityKey>F_PAIJ_Entity_abc</EntityKey>');
+    expect(xml).toContain('<Tabindex>1</Tabindex>');
+    expect(xml).toContain('<Width>150</Width>'); // default width for entry-field
+    // Must NOT emit Container / Top / Left / ZOrderIndex for entry-fields
+    expect(xml).not.toContain('<Container>');
+    expect(xml).not.toContain('<Top>');
+    expect(xml).not.toContain('<Left>');
+    expect(xml).not.toContain('<ZOrderIndex>');
+  });
+
+  it('emits existingEntriesRaw / existingEntryAppearancesRaw / existingTabPagesRaw / existingTabControlsRaw verbatim', () => {
+    const existingEntry = '<EntryEntity ElementType="35"><Key>F_OLD_E</Key><Name>old</Name><TableName>T_O</TableName></EntryEntity>';
+    const existingEntryApp = '<EntryEntityAppearance ElementType="35"><Caption>old</Caption><Container>FTab1_OLD</Container><Key>F_OLD_E</Key></EntryEntityAppearance>';
+    const existingTabPage = '<TabPageAppearance ElementType="1004"><Container>FTab1</Container><Caption>old page</Caption><Key>FTab1_OLD</Key></TabPageAppearance>';
+    const existingTabControl = '<TabControlAppearance ElementType="1005"><Container>FSPLITECONTAINER~Panel2</Container><Caption>old tc</Caption><Key>F_OLD_TC</Key></TabControlAppearance>';
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      existingEntriesRaw: [existingEntry],
+      existingEntryAppearancesRaw: [existingEntryApp],
+      existingTabPagesRaw: [existingTabPage],
+      existingTabControlsRaw: [existingTabControl],
+    });
+    expect(xml).toContain(existingEntry);
+    expect(xml).toContain(existingEntryApp);
+    expect(xml).toContain(existingTabPage);
+    expect(xml).toContain(existingTabControl);
+  });
+
   it('xml-escapes special chars in user-controlled values', () => {
     const xml = buildDcxmlSource({
       extension: baselineExt,

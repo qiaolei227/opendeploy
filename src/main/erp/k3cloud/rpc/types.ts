@@ -102,6 +102,14 @@ export interface BosFieldCommon {
   listTabIndex: number;
   /** Optional explicit element ID; auto-generated GUID if omitted. */
   id?: string;
+  /**
+   * Set when the field belongs to an EntryEntity (single-level entry / 单据体).
+   * Renders as `<EntityKey>{value}</EntityKey>` after `<PropertyName>` in the
+   * field element body. The matching appearance must also carry `entityKey`
+   * so the renderer skips Container/Top/Left/ZOrderIndex (entry-fields are
+   * grid columns positioned by EntryEntityAppearance, not free-form).
+   */
+  entityKey?: string;
 }
 
 export type BosFieldElement =
@@ -146,16 +154,29 @@ export interface BosFieldAppearance {
   /** Matches the corresponding BosFieldElement.key. */
   key: string;
   caption: string;
-  /** Tab page or container ID, e.g. "FTAB_P0". */
-  container: string;
-  /** Order within container (visual). */
-  zOrderIndex: number;
-  /** Tab navigation order. */
+  /** Tab navigation order. For entry-fields this is per-entry (1-based). */
   tabindex: number;
-  /** Pixel position. Default 10/10 puts it visible top-left so user can drag. */
-  left: number;
-  top: number;
-  /** Default 300. */
+  /**
+   * Set when the field is an entry-field (column inside an EntryEntity).
+   * When set, the renderer:
+   *   - emits `<EntityKey>{value}</EntityKey>` after ListDefaultWidth
+   *   - SKIPS Container / Top / Left / ZOrderIndex (positioning comes from
+   *     the parent EntryEntityAppearance, not the cell)
+   *   - defaults Width to 150 (vs 280 for head fields) to fit grid columns
+   * MUST be paired with the same `entityKey` on the field element.
+   */
+  entityKey?: string;
+  /**
+   * Tab page / container ID, e.g. "FTAB_P0". Required for head fields,
+   * IGNORED when `entityKey` is set.
+   */
+  container?: string;
+  /** Order within container (visual). Required for head fields, IGNORED for entry-fields. */
+  zOrderIndex?: number;
+  /** Pixel position. Required for head fields, IGNORED for entry-fields. */
+  left?: number;
+  top?: number;
+  /** Default 280 for head fields, 150 for entry-fields. */
   width?: number;
   /** Default 100. */
   labelWidth?: number;
@@ -170,6 +191,81 @@ export interface BosFieldAppearance {
   // DateField only:
   mask?: string;
   displayFormatString?: string;
+}
+
+// ─── Entry / Tab elements (Plan 5.14) ─────────────────────────────────
+
+/**
+ * Single-level EntryEntity (a 单据体 / detail entity). Plan 5.14 supports
+ * single-level only — SubEntryEntity (nested) intentionally not modeled.
+ *
+ * Wire format reference: memory `bos_entry_creation_wire_format.md`.
+ *
+ * BOS Designer's naming convention:
+ *   entryName = `<DevCode>_Cust_Entry<int>`     (e.g. UNW_Cust_Entry100002)
+ *   tableName = `<DevCode>_t_Cust_Entry<int>`   (e.g. UNW_t_Cust_Entry100002)
+ *   key       = `F_<DevCode>_Entity_<3 char>`   (e.g. F_UNW_Entity_rnk)
+ * The `<int>` is allocated via `BusinessDataService.GetSequenceInt32`
+ * with category `t_BOS_CustEntry`.
+ */
+export interface BosEntryElement {
+  /** EntityKey — used by child fields' `<EntityKey>`. */
+  key: string;
+  /** zh-CN display name (set by user). */
+  name: string;
+  /** ORM internal name. */
+  entryName: string;
+  /** SQL table name. BOS server creates the actual table from this. */
+  tableName: string;
+  /** Position within the form's entry list — `parent.entries.count + ext.entries.count + 1`. */
+  seq: number;
+  /** Compact 32-hex GUID. Auto-generated if omitted. */
+  id?: string;
+  /** Dashed GUID for the GroupColumnInfo nested Id. Auto-generated if omitted. */
+  groupColumnInfoId?: string;
+  /** Default "FEntryID" — BOS convention. */
+  entryPkFieldName?: string;
+}
+
+/** Visual placement for an EntryEntity. Goes inside `<Appearances>`. */
+export interface BosEntryAppearance {
+  /** Matches BosEntryElement.key. */
+  key: string;
+  caption: string;
+  /** Parent TabPage Key (entry must live inside a TabPage). */
+  container: string;
+  /** Default 100. */
+  pageRows?: number;
+  /** Default 5 (Fill). */
+  dock?: number;
+  left?: number;
+  top?: number;
+  /** Default 300. */
+  width?: number;
+  /** Default 65. */
+  height?: number;
+  id?: string;
+}
+
+/** TabControl is the parent UI container that holds N TabPages. */
+export interface BosTabControlAppearance {
+  key: string;
+  caption: string;
+  /** Where the TabControl itself sits — typically "FSPLITECONTAINER~Panel2". */
+  container: string;
+  id?: string;
+}
+
+/** A single TabPage. */
+export interface BosTabPageAppearance {
+  key: string;
+  caption: string;
+  /** Parent TabControl key (e.g. "FTab1" for original-vendor entry-side, or
+   * a self-built "F_<DevCode>_Tab_<3 char>"). */
+  container: string;
+  /** Optional zero-based index within the parent TabControl. */
+  pageIndex?: number;
+  id?: string;
 }
 
 /** A field/element to drop from the extension's metadata graph. */
@@ -221,6 +317,14 @@ export interface SaveExtensionRequest {
   addAppearances?: BosFieldAppearance[];
   /** Plugins to register on this Form. Rendered inside `<Form><FormPlugins>...`. */
   addPlugins?: BosPluginElement[];
+  /** New EntryEntity elements (单据体). Rendered inside `<Elements>`. */
+  addEntries?: BosEntryElement[];
+  /** EntryEntity placements. Rendered inside `<Appearances>`. */
+  addEntryAppearances?: BosEntryAppearance[];
+  /** New TabPage placements. Rendered inside `<Appearances>`. */
+  addTabPages?: BosTabPageAppearance[];
+  /** New TabControl placements. Rendered inside `<Appearances>`. */
+  addTabControls?: BosTabControlAppearance[];
   /**
    * Pre-serialized chunks of the extension's currently-saved fields (typically
    * obtained via `extractExistingExtensionElements`). DCXML is a baseline
@@ -233,6 +337,14 @@ export interface SaveExtensionRequest {
   existingAppearancesRaw?: string[];
   /** Same baseline-diff requirement as existingFieldsRaw, for plugins. CDATA-preserved. */
   existingPluginsRaw?: string[];
+  /** Same baseline-diff requirement, for EntryEntity elements. */
+  existingEntriesRaw?: string[];
+  /** Same baseline-diff requirement, for EntryEntityAppearance entries. */
+  existingEntryAppearancesRaw?: string[];
+  /** Same baseline-diff requirement, for TabPageAppearance entries. */
+  existingTabPagesRaw?: string[];
+  /** Same baseline-diff requirement, for TabControlAppearance entries. */
+  existingTabControlsRaw?: string[];
   /**
    * Existing layout's oid in the parent object. Required for non-new
    * extensions. Each Save creates / edits this single LayoutInfo node.

@@ -33,6 +33,10 @@ import {
   BosFieldAppearance,
   BosPluginElement,
   BosRemoveElement,
+  BosEntryElement,
+  BosEntryAppearance,
+  BosTabPageAppearance,
+  BosTabControlAppearance,
   SaveExtensionRequest,
   FIELD_ELEMENT_TYPE,
 } from './types';
@@ -113,11 +117,21 @@ function renderPluginElement(out: XmlWriter, p: BosPluginElement): void {
  * Render one field element with its baseline + type-specific children.
  * Order matches what BOS Designer emits (we match for byte-level diff
  * stability against captures).
+ *
+ * EntityKey injection: when `f.entityKey` is set (i.e. the field belongs to
+ * an EntryEntity / 单据体), `<EntityKey>{entityKey}</EntityKey>` is rendered
+ * immediately after `<PropertyName>`, preserving the BOS Designer-emitted
+ * order. Implemented as a post-write rewrite to keep each type's
+ * type-specific child order intact without duplicating switch arms.
  */
 function renderFieldElement(out: XmlWriter, f: BosFieldElement): void {
   const elemType = FIELD_ELEMENT_TYPE[f.type];
   const id = f.id ?? newCompactGuid();
-  out.push(`<${f.type} ElementType="${elemType}" ElementStyle="0">`);
+
+  // Capture this field's children into a local writer so we can splice the
+  // EntityKey directly after PropertyName regardless of type-specific order.
+  const inner: string[] = [];
+  const innerOut: XmlWriter = { push: (s) => inner.push(s) };
 
   // Render order: type-specific prefix → common prefix → name/id/key suffix.
   // Captured samples follow this rough shape, e.g. BaseDataField puts
@@ -126,83 +140,100 @@ function renderFieldElement(out: XmlWriter, f: BosFieldElement): void {
     case 'TextField':
     case 'IntegerField':
     case 'DateField': {
-      child(out, 'ConditionType', 0);
-      child(out, 'PropertyName', f.key);
-      child(out, 'FieldName', f.key.toUpperCase());
+      child(innerOut, 'ConditionType', 0);
+      child(innerOut, 'PropertyName', f.key);
+      child(innerOut, 'FieldName', f.key.toUpperCase());
       break;
     }
     case 'DecimalField':
     case 'PriceField':
     case 'AmountField': {
-      child(out, 'ConditionType', 0);
-      child(out, 'FieldScale', f.fieldScale);
-      child(out, 'FieldPrecision', f.fieldPrecision);
-      child(out, 'PropertyName', f.key);
-      child(out, 'FieldName', f.key.toUpperCase());
+      child(innerOut, 'ConditionType', 0);
+      child(innerOut, 'FieldScale', f.fieldScale);
+      child(innerOut, 'FieldPrecision', f.fieldPrecision);
+      child(innerOut, 'PropertyName', f.key);
+      child(innerOut, 'FieldName', f.key.toUpperCase());
       break;
     }
     case 'QtyField': {
-      child(out, 'ConditionType', 0);
-      child(out, 'FieldScale', f.fieldScale);
-      child(out, 'FieldPrecision', f.fieldPrecision);
-      child(out, 'PropertyName', f.key);
-      child(out, 'ControlFieldKey', f.controlFieldKey);
-      child(out, 'FieldName', f.key.toUpperCase());
+      child(innerOut, 'ConditionType', 0);
+      child(innerOut, 'FieldScale', f.fieldScale);
+      child(innerOut, 'FieldPrecision', f.fieldPrecision);
+      child(innerOut, 'PropertyName', f.key);
+      child(innerOut, 'ControlFieldKey', f.controlFieldKey);
+      child(innerOut, 'FieldName', f.key.toUpperCase());
       break;
     }
     case 'CheckBoxField': {
-      child(out, 'Editlen', 20);
-      child(out, 'PropertyName', f.key);
-      child(out, 'FieldName', f.key.toUpperCase());
-      child(out, 'ConditionType', 0);
-      child(out, 'DefaultCondition', f.defaultCondition ?? 0);
+      child(innerOut, 'Editlen', 20);
+      child(innerOut, 'PropertyName', f.key);
+      child(innerOut, 'FieldName', f.key.toUpperCase());
+      child(innerOut, 'ConditionType', 0);
+      child(innerOut, 'DefaultCondition', f.defaultCondition ?? 0);
       break;
     }
     case 'ComboField': {
-      child(out, 'EnumType', f.enumTypeId);
-      child(out, 'Editlen', 20);
-      child(out, 'PropertyName', f.key);
-      child(out, 'FieldName', f.key.toUpperCase());
-      child(out, 'FieldType', 167);
-      child(out, 'ConditionType', 5);
-      child(out, 'DefaultCondition', f.defaultCondition ?? 0);
+      child(innerOut, 'EnumType', f.enumTypeId);
+      child(innerOut, 'Editlen', 20);
+      child(innerOut, 'PropertyName', f.key);
+      child(innerOut, 'FieldName', f.key.toUpperCase());
+      child(innerOut, 'FieldType', 167);
+      child(innerOut, 'ConditionType', 5);
+      child(innerOut, 'DefaultCondition', f.defaultCondition ?? 0);
       break;
     }
     case 'BaseDataField': {
-      child(out, 'ConditionType', 0);
-      child(out, 'AllowEditGroup', 0);
-      child(out, 'LookUpObjectID', f.lookUpObjectId);
-      child(out, 'SrcFindFieldName', f.srcFindFieldName ?? 'FNUMBER');
-      child(out, 'SrcDisplayFieldName', f.srcDisplayFieldName ?? 'FNAME');
-      child(out, 'PropertyName', f.key);
-      child(out, 'FieldName', f.key.toUpperCase());
-      child(out, 'FieldType', 56);
+      child(innerOut, 'ConditionType', 0);
+      child(innerOut, 'AllowEditGroup', 0);
+      child(innerOut, 'LookUpObjectID', f.lookUpObjectId);
+      child(innerOut, 'SrcFindFieldName', f.srcFindFieldName ?? 'FNUMBER');
+      child(innerOut, 'SrcDisplayFieldName', f.srcDisplayFieldName ?? 'FNAME');
+      child(innerOut, 'PropertyName', f.key);
+      child(innerOut, 'FieldName', f.key.toUpperCase());
+      child(innerOut, 'FieldType', 56);
       break;
     }
     case 'BasePropertyField': {
       // BasePropertyField is unique: NO FieldName, NO FieldType.
-      child(out, 'SrcDisplayFieldName', f.srcDisplayFieldName ?? 'FName');
-      child(out, 'DefaultCondition', f.defaultCondition ?? 67);
-      child(out, 'ConditionType', 0);
-      child(out, 'PropertyName', f.key);
-      child(out, 'ControlFieldKey', f.controlFieldKey);
+      child(innerOut, 'SrcDisplayFieldName', f.srcDisplayFieldName ?? 'FName');
+      child(innerOut, 'DefaultCondition', f.defaultCondition ?? 67);
+      child(innerOut, 'ConditionType', 0);
+      child(innerOut, 'PropertyName', f.key);
+      child(innerOut, 'ControlFieldKey', f.controlFieldKey);
       break;
     }
     case 'UnitField': {
-      child(out, 'UnitTypeKey', f.unitTypeKey);
-      child(out, 'ConditionType', 0);
-      child(out, 'LookUpObjectID', f.lookUpObjectId);
-      child(out, 'PropertyName', f.key);
-      child(out, 'FieldName', f.key.toUpperCase());
-      child(out, 'FieldType', 127);
+      child(innerOut, 'UnitTypeKey', f.unitTypeKey);
+      child(innerOut, 'ConditionType', 0);
+      child(innerOut, 'LookUpObjectID', f.lookUpObjectId);
+      child(innerOut, 'PropertyName', f.key);
+      child(innerOut, 'FieldName', f.key.toUpperCase());
+      child(innerOut, 'FieldType', 127);
       break;
     }
   }
 
-  child(out, 'ListTabIndex', f.listTabIndex);
-  child(out, 'Name', f.caption);
-  child(out, 'Id', id);
-  child(out, 'Key', f.key);
+  child(innerOut, 'ListTabIndex', f.listTabIndex);
+  child(innerOut, 'Name', f.caption);
+  child(innerOut, 'Id', id);
+  child(innerOut, 'Key', f.key);
+
+  out.push(`<${f.type} ElementType="${elemType}" ElementStyle="0">`);
+  if (f.entityKey) {
+    // Splice <EntityKey>...</EntityKey> immediately after the first
+    // <PropertyName>...</PropertyName>, matching captured entry-field shape.
+    const propTag = `<PropertyName>${xmlEscape(f.key)}</PropertyName>`;
+    let spliced = false;
+    for (const piece of inner) {
+      out.push(piece);
+      if (!spliced && piece === propTag) {
+        out.push(`<EntityKey>${xmlEscape(f.entityKey)}</EntityKey>`);
+        spliced = true;
+      }
+    }
+  } else {
+    for (const piece of inner) out.push(piece);
+  }
   out.push(`</${f.type}>`);
 }
 
@@ -214,6 +245,7 @@ function renderAppearance(out: XmlWriter, a: BosFieldAppearance): void {
   const elemType = FIELD_ELEMENT_TYPE[a.type];
   const tag = `${a.type}Appearance`;
   const id = a.id ?? newCompactGuid();
+  const isEntryField = !!a.entityKey;
   out.push(`<${tag} ElementType="${elemType}" ElementStyle="1">`);
 
   // BasePropertyFieldAppearance unique: <Locked>-1</Locked> at the front.
@@ -231,18 +263,96 @@ function renderAppearance(out: XmlWriter, a: BosFieldAppearance): void {
     child(out, 'DisplayFormatString', a.displayFormatString);
   }
   child(out, 'ListDefaultWidth', a.listDefaultWidth ?? 100);
-  child(out, 'Container', a.container);
-  child(out, 'ZOrderIndex', a.zOrderIndex);
-  child(out, 'Tabindex', a.tabindex);
-  child(out, 'Left', a.left);
-  child(out, 'Top', a.top);
+  if (isEntryField) {
+    // Entry-field cells are positioned by the parent EntryEntityAppearance,
+    // not absolute coords — emit EntityKey + Tabindex + size, omit
+    // Container / ZOrderIndex / Left / Top.
+    out.push(`<EntityKey>${xmlEscape(a.entityKey!)}</EntityKey>`);
+    child(out, 'Tabindex', a.tabindex);
+  } else {
+    child(out, 'Container', a.container);
+    child(out, 'ZOrderIndex', a.zOrderIndex);
+    child(out, 'Tabindex', a.tabindex);
+    child(out, 'Left', a.left);
+    child(out, 'Top', a.top);
+  }
   child(out, 'LabelWidth', a.labelWidth ?? 100);
-  child(out, 'Width', a.width ?? 300);
+  child(out, 'Width', a.width ?? (isEntryField ? 150 : 300));
   child(out, 'Visible', a.visible ?? 1023);
   child(out, 'VisibleExt', a.visibleExt ?? 100);
   child(out, 'Caption', a.caption);
   child(out, 'Id', id);
   out.push(`</${tag}>`);
+}
+
+/**
+ * Render an EntryEntity element. Goes inside `<Elements>`.
+ *
+ * Element child order observed in capture (req #1334 etc.):
+ *   ConditionType=0 → EntryName → EntryPkFieldName → Seq → TableName →
+ *   GroupColumnInfo → Name → Id → Key
+ */
+function renderEntryEntity(out: XmlWriter, e: BosEntryElement): void {
+  const id = e.id ?? newCompactGuid();
+  const groupId = e.groupColumnInfoId ?? newDashedGuid();
+  out.push(`<EntryEntity ElementType="35" ElementStyle="0">`);
+  child(out, 'ConditionType', 0);
+  child(out, 'EntryName', e.entryName);
+  child(out, 'EntryPkFieldName', e.entryPkFieldName ?? 'FEntryID');
+  child(out, 'Seq', e.seq);
+  child(out, 'TableName', e.tableName);
+  out.push(
+    `<GroupColumnInfo><GroupColumnInfo><Id>${xmlEscape(groupId)}</Id></GroupColumnInfo></GroupColumnInfo>`,
+  );
+  child(out, 'Name', e.name);
+  child(out, 'Id', id);
+  child(out, 'Key', e.key);
+  out.push(`</EntryEntity>`);
+}
+
+/**
+ * Render an EntryEntityAppearance. Goes inside `<Appearances>`.
+ *
+ * Defaults (BOS Designer's first-save shape): PageRows=100, Dock=5 (Fill),
+ * Width=300, Height=65.
+ */
+function renderEntryEntityAppearance(out: XmlWriter, a: BosEntryAppearance): void {
+  const id = a.id ?? newCompactGuid();
+  out.push(`<EntryEntityAppearance ElementType="35" ElementStyle="1">`);
+  child(out, 'Key', a.key);
+  child(out, 'PageRows', a.pageRows ?? 100);
+  child(out, 'Dock', a.dock ?? 5);
+  child(out, 'Container', a.container);
+  child(out, 'Left', a.left);
+  child(out, 'Top', a.top);
+  child(out, 'Height', a.height ?? 65);
+  child(out, 'Width', a.width ?? 300);
+  child(out, 'Caption', a.caption);
+  child(out, 'Id', id);
+  out.push(`</EntryEntityAppearance>`);
+}
+
+/** Render a self-built TabControlAppearance. ElementType=1005. */
+function renderTabControlAppearance(out: XmlWriter, a: BosTabControlAppearance): void {
+  const id = a.id ?? newCompactGuid();
+  out.push(`<TabControlAppearance ElementType="1005" ElementStyle="1">`);
+  child(out, 'Key', a.key);
+  child(out, 'Container', a.container);
+  child(out, 'Caption', a.caption);
+  child(out, 'Id', id);
+  out.push(`</TabControlAppearance>`);
+}
+
+/** Render a TabPageAppearance under a TabControl. ElementType=1004. */
+function renderTabPageAppearance(out: XmlWriter, a: BosTabPageAppearance): void {
+  const id = a.id ?? newCompactGuid();
+  out.push(`<TabPageAppearance ElementType="1004" ElementStyle="1">`);
+  child(out, 'Key', a.key);
+  child(out, 'Container', a.container);
+  child(out, 'PageIndex', a.pageIndex);
+  child(out, 'Caption', a.caption);
+  child(out, 'Id', id);
+  out.push(`</TabPageAppearance>`);
 }
 
 /** Build the SaveForIDEV9 ap0.__source__ DCXML string. */
@@ -256,12 +366,20 @@ export function buildDcxmlSource(req: SaveExtensionRequest): string {
   renderFormRoot(out, req.extension.formId, req.addPlugins, req.existingPluginsRaw);
   for (const raw of req.existingFieldsRaw ?? []) out.push(raw);
   for (const f of req.addFields ?? []) renderFieldElement(out, f);
+  for (const raw of req.existingEntriesRaw ?? []) out.push(raw);
+  for (const e of req.addEntries ?? []) renderEntryEntity(out, e);
   for (const r of req.removeFields ?? []) renderRemoveElement(out, r);
   out.push(`</Elements></BusinessInfo></BusinessInfo>`);
   out.push(`<LayoutInfos><LayoutInfo action="edit" oid="${xmlEscape(req.layoutInfoOid)}">`);
   out.push(`<Appearances>`);
   for (const raw of req.existingAppearancesRaw ?? []) out.push(raw);
   for (const a of req.addAppearances ?? []) renderAppearance(out, a);
+  for (const raw of req.existingTabControlsRaw ?? []) out.push(raw);
+  for (const a of req.addTabControls ?? []) renderTabControlAppearance(out, a);
+  for (const raw of req.existingTabPagesRaw ?? []) out.push(raw);
+  for (const a of req.addTabPages ?? []) renderTabPageAppearance(out, a);
+  for (const raw of req.existingEntryAppearancesRaw ?? []) out.push(raw);
+  for (const a of req.addEntryAppearances ?? []) renderEntryEntityAppearance(out, a);
   out.push(`</Appearances>`);
   out.push(`</LayoutInfo></LayoutInfos>`);
   out.push(`</FormMetadata>`);
