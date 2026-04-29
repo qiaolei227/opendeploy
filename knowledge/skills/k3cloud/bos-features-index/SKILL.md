@@ -21,13 +21,15 @@ category: bos-features
 
 | 类别 | BOS 能做什么 | OpenDeploy v0.1 工具 | 子文件 |
 |---|---|---|---|
-| **扩展对象** | 在不动原单据的前提下派生一份副本,挂插件 / 加字段 | ✅ `kingdee_create_extension_with_python_plugin` 等 | `references/extension-model` |
-| **扩展字段** | 在单据上加自定义字段(存到 `_XXXX` 扩展表) | ❌ 手工 BOS Designer | `references/custom-fields` |
-| **业务规则 / 公式** | 字段间自动计算(`F金额 = F数量 * F单价`) | ❌ 手工 | `references/business-rules` |
-| **转换规则** | 单据下推映射(销售订单 → 发货通知单) | ❌ 手工 | `references/convert-rules` |
+| **扩展对象** | 在不动原单据的前提下派生一份副本,挂插件 / 加字段 | ✅ `kingdee_create_extension` / `kingdee_delete_extension` | `references/extension-model` |
+| **扩展字段** | 在单据上加自定义字段(头 / entry 都行,12 类型) | ✅ `kingdee_add_fields`(自动识别头 tab vs entry container) | `references/custom-fields` |
+| **单据体 / 页签** | 在扩展上自建 EntryEntity(单层)、TabPage、TabControl;改名 / 删除 | ✅ Plan 5.14 — 9 个工具:`kingdee_create_entry / _create_tab_control / _create_tab_page / _delete_entry / _delete_tab_page / _delete_tab_control / _rename_entry / _rename_tab_page / _rename_tab_control` | `references/entities-decompiled` |
+| **业务规则 / 公式** | 字段间自动计算(`F金额 = F数量 * F单价`) | ❌ 手工 | `references/business-rules-corrected` |
+| **转换规则** | 单据下推映射(销售订单 → 发货通知单) | ❌ 手工 | `references/convert-rules-decompiled` |
 | **审批流** | 多级审批、条件路由、Python 表达式判断 | ❌ 手工 | `references/approval-workflow` |
-| **操作/按钮** | 工具栏自定义按钮(FormOperation + BarButtonItem),绑定 Python 插件响应 | ⏳ 计划中 — Plan 5.12.6: `kingdee_add_operation` / `_list_operations` / `_delete_operation` | `references/operations-decompiled` |
-| **插件类型** | 6 种插件类型(表单 / 列表 / 操作 / 转换 / 打印 / 报表) | ✅ 仅表单插件(FormPlugins)| `references/plugin-types` |
+| **操作/按钮** | 工具栏自定义按钮(FormOperation + BarButtonItem),绑定 Python 插件响应 | ⏳ 计划中 — Plan 5.12.6 | `references/operations-decompiled` |
+| **插件类型** | 6 种插件类型(表单 / 列表 / 操作 / 转换 / 打印 / 报表) | ✅ 仅表单插件(`kingdee_register_python_plugins`)| `references/plugin-types` |
+| **下拉枚举** | 自建账套级枚举(combo 字段引用源) | ✅ `kingdee_create_enum_type` / `kingdee_delete_enum_type` / `kingdee_list_enum_types` | (无独立子文件) |
 | **套打模板** | 自定义打印布局 | ❌ 手工 | (未覆盖) |
 | **权限方案** | 按角色 / 组织控制字段可见性 / 可编辑 | ❌ 手工 | (未覆盖) |
 
