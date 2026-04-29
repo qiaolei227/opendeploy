@@ -28,7 +28,10 @@ import { saveExtension as saveExtensionRpc } from '../erp/k3cloud/rpc/save-for-i
 import { extractLayoutInfoOid } from '../erp/k3cloud/rpc/layout-discovery';
 import { newCompactGuid } from '../erp/k3cloud/rpc/dcxml';
 import { extractExistingExtensionElements } from '../erp/k3cloud/rpc/existing-elements';
-import { parseAppearanceGeometry } from '../erp/k3cloud/fkernel-parsers';
+import {
+  parseAppearanceGeometry,
+  parseFormLayoutContainers,
+} from '../erp/k3cloud/fkernel-parsers';
 import { saveEnumObject, type EnumItemInput } from '../erp/k3cloud/rpc/save-enum-object';
 import {
   addEnumObjectToRecycle,
@@ -251,6 +254,62 @@ function isFieldAppearanceTag(tag: string): boolean {
   // Excludes SubHeadEntityAppearance / HeadEntityAppearance / TabControlAppearance /
   // TabPageAppearance / FormAppearance / WaterMarkAppearance / RegionAppearance.
   return /FieldAppearance$/.test(tag);
+}
+
+/**
+ * Collect all entry keys this extension can target — parent's original-vendor
+ * entries (e.g. `FSaleOrderEntry`) plus the extension's own EntryEntities.
+ *
+ * Used by `kingdee_add_fields` to detect when `container` names an entry
+ * (single-level only — sub-entries excluded for v0.1) and route the field
+ * through the entry-field branch.
+ */
+function collectEntryKeys(
+  parentKernelXml: string | null,
+  extKernelXml: string | null,
+): Set<string> {
+  const keys = new Set<string>();
+  for (const xml of [parentKernelXml, extKernelXml]) {
+    if (!xml) continue;
+    const layout = parseFormLayoutContainers(xml);
+    for (const e of layout.entries) {
+      // v0.1: single-level only — skip sub-entries to keep wire format simple.
+      if (e.kind === 'entry') keys.add(e.key);
+    }
+  }
+  return keys;
+}
+
+/**
+ * Find the maximum existing Tabindex among entry-fields belonging to a given
+ * EntryEntity. Each entry maintains its own counter starting at 1; the next
+ * Tabindex for new fields in that entry is `(this max) + 1`.
+ *
+ * Scans raw `*FieldAppearance` chunks (in `existingAppearancesRaw`) for those
+ * containing `<EntityKey>{entryKey}</EntityKey>`, extracts each chunk's
+ * `<Tabindex>N</Tabindex>`, returns the max (0 when no matches → next is 1).
+ */
+function maxTabindexForEntry(
+  existingAppearancesRaw: string[],
+  entryKey: string,
+): number {
+  // Match the EntityKey element body verbatim — Tabindex/EntityKey both
+  // appear as direct children of the appearance element so simple regex is
+  // safe (no nested duplicates).
+  const entityRe = new RegExp(`<EntityKey>${escapeRegex(entryKey)}</EntityKey>`);
+  let max = 0;
+  for (const raw of existingAppearancesRaw) {
+    if (!entityRe.test(raw)) continue;
+    const m = raw.match(/<Tabindex>(\d+)<\/Tabindex>/);
+    if (!m) continue;
+    const v = Number(m[1]);
+    if (v > max) max = v;
+  }
+  return max;
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function computePlacementOrigin(
@@ -546,24 +605,32 @@ interface AddFieldArgs {
   listTabIndex?: number;
   // Optional layout override (rare)
   layoutInfoOid?: string;
+  /**
+   * Set internally when `container` resolves to an EntryEntity key — routes
+   * the field through the entry-field branch (emit EntityKey, skip
+   * Container/Top/Left/ZOrderIndex, default Width=150). Never read from
+   * agent input.
+   */
+  entityKey?: string;
 }
 
 function buildFieldElement(args: AddFieldArgs): BosFieldElement {
-  const { type, key, caption, listTabIndex } = args;
+  const { type, key, caption, listTabIndex, entityKey } = args;
   const lti = listTabIndex ?? DEFAULT_LIST_TAB_INDEX_BASE;
   switch (type) {
     case 'text':
-      return { type: 'TextField', key, caption, listTabIndex: lti };
+      return { type: 'TextField', key, caption, listTabIndex: lti, entityKey };
     case 'int':
-      return { type: 'IntegerField', key, caption, listTabIndex: lti };
+      return { type: 'IntegerField', key, caption, listTabIndex: lti, entityKey };
     case 'date':
-      return { type: 'DateField', key, caption, listTabIndex: lti };
+      return { type: 'DateField', key, caption, listTabIndex: lti, entityKey };
     case 'decimal':
       return {
         type: 'DecimalField',
         key,
         caption,
         listTabIndex: lti,
+        entityKey,
         fieldScale: args.fieldScale ?? 2,
         fieldPrecision: args.fieldPrecision ?? 23,
       };
@@ -573,6 +640,7 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
         key,
         caption,
         listTabIndex: lti,
+        entityKey,
         fieldScale: args.fieldScale ?? 4,
         fieldPrecision: args.fieldPrecision ?? 23,
       };
@@ -582,6 +650,7 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
         key,
         caption,
         listTabIndex: lti,
+        entityKey,
         fieldScale: args.fieldScale ?? 2,
         fieldPrecision: args.fieldPrecision ?? 23,
       };
@@ -594,12 +663,13 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
         key,
         caption,
         listTabIndex: lti,
+        entityKey,
         fieldScale: args.fieldScale ?? 6,
         fieldPrecision: args.fieldPrecision ?? 23,
         controlFieldKey: args.controlFieldKey,
       };
     case 'checkbox':
-      return { type: 'CheckBoxField', key, caption, listTabIndex: lti };
+      return { type: 'CheckBoxField', key, caption, listTabIndex: lti, entityKey };
     case 'combo':
       // enumTypeId is the resolved GUID by this point (translated upstream
       // by addFieldsTool from args.enumTypeName via the connector cache).
@@ -613,6 +683,7 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
         key,
         caption,
         listTabIndex: lti,
+        entityKey,
         enumTypeId: args.enumTypeId,
         defaultCondition: args.defaultCondition,
       };
@@ -625,6 +696,7 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
         key,
         caption,
         listTabIndex: lti,
+        entityKey,
         lookUpObjectId: args.refBaseDataObjectKey,
         srcFindFieldName: args.srcFindFieldName,
         srcDisplayFieldName: args.srcDisplayFieldName,
@@ -638,6 +710,7 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
         key,
         caption,
         listTabIndex: lti,
+        entityKey,
         controlFieldKey: args.sourceField,
         srcDisplayFieldName: args.srcDisplayFieldName,
       };
@@ -653,6 +726,7 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
         key,
         caption,
         listTabIndex: lti,
+        entityKey,
         unitTypeKey: args.unitTypeKey ?? '1',
         lookUpObjectId: args.refBaseDataObjectKey,
       };
@@ -660,11 +734,26 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
 }
 
 function buildAppearance(args: AddFieldArgs, elementType: BosFieldElement['type']): BosFieldAppearance {
-  // left/top are populated upstream by the placement engine in
-  // addFieldsTool.execute (or by an explicit user override). They MUST be
-  // set by the time we reach here — leaving them undefined would emit an
-  // appearance node missing geometry, which BOS treats as 0/0 and renders
-  // unusable. Coerce to 0 if absent so the bug is at least diagnosable.
+  // Entry-field appearance: positioned by the parent EntryEntityAppearance
+  // grid, NOT by absolute (left, top). Skip Container/ZOrderIndex/Left/Top —
+  // dcxml emitter omits them when entityKey is set.
+  if (args.entityKey) {
+    return {
+      type: elementType,
+      key: args.key,
+      caption: args.caption,
+      entityKey: args.entityKey,
+      tabindex: args.tabindex ?? 1,
+      width: args.width,
+      labelWidth: args.labelWidth,
+    };
+  }
+  // Head field: standard absolute geometry. left/top are populated upstream
+  // by the placement engine in addFieldsTool.execute (or by an explicit user
+  // override). They MUST be set by the time we reach here — leaving them
+  // undefined would emit an appearance node missing geometry, which BOS
+  // treats as 0/0 and renders unusable. Coerce to 0 if absent so the bug is
+  // at least diagnosable.
   return {
     type: elementType,
     key: args.key,
@@ -889,14 +978,43 @@ function addFieldsTool(
         },
       );
 
-      // Auto-place fields as a vertical column to the right of the
+      // Recognize entry containers — fields whose `container` matches a
+      // parent or extension-built EntryEntity Key route through the
+      // entry-field branch (emit EntityKey, skip absolute geometry, Tabindex
+      // counted per-entry).
+      const entryKeys = collectEntryKeys(parentKernelXml, extKernelXml);
+      // Per-entry Tabindex counter: starts at `existing max + 1`, increments
+      // each time we assign a Tabindex within the same entry in this batch.
+      const tabindexCounterByEntry = new Map<string, number>();
+      for (const fa of fieldArgsList) {
+        const cont = fa.container;
+        if (cont && entryKeys.has(cont)) {
+          fa.entityKey = cont;
+          // Don't pass `container` through to head-field handling.
+          fa.container = undefined;
+          if (!tabindexCounterByEntry.has(cont)) {
+            tabindexCounterByEntry.set(
+              cont,
+              maxTabindexForEntry(existing.appearances, cont) + 1,
+            );
+          }
+          const next = tabindexCounterByEntry.get(cont)!;
+          if (fa.tabindex == null) fa.tabindex = next;
+          tabindexCounterByEntry.set(cont, next + 1);
+        }
+      }
+
+      // Auto-place HEAD fields as a vertical column to the right of the
       // original-vendor layout, grouped by container. Within each container,
       // fields are stacked top-to-bottom one row apart, starting just past
       // the lowest existing extension field in that container so successive
-      // batches don't overlap. Agent-supplied top/left always win.
+      // batches don't overlap. Agent-supplied top/left always win. Entry-
+      // fields skip placement entirely — their grid position is owned by
+      // the parent EntryEntityAppearance.
       const originsByContainer = new Map<string, { left: number; top: number }>();
       const cursorTopByContainer = new Map<string, number>();
       for (const fa of fieldArgsList) {
+        if (fa.entityKey) continue;
         const cont = fa.container ?? DEFAULT_CONTAINER;
         if (!originsByContainer.has(cont)) {
           originsByContainer.set(

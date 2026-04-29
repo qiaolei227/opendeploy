@@ -915,6 +915,180 @@ describe('kingdee_add_fields', () => {
     expect(out.messageDetail).toBe('字段 key 已存在');
     expect(out.attemptedFields).toEqual(['F_DUP', 'F_OK']);
   });
+
+  // ─── Plan 5.14 — entry-field recognition ────────────────────────────────
+
+  /** Parent XML with one entry (FSaleOrderEntry) — typical SAL_SaleOrder shape. */
+  const PARENT_WITH_ENTRY_XML = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+    <EntryEntity ElementType="35"><Name>明细信息</Name><TableName>T_SAL_ORDERENTRY</TableName><Key>FSaleOrderEntry</Key></EntryEntity>
+  </Elements></BusinessInfo></BusinessInfo>
+  <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}"></LayoutInfo></LayoutInfos></FormMetadata>`;
+
+  it('recognizes parent entry container → emits EntityKey + skips Container/Top/Left', async () => {
+    const { tool } = await findAddFields(
+      makeFakeConnector({
+        getObject: async (id: string) =>
+          id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+        getKernelXml: async (id: string) =>
+          id === EXT_ID ? EMPTY_EXT_XML : PARENT_WITH_ENTRY_XML,
+      }),
+    );
+
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [
+        { type: 'text', key: 'F_PAIJ_EntryNote', caption: '明细备注', container: 'FSaleOrderEntry' },
+      ],
+    });
+
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addFields![0]).toMatchObject({
+      type: 'TextField',
+      key: 'F_PAIJ_EntryNote',
+      entityKey: 'FSaleOrderEntry',
+    });
+    const ap = req.addAppearances![0];
+    expect(ap.entityKey).toBe('FSaleOrderEntry');
+    expect(ap.tabindex).toBe(1); // first entry-field, no existing fields
+    // Critical: head-field-only properties must NOT be set on entry-field appearance.
+    expect(ap.container).toBeUndefined();
+    expect(ap.top).toBeUndefined();
+    expect(ap.left).toBeUndefined();
+    expect(ap.zOrderIndex).toBeUndefined();
+  });
+
+  it('recognizes extension-built entry container too (not just parent)', async () => {
+    // Extension already created its own entry F_PAIJ_Entity_xyz; new field
+    // should attach to it as an entry-field.
+    const populatedExtXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+      <EntryEntity ElementType="35"><Name>测试体</Name><TableName>PAIJ_t_Cust_Entry100050</TableName><Key>F_PAIJ_Entity_xyz</Key></EntryEntity>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}"></LayoutInfo></LayoutInfos></FormMetadata>`;
+
+    const { tool } = await findAddFields(
+      makeFakeConnector({
+        getObject: async (id: string) =>
+          id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+        getKernelXml: async (id: string) =>
+          id === EXT_ID ? populatedExtXml : PARENT_LAYOUT_XML,
+      }),
+    );
+
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [
+        { type: 'text', key: 'F_PAIJ_Note', caption: '备注', container: 'F_PAIJ_Entity_xyz' },
+      ],
+    });
+
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addFields![0].entityKey).toBe('F_PAIJ_Entity_xyz');
+    expect(req.addAppearances![0].entityKey).toBe('F_PAIJ_Entity_xyz');
+  });
+
+  it('continues Tabindex from existing entry-field max+1 within the same entry', async () => {
+    // Extension already has 3 fields in FSaleOrderEntry with Tabindex 1/2/3.
+    const populatedExtXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <TextFieldAppearance><Key>F_OLD1</Key><EntityKey>FSaleOrderEntry</EntityKey><Tabindex>1</Tabindex><Caption>旧1</Caption></TextFieldAppearance>
+        <TextFieldAppearance><Key>F_OLD2</Key><EntityKey>FSaleOrderEntry</EntityKey><Tabindex>2</Tabindex><Caption>旧2</Caption></TextFieldAppearance>
+        <TextFieldAppearance><Key>F_OLD3</Key><EntityKey>FSaleOrderEntry</EntityKey><Tabindex>3</Tabindex><Caption>旧3</Caption></TextFieldAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+
+    const { tool } = await findAddFields(
+      makeFakeConnector({
+        getObject: async (id: string) =>
+          id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+        getKernelXml: async (id: string) =>
+          id === EXT_ID ? populatedExtXml : PARENT_WITH_ENTRY_XML,
+      }),
+    );
+
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [
+        { type: 'text', key: 'F_NEW_A', caption: '新A', container: 'FSaleOrderEntry' },
+        { type: 'text', key: 'F_NEW_B', caption: '新B', container: 'FSaleOrderEntry' },
+      ],
+    });
+
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addAppearances![0].tabindex).toBe(4);
+    expect(req.addAppearances![1].tabindex).toBe(5);
+  });
+
+  it('Tabindex counters are independent per entry (each entry starts at 1)', async () => {
+    // Two entries: FSaleOrderEntry already has Tabindex up to 5; new entry
+    // F_PAIJ_Entity_xyz has none. Adding fields to both should respect each
+    // counter independently.
+    const populatedExtXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+      <EntryEntity ElementType="35"><Name>测试体</Name><TableName>X</TableName><Key>F_PAIJ_Entity_xyz</Key></EntryEntity>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <TextFieldAppearance><Key>F_OLD1</Key><EntityKey>FSaleOrderEntry</EntityKey><Tabindex>5</Tabindex><Caption>旧</Caption></TextFieldAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+
+    const { tool } = await findAddFields(
+      makeFakeConnector({
+        getObject: async (id: string) =>
+          id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+        getKernelXml: async (id: string) =>
+          id === EXT_ID ? populatedExtXml : PARENT_WITH_ENTRY_XML,
+      }),
+    );
+
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [
+        { type: 'text', key: 'F_A', caption: 'A', container: 'FSaleOrderEntry' },
+        { type: 'text', key: 'F_B', caption: 'B', container: 'F_PAIJ_Entity_xyz' },
+        { type: 'text', key: 'F_C', caption: 'C', container: 'FSaleOrderEntry' },
+        { type: 'text', key: 'F_D', caption: 'D', container: 'F_PAIJ_Entity_xyz' },
+      ],
+    });
+
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addAppearances![0]).toMatchObject({ entityKey: 'FSaleOrderEntry', tabindex: 6 });
+    expect(req.addAppearances![1]).toMatchObject({ entityKey: 'F_PAIJ_Entity_xyz', tabindex: 1 });
+    expect(req.addAppearances![2]).toMatchObject({ entityKey: 'FSaleOrderEntry', tabindex: 7 });
+    expect(req.addAppearances![3]).toMatchObject({ entityKey: 'F_PAIJ_Entity_xyz', tabindex: 2 });
+  });
+
+  it('head-field path unaffected when no entry container is touched', async () => {
+    // Mixed batch — only entry-targeted field gets entity-field treatment;
+    // head field uses placement engine + container as before.
+    const { tool } = await findAddFields(
+      makeFakeConnector({
+        getObject: async (id: string) =>
+          id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+        getKernelXml: async (id: string) =>
+          id === EXT_ID ? EMPTY_EXT_XML : PARENT_WITH_ENTRY_XML,
+      }),
+    );
+
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [
+        { type: 'text', key: 'F_HEAD', caption: '头字段' }, // no container → defaults to FTAB_P0 (head)
+        { type: 'text', key: 'F_ENTRY', caption: '体字段', container: 'FSaleOrderEntry' },
+      ],
+    });
+
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    // Head field has container, no entityKey, full geometry.
+    expect(req.addFields![0].entityKey).toBeUndefined();
+    expect(req.addAppearances![0]).toMatchObject({ container: 'FTAB_P0' });
+    expect(req.addAppearances![0].left).toBeGreaterThan(0);
+    // Entry field has entityKey, no container/top/left.
+    expect(req.addFields![1].entityKey).toBe('FSaleOrderEntry');
+    expect(req.addAppearances![1].container).toBeUndefined();
+    expect(req.addAppearances![1].left).toBeUndefined();
+  });
 });
 
 describe('kingdee_register_python_plugins', () => {
