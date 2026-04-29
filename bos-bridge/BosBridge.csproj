@@ -26,5 +26,9 @@
       <HintPath>$(BosClientPath)\Kingdee.BOS.Core.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(BosClientPath)\Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 </Project>
