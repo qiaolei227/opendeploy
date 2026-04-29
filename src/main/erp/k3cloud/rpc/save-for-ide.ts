@@ -93,28 +93,14 @@ export async function saveExtension(
     apFields: { ap0 },
   });
   applySetCookieToSession(session, res.setCookieHeaders);
-  const body = res.bodyText.trim();
-
-  // BOS uses a plain-text "response_error:..." envelope for server-side
-  // failures (auth expiry, validation errors, internal nullref, etc.).
-  // Surface the actual message instead of dying inside JSON.parse with an
-  // opaque "Unexpected token 'r'" — that error reaches the agent as the
-  // tool result and gives it nothing to act on.
-  if (body.startsWith('response_error:') || body.startsWith('"response_error:')) {
-    return {
-      isSuccess: false,
-      funcResult: false,
-      messageTitle: '服务端拒绝',
-      messageDetail: body,
-    };
-  }
-
+  // callKdsvc throws BosResponseError on `response_error:` envelopes, so
+  // by here we know the body is meant to be JSON IDEOperateResult shape.
   const parsed = parseJsonResponse<{
     IsSuccess: boolean;
     FuncResult: boolean;
     MessageTitle: string | null;
     MessageDetail: string | null;
-  }>(body);
+  }>(res.bodyText);
   return {
     isSuccess: parsed.IsSuccess,
     funcResult: parsed.FuncResult,

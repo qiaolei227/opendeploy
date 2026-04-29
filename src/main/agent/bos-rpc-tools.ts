@@ -27,6 +27,7 @@ import { deleteExtension as deleteExtensionRpc } from '../erp/k3cloud/rpc/delete
 import { saveExtension as saveExtensionRpc } from '../erp/k3cloud/rpc/save-for-ide';
 import { extractLayoutInfoOid } from '../erp/k3cloud/rpc/layout-discovery';
 import { newCompactGuid, xmlEscape } from '../erp/k3cloud/rpc/dcxml';
+import { BosResponseError } from '../erp/k3cloud/rpc/http-client';
 import { extractExistingExtensionElements } from '../erp/k3cloud/rpc/existing-elements';
 import {
   parseAppearanceGeometry,
@@ -1796,7 +1797,25 @@ function createEntryTool(
       const { ext, project, layoutInfoOid, existing, parentKernelXml } =
         await loadExtensionForSave(connector, projectId, extId, 'kingdee_create_entry');
 
-      const allocatedInt = await connector.getNextSequenceInt32(SEQUENCE_CATEGORY_CUST_ENTRY, 1);
+      let allocatedInt: number;
+      try {
+        allocatedInt = await connector.getNextSequenceInt32(SEQUENCE_CATEGORY_CUST_ENTRY, 1);
+      } catch (err) {
+        if (err instanceof BosResponseError) {
+          return JSON.stringify(
+            {
+              ok: false,
+              extId,
+              stage: 'GetSequenceInt32',
+              messageDetail: err.responseBody,
+              hint: '服务端拒绝分配 entry 内码。常见原因:登录会话过期(关闭客户端重登,或重连项目)/ 账套数据库异常 / 用户无 BOS 写权限。',
+            },
+            null,
+            2,
+          );
+        }
+        throw err;
+      }
       const devCode = project.devCode;
       const entryName = `${devCode}_Cust_Entry${allocatedInt}`;
       const tableName = `${devCode}_t_Cust_Entry${allocatedInt}`;
@@ -1824,7 +1843,25 @@ function createEntryTool(
       });
 
       const session = await sessionMgr.getOrLogin(projectId);
-      const result = await saveExtensionRpc(session, req);
+      let result;
+      try {
+        result = await saveExtensionRpc(session, req);
+      } catch (err) {
+        if (err instanceof BosResponseError) {
+          return JSON.stringify(
+            {
+              ok: false,
+              extId,
+              entryKey,
+              stage: 'SaveForIDEV9',
+              messageDetail: err.responseBody,
+            },
+            null,
+            2,
+          );
+        }
+        throw err;
+      }
 
       if (!result.isSuccess) {
         return JSON.stringify(

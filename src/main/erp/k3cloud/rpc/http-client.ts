@@ -61,6 +61,21 @@ export interface KdsvcCallOptions {
   appCompressed?: boolean;
 }
 
+/**
+ * Thrown when a `*.common.kdsvc` endpoint replies with a `response_error:`
+ * envelope. `responseBody` carries the verbatim server text so callers can
+ * pattern-match (e.g. surfacing 401-style bodies as auth-expired) or render
+ * to the user.
+ */
+export class BosResponseError extends Error {
+  responseBody: string;
+  constructor(message: string, responseBody: string) {
+    super(message);
+    this.name = 'BosResponseError';
+    this.responseBody = responseBody;
+  }
+}
+
 export interface KdsvcResponse {
   /** Decoded app-layer response (base64+zlib unwrapped). */
   bodyText: string;
@@ -139,6 +154,18 @@ export async function callKdsvc(
   // "incorrect header check"), fall back to the raw text.
   const rawText = await res.text();
   const bodyText = decodeAppLayerOrRaw(rawText);
+
+  // Server-side errors come back as `response_error: {json}` plain-text. If
+  // we hand that to parseJsonResponse it dies with "Unexpected token 'r'"
+  // and the caller has nothing to act on. Reject here so every caller
+  // surfaces the actual server message via the thrown Error.
+  const trimmed = bodyText.trim();
+  if (trimmed.startsWith('response_error:') || trimmed.startsWith('"response_error:')) {
+    throw new BosResponseError(
+      `${serviceName}.${methodName} returned response_error envelope: ${trimmed.slice(0, 1000)}`,
+      trimmed,
+    );
+  }
 
   const setCookieHeaders: string[] = [];
   // Node fetch returns a Headers object; getSetCookie works on Node 22+.
