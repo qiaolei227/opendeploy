@@ -26,7 +26,7 @@ import { bosSessionManager } from '../erp/k3cloud/rpc/session-manager';
 import { deleteExtension as deleteExtensionRpc } from '../erp/k3cloud/rpc/delete-extension';
 import { saveExtension as saveExtensionRpc } from '../erp/k3cloud/rpc/save-for-ide';
 import { extractLayoutInfoOid } from '../erp/k3cloud/rpc/layout-discovery';
-import { newCompactGuid } from '../erp/k3cloud/rpc/dcxml';
+import { newCompactGuid, xmlEscape } from '../erp/k3cloud/rpc/dcxml';
 import { extractExistingExtensionElements } from '../erp/k3cloud/rpc/existing-elements';
 import {
   parseAppearanceGeometry,
@@ -301,20 +301,18 @@ function collectEntryKeys(
  * Tabindex for new fields in that entry is `(this max) + 1`.
  *
  * Scans raw `*FieldAppearance` chunks (in `existingAppearancesRaw`) for those
- * containing `<EntityKey>{entryKey}</EntityKey>`, extracts each chunk's
- * `<Tabindex>N</Tabindex>`, returns the max (0 when no matches → next is 1).
+ * whose `<EntityKey>` matches; max of their `<Tabindex>` (0 when none). Both
+ * tags appear as flat direct children of the appearance element, so simple
+ * substring match is safe.
  */
 function maxTabindexForEntry(
   existingAppearancesRaw: string[],
   entryKey: string,
 ): number {
-  // Match the EntityKey element body verbatim — Tabindex/EntityKey both
-  // appear as direct children of the appearance element so simple regex is
-  // safe (no nested duplicates).
-  const entityRe = new RegExp(`<EntityKey>${escapeRegex(entryKey)}</EntityKey>`);
+  const needle = `<EntityKey>${entryKey}</EntityKey>`;
   let max = 0;
   for (const raw of existingAppearancesRaw) {
-    if (!entityRe.test(raw)) continue;
+    if (!raw.includes(needle)) continue;
     const m = raw.match(/<Tabindex>(\d+)<\/Tabindex>/);
     if (!m) continue;
     const v = Number(m[1]);
@@ -323,8 +321,87 @@ function maxTabindexForEntry(
   return max;
 }
 
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// ─── Constants for entry / tab toolchain ──────────────────────────────────
+
+/** Default container for self-built TabControls (BOS entry-side panel). */
+const ENTRY_PANEL_CONTAINER = 'FSPLITECONTAINER~Panel2';
+/** Original-vendor entry-side TabControl, present on every K/3 form. */
+const ORIGINAL_ENTRY_TAB_CONTROL = 'FTab1';
+const DEFAULT_TAB_CONTROL_CAPTION = '页签控件';
+const DEFAULT_TAB_PAGE_CAPTION = '页签';
+
+/** 3-char lowercase alphanumeric suffix used by BOS Designer in tab/entry keys. */
+function gen3CharLcSuffix(): string {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let s = '';
+  for (let i = 0; i < 3; i++) {
+    s += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return s;
+}
+
+/**
+ * Compose a SaveExtensionRequest from the read-merge baseline + caller deltas.
+ * Critical: all `existing*Raw` arrays from `ExistingExtensionElements` MUST flow
+ * through — SaveForIDE is a baseline diff, anything missing gets dropped.
+ */
+function buildSaveRequest(
+  ext: ObjectMeta,
+  project: NonNullable<Project['bos']>,
+  layoutInfoOid: string,
+  existing: ExistingExtensionElements,
+  deltas: Pick<
+    SaveExtensionRequest,
+    | 'addFields'
+    | 'addAppearances'
+    | 'addPlugins'
+    | 'addEntries'
+    | 'addEntryAppearances'
+    | 'addTabPages'
+    | 'addTabControls'
+  > = {},
+): SaveExtensionRequest {
+  return {
+    extension: {
+      formId: ext.id,
+      baseObjectId: ext.baseObjectId!,
+      modelTypeId: ext.modelTypeId!,
+      subSystemId: ext.subsystemId!,
+      name: [{ localeId: 2052, value: ext.name }],
+      isv: { devCode: project.devCode },
+    },
+    isNew: false,
+    layoutInfoOid,
+    existingFieldsRaw: existing.fields,
+    existingAppearancesRaw: existing.appearances,
+    existingPluginsRaw: existing.plugins,
+    existingEntriesRaw: existing.entries,
+    existingEntryAppearancesRaw: existing.entryAppearances,
+    existingTabPagesRaw: existing.tabPages,
+    existingTabControlsRaw: existing.tabControls,
+    ...deltas,
+  };
+}
+
+/**
+ * Read the first `<tag>...</tag>` body in `rawChunk`. Operates on the chunk
+ * verbatim — caller's responsibility to ensure `tag` is a direct child only,
+ * which holds for the flat appearance / entry chunks we filter on.
+ */
+function readChildText(rawChunk: string, tag: string): string | null {
+  const m = rawChunk.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
+  return m ? m[1] : null;
+}
+
+/**
+ * Replace the body of the first matched `<tag>...</tag>` in `rawChunk`.
+ * Caller's responsibility to ensure `tag` is a direct child only — used for
+ * single-level Name / Caption rewrites on appearance / entry chunks (no
+ * nested same-name children in observed wire format).
+ */
+function replaceChildText(rawChunk: string, tag: string, newValue: string): string {
+  const re = new RegExp(`(<${tag}>)[^<]*(</${tag}>)`);
+  return rawChunk.replace(re, `$1${xmlEscape(newValue)}$2`);
 }
 
 function computePlacementOrigin(
@@ -999,25 +1076,27 @@ function addFieldsTool(
       // Recognize entry containers — fields whose `container` matches a
       // parent or extension-built EntryEntity Key route through the
       // entry-field branch (emit EntityKey, skip absolute geometry, Tabindex
-      // counted per-entry).
+      // counted per-entry). Counter is seeded from existing max + max of any
+      // explicit tabindexes the agent passed in this batch (so explicit and
+      // auto-assigned values can't collide).
       const entryKeys = collectEntryKeys(parentKernelXml, extKernelXml);
-      // Per-entry Tabindex counter: starts at `existing max + 1`, increments
-      // each time we assign a Tabindex within the same entry in this batch.
       const tabindexCounterByEntry = new Map<string, number>();
       for (const fa of fieldArgsList) {
         const cont = fa.container;
-        if (cont && entryKeys.has(cont)) {
-          fa.entityKey = cont;
-          // Don't pass `container` through to head-field handling.
-          fa.container = undefined;
-          if (!tabindexCounterByEntry.has(cont)) {
-            tabindexCounterByEntry.set(
-              cont,
-              maxTabindexForEntry(existing.appearances, cont) + 1,
-            );
-          }
+        if (!cont || !entryKeys.has(cont)) continue;
+        fa.entityKey = cont;
+        fa.container = undefined;
+        if (!tabindexCounterByEntry.has(cont)) {
+          const existingMax = maxTabindexForEntry(existing.appearances, cont);
+          const explicitMax = fieldArgsList
+            .filter((f) => f.container === cont && typeof f.tabindex === 'number')
+            .reduce((m, f) => Math.max(m, f.tabindex!), 0);
+          tabindexCounterByEntry.set(cont, Math.max(existingMax, explicitMax) + 1);
+        }
+        // Only consume a counter slot when we actually auto-assign.
+        if (fa.tabindex == null) {
           const next = tabindexCounterByEntry.get(cont)!;
-          if (fa.tabindex == null) fa.tabindex = next;
+          fa.tabindex = next;
           tabindexCounterByEntry.set(cont, next + 1);
         }
       }
@@ -1056,23 +1135,10 @@ function addFieldsTool(
         newAppearances.push(buildAppearance(fa, fel.type));
       }
 
-      const req: SaveExtensionRequest = {
-        extension: {
-          formId: extId,
-          baseObjectId: ext.baseObjectId!,
-          modelTypeId: ext.modelTypeId!,
-          subSystemId: ext.subsystemId!,
-          name: [{ localeId: 2052, value: ext.name }],
-          isv: { devCode: project.devCode },
-        },
-        isNew: false,
-        layoutInfoOid,
-        existingFieldsRaw: existing.fields,
-        existingAppearancesRaw: existing.appearances,
-        existingPluginsRaw: existing.plugins,
+      const req = buildSaveRequest(ext, project, layoutInfoOid, existing, {
         addFields: newFields,
         addAppearances: newAppearances,
-      };
+      });
 
       const session = await sessionMgr.getOrLogin(projectId);
       const result = await saveExtensionRpc(session, req);
@@ -1217,22 +1283,9 @@ function registerPythonPluginsTool(
         pyScript: p.pyBody,
       }));
 
-      const req: SaveExtensionRequest = {
-        extension: {
-          formId: extId,
-          baseObjectId: ext.baseObjectId!,
-          modelTypeId: ext.modelTypeId!,
-          subSystemId: ext.subsystemId!,
-          name: [{ localeId: 2052, value: ext.name }],
-          isv: { devCode: project.devCode },
-        },
-        isNew: false,
-        layoutInfoOid,
-        existingFieldsRaw: existing.fields,
-        existingAppearancesRaw: existing.appearances,
-        existingPluginsRaw: existing.plugins,
+      const req = buildSaveRequest(ext, project, layoutInfoOid, existing, {
         addPlugins: newPlugins,
-      };
+      });
 
       const session = await sessionMgr.getOrLogin(projectId);
       const result = await saveExtensionRpc(session, req);
@@ -1473,97 +1526,7 @@ function deleteEnumTypeTool(
 }
 
 // ─── Plan 5.14 — Entry / Tab toolchain ─────────────────────────────────
-//
-// All 9 tools share the same shape: read-merge the extension's existing
-// elements, add / filter / replace as needed, fire a single SaveForIDEV9 with
-// the cumulative baseline-diff DCXML. Tab/entry/control deletions are
-// expressed as ABSENCE from the diff (BOS server treats missing elements as
-// removed). Renames are regex replacements on the raw chunks (Name / Caption
-// children).
-//
 // Wire format reference: memory `bos_entry_creation_wire_format.md`.
-
-/** 3-char lowercase alphanumeric suffix used by BOS Designer in tab/entry keys. */
-function gen3CharLcSuffix(): string {
-  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let s = '';
-  for (let i = 0; i < 3; i++) {
-    s += alphabet[Math.floor(Math.random() * alphabet.length)];
-  }
-  return s;
-}
-
-/**
- * Compose a fresh SaveExtensionRequest carrying the read-merge baseline plus
- * the caller's deltas. Caller passes pre-modified existing*Raw arrays (after
- * filter / replace) and any `add*` collections; we glue on extension headers.
- */
-function buildSaveRequest(
-  ext: ObjectMeta,
-  project: NonNullable<Project['bos']>,
-  layoutInfoOid: string,
-  existing: ExistingExtensionElements,
-  deltas: Pick<
-    SaveExtensionRequest,
-    | 'addFields'
-    | 'addAppearances'
-    | 'addPlugins'
-    | 'addEntries'
-    | 'addEntryAppearances'
-    | 'addTabPages'
-    | 'addTabControls'
-  > = {},
-): SaveExtensionRequest {
-  return {
-    extension: {
-      formId: ext.id,
-      baseObjectId: ext.baseObjectId!,
-      modelTypeId: ext.modelTypeId!,
-      subSystemId: ext.subsystemId!,
-      name: [{ localeId: 2052, value: ext.name }],
-      isv: { devCode: project.devCode },
-    },
-    isNew: false,
-    layoutInfoOid,
-    existingFieldsRaw: existing.fields,
-    existingAppearancesRaw: existing.appearances,
-    existingPluginsRaw: existing.plugins,
-    existingEntriesRaw: existing.entries,
-    existingEntryAppearancesRaw: existing.entryAppearances,
-    existingTabPagesRaw: existing.tabPages,
-    existingTabControlsRaw: existing.tabControls,
-    ...deltas,
-  };
-}
-
-/**
- * Read a top-level child element body from a raw chunk by tag name.
- * Used to extract Key / Container / EntityKey out of *Appearance / EntryEntity
- * raw chunks for filtering decisions.
- */
-function readChildText(rawChunk: string, tag: string): string | null {
-  const re = new RegExp(`<${tag}>([^<]*)</${tag}>`);
-  const m = rawChunk.match(re);
-  return m ? m[1] : null;
-}
-
-/**
- * Replace the body of a top-level child element. XML-escapes the new value.
- * Returns the original chunk unchanged when no match.
- */
-function replaceChildText(rawChunk: string, tag: string, newValue: string): string {
-  const re = new RegExp(`(<${tag}>)[^<]*(</${tag}>)`);
-  return rawChunk.replace(re, `$1${xmlEscapeChild(newValue)}$2`);
-}
-
-function xmlEscapeChild(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
 
 // ── kingdee_create_tab_control ─────────────────────────────────────────
 
@@ -1601,7 +1564,8 @@ function createTabControlTool(
     async execute(args) {
       const extId = String(args.extId ?? '').trim();
       if (!extId) throw new Error('kingdee_create_tab_control 需要 extId 参数。');
-      const caption = String(args.caption ?? '页签控件').trim() || '页签控件';
+      const caption =
+        String(args.caption ?? DEFAULT_TAB_CONTROL_CAPTION).trim() || DEFAULT_TAB_CONTROL_CAPTION;
       const tabPageCount =
         args.tabPageCount != null ? Number(args.tabPageCount) : 3;
       if (!Number.isInteger(tabPageCount) || tabPageCount < 1 || tabPageCount > 10) {
@@ -1621,7 +1585,7 @@ function createTabControlTool(
         {
           key: tabControlKey,
           caption,
-          container: 'FSPLITECONTAINER~Panel2',
+          container: ENTRY_PANEL_CONTAINER,
         },
       ];
       const addTabPages: BosTabPageAppearance[] = [];
@@ -1632,7 +1596,7 @@ function createTabControlTool(
         const pageKey = `${tabControlKey}_P${i}_${suffix}`;
         addTabPages.push({
           key: pageKey,
-          caption: '页签',
+          caption: DEFAULT_TAB_PAGE_CAPTION,
           container: tabControlKey,
           pageIndex: i,
         });
@@ -1711,8 +1675,11 @@ function createTabPageTool(
     async execute(args) {
       const extId = String(args.extId ?? '').trim();
       if (!extId) throw new Error('kingdee_create_tab_page 需要 extId 参数。');
-      const parentKey = String(args.parentTabControlKey ?? 'FTab1').trim() || 'FTab1';
-      const caption = String(args.caption ?? '页签').trim() || '页签';
+      const parentKey =
+        String(args.parentTabControlKey ?? ORIGINAL_ENTRY_TAB_CONTROL).trim() ||
+        ORIGINAL_ENTRY_TAB_CONTROL;
+      const caption =
+        String(args.caption ?? DEFAULT_TAB_PAGE_CAPTION).trim() || DEFAULT_TAB_PAGE_CAPTION;
 
       const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
         connector,
@@ -1722,7 +1689,7 @@ function createTabPageTool(
       );
 
       let pageKey: string;
-      if (parentKey === 'FTab1') {
+      if (parentKey === ORIGINAL_ENTRY_TAB_CONTROL) {
         // Original-vendor tab control — independent random suffix per page.
         pageKey = `FTab1_${project.devCode}_P_${gen3CharLcSuffix()}`;
       } else {
@@ -2096,13 +2063,18 @@ function deleteTabControlTool(
         'kingdee_delete_tab_control',
       );
 
-      // Collect child TabPage keys for cascade.
+      // Single-pass split: drop child TabPages, keep the rest, while
+      // collecting the dropped Keys so the entry-attachment check runs
+      // against the right set.
       const childPageKeys = new Set<string>();
+      const tabPagesKept: string[] = [];
       for (const raw of existing.tabPages) {
         if (readChildText(raw, 'Container') === tabControlKey) {
           const k = readChildText(raw, 'Key');
           if (k) childPageKeys.add(k);
+          continue;
         }
+        tabPagesKept.push(raw);
       }
 
       // Refuse if any entry is attached to any of those pages.
@@ -2134,7 +2106,7 @@ function deleteTabControlTool(
         tabControls: existing.tabControls.filter(
           (raw) => readChildText(raw, 'Key') !== tabControlKey,
         ),
-        tabPages: existing.tabPages.filter((raw) => !childPageKeys.has(readChildText(raw, 'Key') ?? '')),
+        tabPages: tabPagesKept,
       };
       const req = buildSaveRequest(ext, project, layoutInfoOid, filtered);
       const session = await sessionMgr.getOrLogin(projectId);
@@ -2170,176 +2142,125 @@ function deleteTabControlTool(
 
 // ── rename tools ───────────────────────────────────────────────────────
 
-function renameEntryTool(
-  connector: K3CloudConnector,
-  projectId: string,
-  sessionMgr: SessionMgrLike,
-): ToolHandler {
-  return {
-    definition: {
-      name: 'kingdee_rename_entry',
-      description:
-        '改单据体(EntryEntity)的中文名。**同时改 EntryEntity 的 `<Name>` 和 EntryEntityAppearance 的 `<Caption>`,保持一致** —— BOS Designer 自身重命名只改 Name,我们工具显式同步两边。',
-      parameters: {
-        type: 'object',
-        properties: {
-          extId: { type: 'string', description: '扩展 FID。' },
-          entryKey: { type: 'string', description: 'entry key。' },
-          newName: { type: 'string', description: '新中文名。' },
-        },
-        required: ['extId', 'entryKey', 'newName'],
-      },
-    },
-    async execute(args) {
-      const extId = String(args.extId ?? '').trim();
-      const entryKey = String(args.entryKey ?? '').trim();
-      const newName = String(args.newName ?? '').trim();
-      if (!extId) throw new Error('kingdee_rename_entry 需要 extId 参数。');
-      if (!entryKey) throw new Error('kingdee_rename_entry 需要 entryKey 参数。');
-      if (!newName) throw new Error('kingdee_rename_entry 需要 newName 参数。');
-
-      const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
-        connector,
-        projectId,
-        extId,
-        'kingdee_rename_entry',
-      );
-
-      const updated: ExistingExtensionElements = {
-        ...existing,
-        entries: existing.entries.map((raw) =>
-          readChildText(raw, 'Key') === entryKey ? replaceChildText(raw, 'Name', newName) : raw,
-        ),
-        entryAppearances: existing.entryAppearances.map((raw) =>
-          readChildText(raw, 'Key') === entryKey
-            ? replaceChildText(raw, 'Caption', newName)
-            : raw,
-        ),
-      };
-      const req = buildSaveRequest(ext, project, layoutInfoOid, updated);
-      const session = await sessionMgr.getOrLogin(projectId);
-      const result = await saveExtensionRpc(session, req);
-
-      if (!result.isSuccess) {
-        return JSON.stringify(
-          { ok: false, extId, entryKey, messageTitle: result.messageTitle, messageDetail: result.messageDetail },
-          null,
-          2,
-        );
-      }
-      return JSON.stringify({ ok: true, extId, entryKey, newName }, null, 2);
-    },
-  };
+interface RenameToolSpec {
+  toolName: string;
+  description: string;
+  /** Argument name carrying the target Key (entryKey / tabPageKey / tabControlKey). */
+  keyArgName: string;
+  /** Argument name carrying the new value (newName for entry, newCaption for tabs). */
+  valueArgName: string;
+  /**
+   * For each `existing.<bucket>` chunk whose `<Key>` matches, replace `<tag>` text.
+   * Listed in order of mutation: entry rename hits BOTH entries (Name) and
+   * entryAppearances (Caption); tab tools hit one bucket each.
+   */
+  mutations: Array<{
+    bucket: keyof Pick<
+      ExistingExtensionElements,
+      'entries' | 'entryAppearances' | 'tabPages' | 'tabControls'
+    >;
+    tag: 'Name' | 'Caption';
+  }>;
 }
 
-function renameTabPageTool(
+function makeRenameTool(
   connector: K3CloudConnector,
   projectId: string,
   sessionMgr: SessionMgrLike,
+  spec: RenameToolSpec,
 ): ToolHandler {
   return {
     definition: {
-      name: 'kingdee_rename_tab_page',
-      description: '改 TabPage 的标题(Caption)。',
+      name: spec.toolName,
+      description: spec.description,
       parameters: {
         type: 'object',
         properties: {
           extId: { type: 'string' },
-          tabPageKey: { type: 'string' },
-          newCaption: { type: 'string' },
+          [spec.keyArgName]: { type: 'string' },
+          [spec.valueArgName]: { type: 'string' },
         },
-        required: ['extId', 'tabPageKey', 'newCaption'],
+        required: ['extId', spec.keyArgName, spec.valueArgName],
       },
     },
     async execute(args) {
       const extId = String(args.extId ?? '').trim();
-      const tabPageKey = String(args.tabPageKey ?? '').trim();
-      const newCaption = String(args.newCaption ?? '').trim();
-      if (!extId) throw new Error('kingdee_rename_tab_page 需要 extId 参数。');
-      if (!tabPageKey) throw new Error('kingdee_rename_tab_page 需要 tabPageKey 参数。');
-      if (!newCaption) throw new Error('kingdee_rename_tab_page 需要 newCaption 参数。');
+      const targetKey = String(args[spec.keyArgName] ?? '').trim();
+      const newValue = String(args[spec.valueArgName] ?? '').trim();
+      if (!extId) throw new Error(`${spec.toolName} 需要 extId 参数。`);
+      if (!targetKey) throw new Error(`${spec.toolName} 需要 ${spec.keyArgName} 参数。`);
+      if (!newValue) throw new Error(`${spec.toolName} 需要 ${spec.valueArgName} 参数。`);
 
       const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
         connector,
         projectId,
         extId,
-        'kingdee_rename_tab_page',
+        spec.toolName,
       );
-      const updated: ExistingExtensionElements = {
-        ...existing,
-        tabPages: existing.tabPages.map((raw) =>
-          readChildText(raw, 'Key') === tabPageKey
-            ? replaceChildText(raw, 'Caption', newCaption)
+
+      const updated: ExistingExtensionElements = { ...existing };
+      for (const m of spec.mutations) {
+        updated[m.bucket] = existing[m.bucket].map((raw) =>
+          readChildText(raw, 'Key') === targetKey
+            ? replaceChildText(raw, m.tag, newValue)
             : raw,
-        ),
-      };
+        );
+      }
       const req = buildSaveRequest(ext, project, layoutInfoOid, updated);
       const session = await sessionMgr.getOrLogin(projectId);
       const result = await saveExtensionRpc(session, req);
       if (!result.isSuccess) {
         return JSON.stringify(
-          { ok: false, extId, tabPageKey, messageTitle: result.messageTitle, messageDetail: result.messageDetail },
+          {
+            ok: false,
+            extId,
+            [spec.keyArgName]: targetKey,
+            messageTitle: result.messageTitle,
+            messageDetail: result.messageDetail,
+          },
           null,
           2,
         );
       }
-      return JSON.stringify({ ok: true, extId, tabPageKey, newCaption }, null, 2);
+      return JSON.stringify(
+        { ok: true, extId, [spec.keyArgName]: targetKey, [spec.valueArgName]: newValue },
+        null,
+        2,
+      );
     },
   };
 }
 
-function renameTabControlTool(
-  connector: K3CloudConnector,
-  projectId: string,
-  sessionMgr: SessionMgrLike,
-): ToolHandler {
-  return {
-    definition: {
-      name: 'kingdee_rename_tab_control',
-      description: '改 TabControl 的标题(Caption)。',
-      parameters: {
-        type: 'object',
-        properties: {
-          extId: { type: 'string' },
-          tabControlKey: { type: 'string' },
-          newCaption: { type: 'string' },
-        },
-        required: ['extId', 'tabControlKey', 'newCaption'],
-      },
-    },
-    async execute(args) {
-      const extId = String(args.extId ?? '').trim();
-      const tabControlKey = String(args.tabControlKey ?? '').trim();
-      const newCaption = String(args.newCaption ?? '').trim();
-      if (!extId) throw new Error('kingdee_rename_tab_control 需要 extId 参数。');
-      if (!tabControlKey) throw new Error('kingdee_rename_tab_control 需要 tabControlKey 参数。');
-      if (!newCaption) throw new Error('kingdee_rename_tab_control 需要 newCaption 参数。');
+function renameEntryTool(c: K3CloudConnector, p: string, s: SessionMgrLike): ToolHandler {
+  return makeRenameTool(c, p, s, {
+    toolName: 'kingdee_rename_entry',
+    description:
+      '改单据体(EntryEntity)的中文名。**同时改 EntryEntity 的 `<Name>` 和 EntryEntityAppearance 的 `<Caption>`,保持一致** —— BOS Designer 自身重命名只改 Name,我们工具显式同步两边。',
+    keyArgName: 'entryKey',
+    valueArgName: 'newName',
+    mutations: [
+      { bucket: 'entries', tag: 'Name' },
+      { bucket: 'entryAppearances', tag: 'Caption' },
+    ],
+  });
+}
 
-      const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
-        connector,
-        projectId,
-        extId,
-        'kingdee_rename_tab_control',
-      );
-      const updated: ExistingExtensionElements = {
-        ...existing,
-        tabControls: existing.tabControls.map((raw) =>
-          readChildText(raw, 'Key') === tabControlKey
-            ? replaceChildText(raw, 'Caption', newCaption)
-            : raw,
-        ),
-      };
-      const req = buildSaveRequest(ext, project, layoutInfoOid, updated);
-      const session = await sessionMgr.getOrLogin(projectId);
-      const result = await saveExtensionRpc(session, req);
-      if (!result.isSuccess) {
-        return JSON.stringify(
-          { ok: false, extId, tabControlKey, messageTitle: result.messageTitle, messageDetail: result.messageDetail },
-          null,
-          2,
-        );
-      }
-      return JSON.stringify({ ok: true, extId, tabControlKey, newCaption }, null, 2);
-    },
-  };
+function renameTabPageTool(c: K3CloudConnector, p: string, s: SessionMgrLike): ToolHandler {
+  return makeRenameTool(c, p, s, {
+    toolName: 'kingdee_rename_tab_page',
+    description: '改 TabPage 的标题(Caption)。',
+    keyArgName: 'tabPageKey',
+    valueArgName: 'newCaption',
+    mutations: [{ bucket: 'tabPages', tag: 'Caption' }],
+  });
+}
+
+function renameTabControlTool(c: K3CloudConnector, p: string, s: SessionMgrLike): ToolHandler {
+  return makeRenameTool(c, p, s, {
+    toolName: 'kingdee_rename_tab_control',
+    description: '改 TabControl 的标题(Caption)。',
+    keyArgName: 'tabControlKey',
+    valueArgName: 'newCaption',
+    mutations: [{ bucket: 'tabControls', tag: 'Caption' }],
+  });
 }

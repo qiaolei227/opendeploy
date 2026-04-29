@@ -667,7 +667,15 @@ function getFormLayoutTool(c: K3CloudConnector): ToolHandler {
       if (typeof formId !== 'string' || formId.trim() === '') {
         throw new Error('kingdee_get_form_layout requires a non-empty `formId` string.');
       }
-      const obj = await c.getObject(formId);
+      // Parent (object + layout) and ext layout are independent — fetch all
+      // in parallel so the closure-loop reflection (post-create_entry etc.)
+      // doesn't pay sequential round-trip latency.
+      const extId = typeof args.extId === 'string' ? args.extId.trim() : '';
+      const [obj, layout, extLayout] = await Promise.all([
+        c.getObject(formId),
+        c.getFormLayout(formId),
+        extId ? c.getFormLayout(extId) : Promise.resolve(null),
+      ]);
       if (!obj) {
         return JSON.stringify(
           { found: false, formId, message: '单据不存在,先用 kingdee_search_metadata 确认拼写。' },
@@ -675,7 +683,6 @@ function getFormLayoutTool(c: K3CloudConnector): ToolHandler {
           2
         );
       }
-      const layout = await c.getFormLayout(formId);
       if (!layout) {
         return JSON.stringify(
           { found: false, formId, message: '取不到父单据 FKERNELXML,无法解析容器目录。' },
@@ -692,25 +699,18 @@ function getFormLayoutTool(c: K3CloudConnector): ToolHandler {
         hint:
           '用 tabs[*].caption / entries[*].name 给用户列选项,然后把对应的 key 传给 kingdee_add_fields 每个 field 的 container 参数(头字段 → tab key,单据体字段 → entry key)。'
       };
-
-      // Optional extension reflection — caller usually passes this after a
-      // create_entry / delete_entry / rename_* call to verify the change took.
-      const extId = typeof args.extId === 'string' ? args.extId.trim() : '';
       if (extId) {
-        const extLayout = await c.getFormLayout(extId);
-        if (!extLayout) {
-          result.extension = {
-            extId,
-            message: '扩展不存在或无 FKERNELXML —— 用 kingdee_list_extensions 确认 FID 拼写。'
-          };
-        } else {
-          result.extension = {
-            extId,
-            entries: extLayout.entries,
-            tabs: extLayout.tabs,
-            tabControls: extLayout.tabControls
-          };
-        }
+        result.extension = extLayout
+          ? {
+              extId,
+              entries: extLayout.entries,
+              tabs: extLayout.tabs,
+              tabControls: extLayout.tabControls
+            }
+          : {
+              extId,
+              message: '扩展不存在或无 FKERNELXML —— 用 kingdee_list_extensions 确认 FID 拼写。'
+            };
       }
       return JSON.stringify(result, null, 2);
     }

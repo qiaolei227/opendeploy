@@ -41,7 +41,7 @@ import {
   FIELD_ELEMENT_TYPE,
 } from './types';
 
-function xmlEscape(s: string): string {
+export function xmlEscape(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

@@ -480,6 +480,43 @@ describe('kingdee_add_fields', () => {
     expect(req.addAppearances).toHaveLength(3);
   });
 
+  it('forwards existing entries / tabPages / tabControls / entryAppearances on add_fields (baseline-diff regression)', async () => {
+    // Regression guard: SaveForIDE is a baseline diff; if add_fields builds
+    // a SaveExtensionRequest that omits the existing entry/tab buckets, those
+    // entities silently disappear on the next save (data loss).
+    const populatedExtXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+      <Form><Id>${EXT_ID}</Id></Form>
+      <EntryEntity><Key>F_OLD_ENTRY</Key><Seq>13</Seq><TableName>T</TableName></EntryEntity>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <EntryEntityAppearance><Key>F_OLD_ENTRY</Key><Container>FTab1_OLD</Container></EntryEntityAppearance>
+        <TabPageAppearance><Key>FTab1_OLD</Key><Container>FTab1</Container></TabPageAppearance>
+        <TabControlAppearance><Key>F_OLD_TC</Key><Container>FSPLITECONTAINER~Panel2</Container></TabControlAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+
+    const { tool } = await findAddFields(
+      makeFakeConnector({
+        getObject: async (id: string) =>
+          id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+        getKernelXml: async (id: string) =>
+          id === EXT_ID ? populatedExtXml : PARENT_LAYOUT_XML,
+      }),
+    );
+
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [{ type: 'text', key: 'F_NEW', caption: '新' }],
+    });
+
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.existingEntriesRaw?.[0]).toContain('F_OLD_ENTRY');
+    expect(req.existingEntryAppearancesRaw?.[0]).toContain('F_OLD_ENTRY');
+    expect(req.existingTabPagesRaw?.[0]).toContain('FTab1_OLD');
+    expect(req.existingTabControlsRaw?.[0]).toContain('F_OLD_TC');
+  });
+
   it('reads extension FKERNELXML and forwards existing chunks (read-merge)', async () => {
     const existingFieldXml =
       '<TextField ElementType="1" ElementStyle="0"><Key>F_OLD</Key><Name>旧</Name><Id>old1</Id></TextField>';
@@ -1029,6 +1066,37 @@ describe('kingdee_add_fields', () => {
     expect(req.addAppearances![1].tabindex).toBe(5);
   });
 
+  it('explicit user-supplied tabindex does not consume a counter slot (no auto-assign collision)', async () => {
+    // Counter bug regression: when the agent passes an explicit tabindex for
+    // one field, the auto-counter must not bump for it — otherwise the next
+    // auto-assigned field skips a slot and possibly collides with the
+    // user's explicit value seeded into the counter.
+    const { tool } = await findAddFields(
+      makeFakeConnector({
+        getObject: async (id: string) =>
+          id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+        getKernelXml: async (id: string) =>
+          id === EXT_ID ? EMPTY_EXT_XML : PARENT_WITH_ENTRY_XML,
+      }),
+    );
+
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [
+        { type: 'text', key: 'F_AUTO1', caption: 'auto', container: 'FSaleOrderEntry' },
+        { type: 'text', key: 'F_EXP', caption: 'explicit', container: 'FSaleOrderEntry', tabindex: 5 },
+        { type: 'text', key: 'F_AUTO2', caption: 'auto', container: 'FSaleOrderEntry' },
+      ],
+    });
+
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    // Counter seeds at max(existingMax=0, explicitMax=5) + 1 = 6.
+    // F_AUTO1 → 6, F_EXP keeps 5, F_AUTO2 → 7. No collisions.
+    expect(req.addAppearances![0].tabindex).toBe(6);
+    expect(req.addAppearances![1].tabindex).toBe(5);
+    expect(req.addAppearances![2].tabindex).toBe(7);
+  });
+
   it('Tabindex counters are independent per entry (each entry starts at 1)', async () => {
     // Two entries: FSaleOrderEntry already has Tabindex up to 5; new entry
     // F_PAIJ_Entity_xyz has none. Adding fields to both should respect each
@@ -1176,6 +1244,39 @@ describe('kingdee_register_python_plugins', () => {
     });
     expect(req.addFields).toBeUndefined();
     expect(req.addAppearances).toBeUndefined();
+  });
+
+  it('forwards existing entries / tabPages / tabControls (baseline-diff regression)', async () => {
+    // Same data-loss bug guard as the add_fields test — register_python_plugins
+    // must also re-include all existing entry/tab buckets or they vanish.
+    const populatedExtXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+      <Form><Id>${EXT_ID}</Id></Form>
+      <EntryEntity><Key>F_OLD_ENTRY</Key><Seq>13</Seq><TableName>T</TableName></EntryEntity>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <EntryEntityAppearance><Key>F_OLD_ENTRY</Key><Container>FTab1_OLD</Container></EntryEntityAppearance>
+        <TabPageAppearance><Key>FTab1_OLD</Key><Container>FTab1</Container></TabPageAppearance>
+        <TabControlAppearance><Key>F_OLD_TC</Key><Container>FSPLITECONTAINER~Panel2</Container></TabControlAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+    const { tool } = await findPluginTool(
+      makeFakeConnector({
+        getObject: async (id: string) =>
+          id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+        getKernelXml: async (id: string) =>
+          id === EXT_ID ? populatedExtXml : PARENT_LAYOUT_XML,
+      }),
+    );
+    await tool.execute({
+      extId: EXT_ID,
+      plugins: [{ className: 'p', pyBody: '#x' }],
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.existingEntriesRaw?.[0]).toContain('F_OLD_ENTRY');
+    expect(req.existingEntryAppearancesRaw?.[0]).toContain('F_OLD_ENTRY');
+    expect(req.existingTabPagesRaw?.[0]).toContain('FTab1_OLD');
+    expect(req.existingTabControlsRaw?.[0]).toContain('F_OLD_TC');
   });
 
   it('writes multiple plugins in ONE saveExtension call (the bug fix)', async () => {
