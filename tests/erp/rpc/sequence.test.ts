@@ -61,6 +61,15 @@ describe('getNextSequenceInt32', () => {
     expect(result).toBe(100002);
   });
 
+  it('handles raw-JSON server response (no app-layer compression)', async () => {
+    // Live server returns this endpoint's body as bare JSON despite the
+    // request advertising compressed=True. Without the decode-or-raw
+    // fallback in callKdsvc, zlib throws "incorrect header check".
+    globalThis.fetch = (async () => new Response('[100050]')) as typeof fetch;
+    const result = await getNextSequenceInt32(session, 't_BOS_CustEntry', 1);
+    expect(result).toBe(100050);
+  });
+
   it('honors custom increment values', async () => {
     let capturedAp1 = '';
     globalThis.fetch = (async (_url: string, init?: RequestInit) => {

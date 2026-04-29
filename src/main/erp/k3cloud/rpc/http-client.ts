@@ -133,9 +133,12 @@ export async function callKdsvc(
   });
 
   // Node fetch decompresses gzip transparently. The response body, after
-  // HTTP-layer gunzip, is itself an app-layer base64+zlib payload.
+  // HTTP-layer gunzip, is *usually* an app-layer base64+zlib payload — but
+  // some endpoints (e.g. BusinessDataService.GetSequenceInt32) return raw
+  // JSON unencoded. Try decode first; if zlib rejects the bytes (typically
+  // "incorrect header check"), fall back to the raw text.
   const rawText = await res.text();
-  const bodyText = rawText.trim() ? decodeAppLayerString(rawText) : '';
+  const bodyText = decodeAppLayerOrRaw(rawText);
 
   const setCookieHeaders: string[] = [];
   // Node fetch returns a Headers object; getSetCookie works on Node 22+.
@@ -143,6 +146,22 @@ export async function callKdsvc(
   if (sc) setCookieHeaders.push(...sc);
 
   return { bodyText, setCookieHeaders, status: res.status };
+}
+
+/**
+ * Try app-layer decode (base64 + zlib inflate); on failure, return the raw
+ * text. Some BOS endpoints respond with bare JSON despite the request
+ * carrying `compressed=True` — most notably tiny utility endpoints like
+ * `GetSequenceInt32`. Detection is reactive (try → catch) rather than by
+ * Content-Type, since the server doesn't set a discriminating one.
+ */
+function decodeAppLayerOrRaw(rawText: string): string {
+  if (!rawText.trim()) return '';
+  try {
+    return decodeAppLayerString(rawText);
+  } catch {
+    return rawText;
+  }
 }
 
 /**
