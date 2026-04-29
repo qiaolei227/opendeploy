@@ -641,16 +641,22 @@ function getFormLayoutTool(c: K3CloudConnector): ToolHandler {
     definition: {
       name: 'kingdee_get_form_layout',
       description:
-        '反查父单据的容器目录 —— 头有几个 tab(基本信息 / 客户信息 / 财务信息 ...)、几个单据体(订单条款 / 明细信息 / ...),返回每个容器的 key + 中文名,方便在 `kingdee_add_fields` 之前向用户确认目标容器。' +
+        '反查父单据 + 可选地反查扩展自身的容器目录 —— 头有几个 tab(基本信息 / 客户信息 / 财务信息 ...)、几个单据体(订单条款 / 明细信息 / ...),以及扩展自建的 entries / tabs / tabControls。' +
         '\n\n**`kingdee_add_fields` 之前必调**:头页签 / 单据体多于 1 个时,不能默认 FTAB_P0,要把所有选项列给用户(用 caption 让人看懂),问完再决定每个字段的 `container` 参数。' +
-        '\n\n返回:`{ formId, formName, tabs: [{ key, caption, parentControl }], entries: [{ key, name, tableName, kind }] }`。' +
-        '`parentControl` 标识 tab 归属:`FTab` 通常是头部 TabControl,`FTab1` 通常是单据体附属 TabControl(同一 caption 重名时拿这个区分)。`kind` 是 "entry"(单据体)或 "sub-entry"(子单据体)。',
+        '\n\n**新建 / 删除 / 改名 entry / tab 工具之后必调**:验证扩展自建的 entry / tab 已落库或已消失。' +
+        '\n\n参数:`formId`(父单据 FormID,必传)+ `extId`(扩展 FID,可选)。传 `extId` 时返回里多出 `extension.entries` / `extension.tabs` / `extension.tabControls` 三个数组,内容来自扩展自身 FKERNELXML。' +
+        '\n\n返回:`{ formId, formName, tabs, entries, extension?: { entries, tabs, tabControls } }`。`parentControl` 标识 tab 归属:`FTab` 通常是头部 TabControl,`FTab1` 通常是单据体附属 TabControl。`kind` 是 "entry"(单据体)或 "sub-entry"(子单据体)。',
       parameters: {
         type: 'object',
         properties: {
           formId: {
             type: 'string',
             description: '父单据 FormID,如 "SAL_SaleOrder"、"BD_MATERIAL"。'
+          },
+          extId: {
+            type: 'string',
+            description:
+              '(可选)扩展 FID。传则在结果里附带扩展自建的 entries / tabs / tabControls(用于新建 / 删除 entry / tab 后验证)。'
           }
         },
         required: ['formId']
@@ -677,19 +683,36 @@ function getFormLayoutTool(c: K3CloudConnector): ToolHandler {
           2
         );
       }
-      return JSON.stringify(
-        {
-          found: true,
-          formId,
-          formName: obj.name,
-          tabs: layout.tabs,
-          entries: layout.entries,
-          hint:
-            '用 tabs[*].caption / entries[*].name 给用户列选项,然后把对应的 key 传给 kingdee_add_fields 每个 field 的 container 参数(头字段 → tab key,单据体字段 → entry key)。'
-        },
-        null,
-        2
-      );
+      const result: Record<string, unknown> = {
+        found: true,
+        formId,
+        formName: obj.name,
+        tabs: layout.tabs,
+        entries: layout.entries,
+        hint:
+          '用 tabs[*].caption / entries[*].name 给用户列选项,然后把对应的 key 传给 kingdee_add_fields 每个 field 的 container 参数(头字段 → tab key,单据体字段 → entry key)。'
+      };
+
+      // Optional extension reflection — caller usually passes this after a
+      // create_entry / delete_entry / rename_* call to verify the change took.
+      const extId = typeof args.extId === 'string' ? args.extId.trim() : '';
+      if (extId) {
+        const extLayout = await c.getFormLayout(extId);
+        if (!extLayout) {
+          result.extension = {
+            extId,
+            message: '扩展不存在或无 FKERNELXML —— 用 kingdee_list_extensions 确认 FID 拼写。'
+          };
+        } else {
+          result.extension = {
+            extId,
+            entries: extLayout.entries,
+            tabs: extLayout.tabs,
+            tabControls: extLayout.tabControls
+          };
+        }
+      }
+      return JSON.stringify(result, null, 2);
     }
   };
 }

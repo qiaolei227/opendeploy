@@ -19,11 +19,22 @@
 
 **BOS 写入**(HTTP RPC,与 BOS Designer 同路径):
 - `kingdee_create_extension` — 给原厂父单据新建扩展。返回 `extId`,后续字段 / 插件操作都用它。
-- `kingdee_add_fields` — 给已有扩展**批量**加业务字段(`fields: [...]`,12 类型:text / int / decimal / price / amount / qty / date / checkbox / **combo** / base_data / base_property / unit)。**这一轮要加的字段全部塞进数组里,一次保存,不要拆多次**——BOS 服务端把每次 Save 当扩展的"完整差异",拆调用会让前面的字段消失。
+- `kingdee_add_fields` — 给已有扩展**批量**加业务字段(`fields: [...]`,12 类型:text / int / decimal / price / amount / qty / date / checkbox / **combo** / base_data / base_property / unit)。**这一轮要加的字段全部塞进数组里,一次保存,不要拆多次**——BOS 服务端把每次 Save 当扩展的"完整差异",拆调用会让前面的字段消失。`container` 既可传头 tab key 也可传 entry key,工具自动识别(命中 entry → emit EntityKey,Tabindex 每 entry 独立)。
 - `kingdee_register_python_plugins` — 给已有扩展**批量**挂 Python 表单插件(`plugins: [...]`,写到扩展 `<Form><FormPlugins>`)。同样**一次性把要挂的全部塞数组里**,理由同上。
 - `kingdee_create_enum_type` — 在账套上新建一个下拉枚举(`name` + `items: [{value, caption}, ...]`),返回 `enumTypeId`。**只在 `kingdee_list_enum_types` 找不到合适现成枚举时才用**,避免账套里堆同义重复。
 - `kingdee_delete_enum_type` — 软删除一个枚举(进回收站可恢复)。金蝶预置枚举(isSysPreset="1")删不了。
 - `kingdee_delete_extension` — 删整个扩展(连带其上字段 / 插件)
+
+**BOS 单据体 / 页签 写入**(Plan 5.14 — entry / tab CRUD;只对**扩展自建**的 entry 与 tab 生效,不能改原厂 entry / 原厂 tab):
+- `kingdee_create_tab_control` — 自建 TabControl(默认 3 个子 TabPage),挂在单据体侧 `FSPLITECONTAINER~Panel2`。返回 `{ tabControlKey, tabPageKeys }`。
+- `kingdee_create_tab_page` — 单 TabPage,默认挂原厂 `FTab1`(单据体侧),也可挂自建 TabControl。返回 `tabPageKey`。
+- `kingdee_create_entry` — 自建单据体(EntryEntity)。内部调 `GetSequenceInt32` 拿全局唯一 int,自动按 BOS 约定算 EntryName / TableName / Seq。**前置**:必须先有 parentTabPageKey(用 `kingdee_create_tab_page` 拿,或在 `kingdee_get_form_layout` 现有 TabPage 中选)。返回 `{ entryKey, tableName, entryName, seq }`。
+- `kingdee_delete_entry` — 删自建 entry + 级联清掉该 entry 下挂的扩展字段。
+- `kingdee_delete_tab_page` — 删自建 TabPage。挂着 entry 时**拒绝**并返回挂着的 entry 列表,需先 `kingdee_delete_entry`。
+- `kingdee_delete_tab_control` — 删自建 TabControl + 级联删其所有子 TabPage。子 page 上挂着 entry 时**拒绝**。
+- `kingdee_rename_entry` — 改 entry 中文名(同步 Name + Caption)。
+- `kingdee_rename_tab_page` — 改 TabPage 标题。
+- `kingdee_rename_tab_control` — 改 TabControl 标题。
 
 **v0.1 限制**:
 - DLL 插件注册暂不支持(只支持 Python 表单插件)
@@ -108,6 +119,34 @@ OpenDeploy 创建的扩展,**必须用 `kingdee_delete_extension` 工具删**(�
 新字段会自动贴在原厂字段最右边界右侧一列,纵向顺排;多次调用之间会接着排,不会撞已有的扩展字段。**不要再传 `top` / `left` 参数**——除非用户明确要求精确像素位置。
 
 给用户的完成消息里**不再说**"默认在左上角,请去拖"——改说"已按规则排在原厂字段右侧一列,如视觉位置不理想可在 BOS Designer 中微调"。
+
+### 单据体 / 页签:复用优先,新建是兜底
+
+用户说"加一个明细 / 加一行子表 / 加一个 tab"时:
+
+1. **先 `kingdee_get_form_layout <parentFormId>`** 拿到父对象现有 entries / tabs 清单。SAL_SaleOrder 自带 12 个 entries(订单条款/明细信息/财务信息/计划信息/...),客户场景大多能复用其一加字段。
+2. **默认建议复用** —— 把现有 entries / tab pages 的中文名列给用户:"原厂已有这些,你想加到哪一个?或者新建?"
+3. **仅当用户明确说"新建一个 entry / 新建一个明细行 / 不在已有的里面"** 才走 `kingdee_create_entry`。
+4. **新建 entry 之前必须有 parentTabPageKey**:让用户在现有 TabPage 中选(原厂 SAL_SaleOrder 单据体侧默认有 1 个 FTab1 下的 page);如果都不合适,先 `kingdee_create_tab_page`(默认挂 FTab1)。
+5. **新建 TabControl 极少见** —— 只在用户明说"新建一组页签"且需要把多个 entry 分组时用 `kingdee_create_tab_control`(自带 3 个空 page,可批量挂 entry)。
+
+**v0.1 限制**(明确告知用户,不要绕):
+- 只支持单层 EntryEntity,不支持嵌套 SubEntryEntity(子单据体的子单据体)
+- entry 不能搬家(移到另一个 TabPage),想换地方只能删了重建
+- 自建 entry / tab 都用扩展 devCode 做命名前缀,不可改
+
+### Entry / Tab 操作的写入后闭环
+
+**新建 / 删除 / 重命名 entry / tab 任何一个工具返回 `ok: true` 之后**:
+
+1. 调 `kingdee_get_form_layout <parentFormId>` 反查父对象 + 扩展自身的 layout(工具会同时列扩展自建的 entries / tabs)
+2. 验证你刚做的改动出现在结果里:
+   - `kingdee_create_entry` → entries 列表里有新 entryKey + 中文名匹配
+   - `kingdee_delete_entry` → entries 列表里**没有**那个 entryKey
+   - `kingdee_create_tab_page` → tabs 列表里有新 tabPageKey
+   - rename → 对应 entry / tab 的 caption / name 已改成新值
+3. 反查异常 → **不要硬说"完成"**,告知用户写入失败,贴 messageDetail 让用户看
+4. 完成消息中提示用户 BOS Designer 工具栏刷新 + 客户端缓存关闭重登
 
 ### 写入后的闭环——必做反查
 
