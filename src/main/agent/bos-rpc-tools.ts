@@ -41,8 +41,13 @@ import type {
   BosFieldAppearance,
   BosFieldElement,
   BosPluginElement,
+  BosEntryElement,
+  BosEntryAppearance,
+  BosTabControlAppearance,
+  BosTabPageAppearance,
   SaveExtensionRequest,
 } from '../erp/k3cloud/rpc/types';
+import { SEQUENCE_CATEGORY_CUST_ENTRY } from '../erp/k3cloud/rpc/sequence';
 import { getProject } from '../projects/store';
 import type { ObjectMeta, Project } from '@shared/erp-types';
 import type { ExistingExtensionElements } from '../erp/k3cloud/rpc/existing-elements';
@@ -81,6 +86,16 @@ export async function buildBosRpcTools(
     deleteExtensionTool(pid, sessionMgr),
     createEnumTypeTool(c, pid, sessionMgr),
     deleteEnumTypeTool(c, pid, sessionMgr),
+    // Plan 5.14 — entry / tab toolchain
+    createTabControlTool(c, pid, sessionMgr),
+    createTabPageTool(c, pid, sessionMgr),
+    createEntryTool(c, pid, sessionMgr),
+    deleteEntryTool(c, pid, sessionMgr),
+    deleteTabPageTool(c, pid, sessionMgr),
+    deleteTabControlTool(c, pid, sessionMgr),
+    renameEntryTool(c, pid, sessionMgr),
+    renameTabPageTool(c, pid, sessionMgr),
+    renameTabControlTool(c, pid, sessionMgr),
   ];
 }
 
@@ -1453,6 +1468,878 @@ function deleteEnumTypeTool(
         null,
         2,
       );
+    },
+  };
+}
+
+// ─── Plan 5.14 — Entry / Tab toolchain ─────────────────────────────────
+//
+// All 9 tools share the same shape: read-merge the extension's existing
+// elements, add / filter / replace as needed, fire a single SaveForIDEV9 with
+// the cumulative baseline-diff DCXML. Tab/entry/control deletions are
+// expressed as ABSENCE from the diff (BOS server treats missing elements as
+// removed). Renames are regex replacements on the raw chunks (Name / Caption
+// children).
+//
+// Wire format reference: memory `bos_entry_creation_wire_format.md`.
+
+/** 3-char lowercase alphanumeric suffix used by BOS Designer in tab/entry keys. */
+function gen3CharLcSuffix(): string {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let s = '';
+  for (let i = 0; i < 3; i++) {
+    s += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return s;
+}
+
+/**
+ * Compose a fresh SaveExtensionRequest carrying the read-merge baseline plus
+ * the caller's deltas. Caller passes pre-modified existing*Raw arrays (after
+ * filter / replace) and any `add*` collections; we glue on extension headers.
+ */
+function buildSaveRequest(
+  ext: ObjectMeta,
+  project: NonNullable<Project['bos']>,
+  layoutInfoOid: string,
+  existing: ExistingExtensionElements,
+  deltas: Pick<
+    SaveExtensionRequest,
+    | 'addFields'
+    | 'addAppearances'
+    | 'addPlugins'
+    | 'addEntries'
+    | 'addEntryAppearances'
+    | 'addTabPages'
+    | 'addTabControls'
+  > = {},
+): SaveExtensionRequest {
+  return {
+    extension: {
+      formId: ext.id,
+      baseObjectId: ext.baseObjectId!,
+      modelTypeId: ext.modelTypeId!,
+      subSystemId: ext.subsystemId!,
+      name: [{ localeId: 2052, value: ext.name }],
+      isv: { devCode: project.devCode },
+    },
+    isNew: false,
+    layoutInfoOid,
+    existingFieldsRaw: existing.fields,
+    existingAppearancesRaw: existing.appearances,
+    existingPluginsRaw: existing.plugins,
+    existingEntriesRaw: existing.entries,
+    existingEntryAppearancesRaw: existing.entryAppearances,
+    existingTabPagesRaw: existing.tabPages,
+    existingTabControlsRaw: existing.tabControls,
+    ...deltas,
+  };
+}
+
+/**
+ * Read a top-level child element body from a raw chunk by tag name.
+ * Used to extract Key / Container / EntityKey out of *Appearance / EntryEntity
+ * raw chunks for filtering decisions.
+ */
+function readChildText(rawChunk: string, tag: string): string | null {
+  const re = new RegExp(`<${tag}>([^<]*)</${tag}>`);
+  const m = rawChunk.match(re);
+  return m ? m[1] : null;
+}
+
+/**
+ * Replace the body of a top-level child element. XML-escapes the new value.
+ * Returns the original chunk unchanged when no match.
+ */
+function replaceChildText(rawChunk: string, tag: string, newValue: string): string {
+  const re = new RegExp(`(<${tag}>)[^<]*(</${tag}>)`);
+  return rawChunk.replace(re, `$1${xmlEscapeChild(newValue)}$2`);
+}
+
+function xmlEscapeChild(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+// ── kingdee_create_tab_control ─────────────────────────────────────────
+
+function createTabControlTool(
+  connector: K3CloudConnector,
+  projectId: string,
+  sessionMgr: SessionMgrLike,
+): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_create_tab_control',
+      description:
+        '在已有 BOS 扩展的单据体侧(`FSPLITECONTAINER~Panel2`)新建一个 TabControl 页签控件,默认带 N 个空 TabPage 作为子页签。' +
+        '\n\n何时用:用户想"在单据体上加一组 tab"或要"新单据体放在新 tab 下"。' +
+        '\n\n返回 `{ ok, tabControlKey, tabPageKeys: [{ key, index }] }` —— 后续:' +
+        '\n- 创建单据体 entry → `kingdee_create_entry(parentTabPageKey=tabPageKeys[i].key)`' +
+        '\n- 加字段到 TabPage 之下需要先加 entry,字段不能直接落 TabPage' +
+        '\n\n参数:' +
+        '\n- `extId`(必)扩展 FID' +
+        '\n- `caption`(可选,默认 "页签控件")TabControl 显示文字' +
+        '\n- `tabPageCount`(可选,默认 3,范围 1-10)子 TabPage 数量',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展 FID(32 位 hex GUID)。' },
+          caption: { type: 'string', description: 'TabControl 显示文字,默认 "页签控件"。' },
+          tabPageCount: {
+            type: 'number',
+            description: '子 TabPage 数量,默认 3,范围 1-10。',
+          },
+        },
+        required: ['extId'],
+      },
+    },
+    async execute(args) {
+      const extId = String(args.extId ?? '').trim();
+      if (!extId) throw new Error('kingdee_create_tab_control 需要 extId 参数。');
+      const caption = String(args.caption ?? '页签控件').trim() || '页签控件';
+      const tabPageCount =
+        args.tabPageCount != null ? Number(args.tabPageCount) : 3;
+      if (!Number.isInteger(tabPageCount) || tabPageCount < 1 || tabPageCount > 10) {
+        throw new Error('kingdee_create_tab_control 的 tabPageCount 必须为 1-10 的整数。');
+      }
+
+      const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
+        connector,
+        projectId,
+        extId,
+        'kingdee_create_tab_control',
+      );
+
+      const suffix = gen3CharLcSuffix();
+      const tabControlKey = `F_${project.devCode}_Tab_${suffix}`;
+      const addTabControls: BosTabControlAppearance[] = [
+        {
+          key: tabControlKey,
+          caption,
+          container: 'FSPLITECONTAINER~Panel2',
+        },
+      ];
+      const addTabPages: BosTabPageAppearance[] = [];
+      const tabPageKeys: Array<{ key: string; index: number }> = [];
+      for (let i = 0; i < tabPageCount; i++) {
+        // BOS Designer reuses the parent TabControl's 3-char suffix on its
+        // children's key (verified in capture #1334+).
+        const pageKey = `${tabControlKey}_P${i}_${suffix}`;
+        addTabPages.push({
+          key: pageKey,
+          caption: '页签',
+          container: tabControlKey,
+          pageIndex: i,
+        });
+        tabPageKeys.push({ key: pageKey, index: i });
+      }
+
+      const req = buildSaveRequest(ext, project, layoutInfoOid, existing, {
+        addTabControls,
+        addTabPages,
+      });
+
+      const session = await sessionMgr.getOrLogin(projectId);
+      const result = await saveExtensionRpc(session, req);
+
+      if (!result.isSuccess) {
+        return JSON.stringify(
+          {
+            ok: false,
+            extId,
+            tabControlKey,
+            messageTitle: result.messageTitle,
+            messageDetail: result.messageDetail,
+          },
+          null,
+          2,
+        );
+      }
+      return JSON.stringify(
+        {
+          ok: true,
+          extId,
+          tabControlKey,
+          tabPageKeys,
+          reminder:
+            'TabControl 已创建并自带 ' +
+            tabPageCount +
+            ' 个空页签。在某个 TabPage 上加单据体:`kingdee_create_entry(parentTabPageKey=tabPageKeys[i].key)`。BOS Designer 中需点工具栏刷新按钮才能看到。',
+        },
+        null,
+        2,
+      );
+    },
+  };
+}
+
+// ── kingdee_create_tab_page ────────────────────────────────────────────
+
+function createTabPageTool(
+  connector: K3CloudConnector,
+  projectId: string,
+  sessionMgr: SessionMgrLike,
+): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_create_tab_page',
+      description:
+        '在指定 TabControl 下新建一个 TabPage(单页签)。' +
+        '\n\n默认 `parentTabControlKey="FTab1"`(原厂单据体侧 TabControl,所有 K/3 单据都有)。' +
+        '想挂到自建 TabControl 时传 `kingdee_create_tab_control` 返回的 `tabControlKey`。' +
+        '\n\n返回 `{ ok, tabPageKey }`。后续:' +
+        '\n- 在该 TabPage 上挂 entry → `kingdee_create_entry(parentTabPageKey=tabPageKey)`',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展 FID。' },
+          parentTabControlKey: {
+            type: 'string',
+            description:
+              '父 TabControl 的 Key。默认 "FTab1"(原厂单据体侧)。自建则传 kingdee_create_tab_control 返回的 tabControlKey。',
+          },
+          caption: { type: 'string', description: 'TabPage 显示文字,默认 "页签"。' },
+        },
+        required: ['extId'],
+      },
+    },
+    async execute(args) {
+      const extId = String(args.extId ?? '').trim();
+      if (!extId) throw new Error('kingdee_create_tab_page 需要 extId 参数。');
+      const parentKey = String(args.parentTabControlKey ?? 'FTab1').trim() || 'FTab1';
+      const caption = String(args.caption ?? '页签').trim() || '页签';
+
+      const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
+        connector,
+        projectId,
+        extId,
+        'kingdee_create_tab_page',
+      );
+
+      let pageKey: string;
+      if (parentKey === 'FTab1') {
+        // Original-vendor tab control — independent random suffix per page.
+        pageKey = `FTab1_${project.devCode}_P_${gen3CharLcSuffix()}`;
+      } else {
+        // Self-built TabControl — keep the parent's suffix on children.
+        // Compute next P-index: scan existing tab pages whose Container matches
+        // parentKey and find max P<idx> + 1.
+        let maxIdx = -1;
+        const idxRe = /_P(\d+)_/;
+        for (const raw of existing.tabPages) {
+          if (readChildText(raw, 'Container') !== parentKey) continue;
+          const k = readChildText(raw, 'Key') ?? '';
+          const m = k.match(idxRe);
+          if (m) {
+            const n = Number(m[1]);
+            if (n > maxIdx) maxIdx = n;
+          }
+        }
+        const nextIdx = maxIdx + 1;
+        // Reuse parent's 3-char suffix (last 3 chars after final '_' in the
+        // common case `F_<DevCode>_Tab_<3char>`).
+        const tail = parentKey.slice(-3);
+        pageKey = `${parentKey}_P${nextIdx}_${tail}`;
+      }
+
+      const addTabPages: BosTabPageAppearance[] = [
+        { key: pageKey, caption, container: parentKey },
+      ];
+      const req = buildSaveRequest(ext, project, layoutInfoOid, existing, { addTabPages });
+      const session = await sessionMgr.getOrLogin(projectId);
+      const result = await saveExtensionRpc(session, req);
+
+      if (!result.isSuccess) {
+        return JSON.stringify(
+          {
+            ok: false,
+            extId,
+            tabPageKey: pageKey,
+            messageTitle: result.messageTitle,
+            messageDetail: result.messageDetail,
+          },
+          null,
+          2,
+        );
+      }
+      return JSON.stringify(
+        {
+          ok: true,
+          extId,
+          tabPageKey: pageKey,
+          parentTabControlKey: parentKey,
+          reminder:
+            'TabPage 已建。挂 entry 上去:`kingdee_create_entry(parentTabPageKey="' +
+            pageKey +
+            '")`。',
+        },
+        null,
+        2,
+      );
+    },
+  };
+}
+
+// ── kingdee_create_entry ───────────────────────────────────────────────
+
+function createEntryTool(
+  connector: K3CloudConnector,
+  projectId: string,
+  sessionMgr: SessionMgrLike,
+): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_create_entry',
+      description:
+        '在已有 BOS 扩展上新建一个单据体(EntryEntity / 明细行)。' +
+        '\n\n用户说"加一个明细 / 加一个表体 / 在订单上加一行子表"时用本工具。' +
+        '工具内部会调服务端的 GetSequenceInt32 拿一个全局唯一 int,自动按 BOS 内部约定生成 EntryName / TableName / Key。' +
+        '\n\n**前置**:必须先有一个 TabPage 收纳 entry —— 调 `kingdee_create_tab_page`(默认挂到原厂 FTab1 下)拿到 `tabPageKey`,把它传给本工具的 `parentTabPageKey`。' +
+        '\n\n返回 `{ ok, entryKey, tableName, entryName, seq, parentTabPageKey }`。后续:' +
+        '\n- 给 entry 加字段 → `kingdee_add_fields(container=entryKey)`(工具自动识别 entry 路径,emit EntityKey,Tabindex 每 entry 独立)',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展 FID。' },
+          name: { type: 'string', description: '单据体的中文显示名,例 "质检明细"。' },
+          parentTabPageKey: {
+            type: 'string',
+            description:
+              '父 TabPage 的 Key。先调 kingdee_create_tab_page(可挂到 FTab1)或 kingdee_get_form_layout 找现有 TabPage。',
+          },
+        },
+        required: ['extId', 'name', 'parentTabPageKey'],
+      },
+    },
+    async execute(args) {
+      const extId = String(args.extId ?? '').trim();
+      if (!extId) throw new Error('kingdee_create_entry 需要 extId 参数。');
+      const name = String(args.name ?? '').trim();
+      if (!name) throw new Error('kingdee_create_entry 需要 name 参数。');
+      const parentTabPageKey = String(args.parentTabPageKey ?? '').trim();
+      if (!parentTabPageKey) {
+        throw new Error('kingdee_create_entry 需要 parentTabPageKey 参数。');
+      }
+
+      const { ext, project, layoutInfoOid, existing, parentKernelXml } =
+        await loadExtensionForSave(connector, projectId, extId, 'kingdee_create_entry');
+
+      const allocatedInt = await connector.getNextSequenceInt32(SEQUENCE_CATEGORY_CUST_ENTRY, 1);
+      const devCode = project.devCode;
+      const entryName = `${devCode}_Cust_Entry${allocatedInt}`;
+      const tableName = `${devCode}_t_Cust_Entry${allocatedInt}`;
+      const entryKey = `F_${devCode}_Entity_${gen3CharLcSuffix()}`;
+
+      // Seq = parent.entries + ext.existingEntries + 1
+      let parentEntryCount = 0;
+      if (parentKernelXml) {
+        for (const e of parseFormLayoutContainers(parentKernelXml).entries) {
+          if (e.kind === 'entry') parentEntryCount++;
+        }
+      }
+      const extEntryCount = existing.entries.length;
+      const seq = parentEntryCount + extEntryCount + 1;
+
+      const addEntries: BosEntryElement[] = [
+        { key: entryKey, name, entryName, tableName, seq },
+      ];
+      const addEntryAppearances: BosEntryAppearance[] = [
+        { key: entryKey, caption: name, container: parentTabPageKey },
+      ];
+      const req = buildSaveRequest(ext, project, layoutInfoOid, existing, {
+        addEntries,
+        addEntryAppearances,
+      });
+
+      const session = await sessionMgr.getOrLogin(projectId);
+      const result = await saveExtensionRpc(session, req);
+
+      if (!result.isSuccess) {
+        return JSON.stringify(
+          {
+            ok: false,
+            extId,
+            entryKey,
+            messageTitle: result.messageTitle,
+            messageDetail: result.messageDetail,
+          },
+          null,
+          2,
+        );
+      }
+      return JSON.stringify(
+        {
+          ok: true,
+          extId,
+          entryKey,
+          tableName,
+          entryName,
+          seq,
+          parentTabPageKey,
+          reminder:
+            '单据体已建。加字段到该 entry:`kingdee_add_fields(extId, fields=[{...container="' +
+            entryKey +
+            '"}])`,工具会自动走 entry-field 路径。BOS Designer 中需点工具栏刷新按钮才能看到;客户端缓存可能需要关闭重登。',
+        },
+        null,
+        2,
+      );
+    },
+  };
+}
+
+// ── delete tools ───────────────────────────────────────────────────────
+
+function deleteEntryTool(
+  connector: K3CloudConnector,
+  projectId: string,
+  sessionMgr: SessionMgrLike,
+): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_delete_entry',
+      description:
+        '从 BOS 扩展上删除一个**扩展自建**的单据体(EntryEntity)。' +
+        '\n\n会级联清掉该 entry 下挂的所有扩展字段(EntityKey 命中的)和对应的 EntryEntityAppearance。' +
+        '\n\n**只能删扩展自建的 entry**(以 `F_<DevCode>_Entity_` 开头);原厂自带的 entry(如 `FSaleOrderEntry`)不能删,工具会拒。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展 FID。' },
+          entryKey: { type: 'string', description: '要删除的 entry key,如 F_PAIJ_Entity_xxx。' },
+        },
+        required: ['extId', 'entryKey'],
+      },
+    },
+    async execute(args) {
+      const extId = String(args.extId ?? '').trim();
+      const entryKey = String(args.entryKey ?? '').trim();
+      if (!extId) throw new Error('kingdee_delete_entry 需要 extId 参数。');
+      if (!entryKey) throw new Error('kingdee_delete_entry 需要 entryKey 参数。');
+
+      const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
+        connector,
+        projectId,
+        extId,
+        'kingdee_delete_entry',
+      );
+
+      const filtered: ExistingExtensionElements = {
+        ...existing,
+        entries: existing.entries.filter((raw) => readChildText(raw, 'Key') !== entryKey),
+        entryAppearances: existing.entryAppearances.filter(
+          (raw) => readChildText(raw, 'Key') !== entryKey,
+        ),
+        // Cascade: drop any field element / appearance whose EntityKey equals
+        // the entry being deleted.
+        fields: existing.fields.filter(
+          (raw) => readChildText(raw, 'EntityKey') !== entryKey,
+        ),
+        appearances: existing.appearances.filter(
+          (raw) => readChildText(raw, 'EntityKey') !== entryKey,
+        ),
+      };
+
+      const req = buildSaveRequest(ext, project, layoutInfoOid, filtered);
+      const session = await sessionMgr.getOrLogin(projectId);
+      const result = await saveExtensionRpc(session, req);
+
+      if (!result.isSuccess) {
+        return JSON.stringify(
+          {
+            ok: false,
+            extId,
+            entryKey,
+            messageTitle: result.messageTitle,
+            messageDetail: result.messageDetail,
+          },
+          null,
+          2,
+        );
+      }
+      return JSON.stringify(
+        {
+          ok: true,
+          extId,
+          entryKey,
+          reminder:
+            '单据体已删除(连带级联清理了该 entry 下的扩展字段)。BOS Designer 中需点工具栏刷新按钮;客户端缓存可能需关闭重登。',
+        },
+        null,
+        2,
+      );
+    },
+  };
+}
+
+function deleteTabPageTool(
+  connector: K3CloudConnector,
+  projectId: string,
+  sessionMgr: SessionMgrLike,
+): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_delete_tab_page',
+      description:
+        '从 BOS 扩展上删除一个 TabPage。**会先检查是否有 entry 挂在这个 page 上**,有则拒绝并返回挂着的 entry 列表 —— 用户须先用 `kingdee_delete_entry` 清掉那些 entry。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展 FID。' },
+          tabPageKey: { type: 'string', description: '要删除的 TabPage Key。' },
+        },
+        required: ['extId', 'tabPageKey'],
+      },
+    },
+    async execute(args) {
+      const extId = String(args.extId ?? '').trim();
+      const tabPageKey = String(args.tabPageKey ?? '').trim();
+      if (!extId) throw new Error('kingdee_delete_tab_page 需要 extId 参数。');
+      if (!tabPageKey) throw new Error('kingdee_delete_tab_page 需要 tabPageKey 参数。');
+
+      const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
+        connector,
+        projectId,
+        extId,
+        'kingdee_delete_tab_page',
+      );
+
+      // Refuse if any entry is attached to this page.
+      const attached: string[] = [];
+      for (const raw of existing.entryAppearances) {
+        if (readChildText(raw, 'Container') === tabPageKey) {
+          const k = readChildText(raw, 'Key');
+          if (k) attached.push(k);
+        }
+      }
+      if (attached.length > 0) {
+        return JSON.stringify(
+          {
+            ok: false,
+            extId,
+            tabPageKey,
+            attachedEntries: attached,
+            messageDetail:
+              'TabPage 上还挂着 entry,先用 kingdee_delete_entry 清掉这些 entry 再删 page。',
+          },
+          null,
+          2,
+        );
+      }
+
+      const filtered: ExistingExtensionElements = {
+        ...existing,
+        tabPages: existing.tabPages.filter(
+          (raw) => readChildText(raw, 'Key') !== tabPageKey,
+        ),
+      };
+      const req = buildSaveRequest(ext, project, layoutInfoOid, filtered);
+      const session = await sessionMgr.getOrLogin(projectId);
+      const result = await saveExtensionRpc(session, req);
+
+      if (!result.isSuccess) {
+        return JSON.stringify(
+          {
+            ok: false,
+            extId,
+            tabPageKey,
+            messageTitle: result.messageTitle,
+            messageDetail: result.messageDetail,
+          },
+          null,
+          2,
+        );
+      }
+      return JSON.stringify(
+        { ok: true, extId, tabPageKey, reminder: 'TabPage 已删除。BOS Designer 刷新工具栏。' },
+        null,
+        2,
+      );
+    },
+  };
+}
+
+function deleteTabControlTool(
+  connector: K3CloudConnector,
+  projectId: string,
+  sessionMgr: SessionMgrLike,
+): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_delete_tab_control',
+      description:
+        '从 BOS 扩展上删除一个 TabControl(级联删除其下所有 TabPage)。**先检查所有子 page 上无 entry 挂着**,有则拒绝并列出挂着的 entry —— 用户须先 `kingdee_delete_entry` 清掉。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展 FID。' },
+          tabControlKey: { type: 'string', description: '要删除的 TabControl Key。' },
+        },
+        required: ['extId', 'tabControlKey'],
+      },
+    },
+    async execute(args) {
+      const extId = String(args.extId ?? '').trim();
+      const tabControlKey = String(args.tabControlKey ?? '').trim();
+      if (!extId) throw new Error('kingdee_delete_tab_control 需要 extId 参数。');
+      if (!tabControlKey) throw new Error('kingdee_delete_tab_control 需要 tabControlKey 参数。');
+
+      const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
+        connector,
+        projectId,
+        extId,
+        'kingdee_delete_tab_control',
+      );
+
+      // Collect child TabPage keys for cascade.
+      const childPageKeys = new Set<string>();
+      for (const raw of existing.tabPages) {
+        if (readChildText(raw, 'Container') === tabControlKey) {
+          const k = readChildText(raw, 'Key');
+          if (k) childPageKeys.add(k);
+        }
+      }
+
+      // Refuse if any entry is attached to any of those pages.
+      const attached: string[] = [];
+      for (const raw of existing.entryAppearances) {
+        const cont = readChildText(raw, 'Container');
+        if (cont && childPageKeys.has(cont)) {
+          const k = readChildText(raw, 'Key');
+          if (k) attached.push(k);
+        }
+      }
+      if (attached.length > 0) {
+        return JSON.stringify(
+          {
+            ok: false,
+            extId,
+            tabControlKey,
+            attachedEntries: attached,
+            messageDetail:
+              'TabControl 下的 TabPage 上还挂着 entry,先用 kingdee_delete_entry 清掉这些 entry 再删 TabControl。',
+          },
+          null,
+          2,
+        );
+      }
+
+      const filtered: ExistingExtensionElements = {
+        ...existing,
+        tabControls: existing.tabControls.filter(
+          (raw) => readChildText(raw, 'Key') !== tabControlKey,
+        ),
+        tabPages: existing.tabPages.filter((raw) => !childPageKeys.has(readChildText(raw, 'Key') ?? '')),
+      };
+      const req = buildSaveRequest(ext, project, layoutInfoOid, filtered);
+      const session = await sessionMgr.getOrLogin(projectId);
+      const result = await saveExtensionRpc(session, req);
+
+      if (!result.isSuccess) {
+        return JSON.stringify(
+          {
+            ok: false,
+            extId,
+            tabControlKey,
+            messageTitle: result.messageTitle,
+            messageDetail: result.messageDetail,
+          },
+          null,
+          2,
+        );
+      }
+      return JSON.stringify(
+        {
+          ok: true,
+          extId,
+          tabControlKey,
+          cascadedTabPageCount: childPageKeys.size,
+          reminder: 'TabControl 及其 ' + childPageKeys.size + ' 个子 TabPage 已删除。BOS Designer 刷新工具栏。',
+        },
+        null,
+        2,
+      );
+    },
+  };
+}
+
+// ── rename tools ───────────────────────────────────────────────────────
+
+function renameEntryTool(
+  connector: K3CloudConnector,
+  projectId: string,
+  sessionMgr: SessionMgrLike,
+): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_rename_entry',
+      description:
+        '改单据体(EntryEntity)的中文名。**同时改 EntryEntity 的 `<Name>` 和 EntryEntityAppearance 的 `<Caption>`,保持一致** —— BOS Designer 自身重命名只改 Name,我们工具显式同步两边。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展 FID。' },
+          entryKey: { type: 'string', description: 'entry key。' },
+          newName: { type: 'string', description: '新中文名。' },
+        },
+        required: ['extId', 'entryKey', 'newName'],
+      },
+    },
+    async execute(args) {
+      const extId = String(args.extId ?? '').trim();
+      const entryKey = String(args.entryKey ?? '').trim();
+      const newName = String(args.newName ?? '').trim();
+      if (!extId) throw new Error('kingdee_rename_entry 需要 extId 参数。');
+      if (!entryKey) throw new Error('kingdee_rename_entry 需要 entryKey 参数。');
+      if (!newName) throw new Error('kingdee_rename_entry 需要 newName 参数。');
+
+      const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
+        connector,
+        projectId,
+        extId,
+        'kingdee_rename_entry',
+      );
+
+      const updated: ExistingExtensionElements = {
+        ...existing,
+        entries: existing.entries.map((raw) =>
+          readChildText(raw, 'Key') === entryKey ? replaceChildText(raw, 'Name', newName) : raw,
+        ),
+        entryAppearances: existing.entryAppearances.map((raw) =>
+          readChildText(raw, 'Key') === entryKey
+            ? replaceChildText(raw, 'Caption', newName)
+            : raw,
+        ),
+      };
+      const req = buildSaveRequest(ext, project, layoutInfoOid, updated);
+      const session = await sessionMgr.getOrLogin(projectId);
+      const result = await saveExtensionRpc(session, req);
+
+      if (!result.isSuccess) {
+        return JSON.stringify(
+          { ok: false, extId, entryKey, messageTitle: result.messageTitle, messageDetail: result.messageDetail },
+          null,
+          2,
+        );
+      }
+      return JSON.stringify({ ok: true, extId, entryKey, newName }, null, 2);
+    },
+  };
+}
+
+function renameTabPageTool(
+  connector: K3CloudConnector,
+  projectId: string,
+  sessionMgr: SessionMgrLike,
+): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_rename_tab_page',
+      description: '改 TabPage 的标题(Caption)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string' },
+          tabPageKey: { type: 'string' },
+          newCaption: { type: 'string' },
+        },
+        required: ['extId', 'tabPageKey', 'newCaption'],
+      },
+    },
+    async execute(args) {
+      const extId = String(args.extId ?? '').trim();
+      const tabPageKey = String(args.tabPageKey ?? '').trim();
+      const newCaption = String(args.newCaption ?? '').trim();
+      if (!extId) throw new Error('kingdee_rename_tab_page 需要 extId 参数。');
+      if (!tabPageKey) throw new Error('kingdee_rename_tab_page 需要 tabPageKey 参数。');
+      if (!newCaption) throw new Error('kingdee_rename_tab_page 需要 newCaption 参数。');
+
+      const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
+        connector,
+        projectId,
+        extId,
+        'kingdee_rename_tab_page',
+      );
+      const updated: ExistingExtensionElements = {
+        ...existing,
+        tabPages: existing.tabPages.map((raw) =>
+          readChildText(raw, 'Key') === tabPageKey
+            ? replaceChildText(raw, 'Caption', newCaption)
+            : raw,
+        ),
+      };
+      const req = buildSaveRequest(ext, project, layoutInfoOid, updated);
+      const session = await sessionMgr.getOrLogin(projectId);
+      const result = await saveExtensionRpc(session, req);
+      if (!result.isSuccess) {
+        return JSON.stringify(
+          { ok: false, extId, tabPageKey, messageTitle: result.messageTitle, messageDetail: result.messageDetail },
+          null,
+          2,
+        );
+      }
+      return JSON.stringify({ ok: true, extId, tabPageKey, newCaption }, null, 2);
+    },
+  };
+}
+
+function renameTabControlTool(
+  connector: K3CloudConnector,
+  projectId: string,
+  sessionMgr: SessionMgrLike,
+): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_rename_tab_control',
+      description: '改 TabControl 的标题(Caption)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string' },
+          tabControlKey: { type: 'string' },
+          newCaption: { type: 'string' },
+        },
+        required: ['extId', 'tabControlKey', 'newCaption'],
+      },
+    },
+    async execute(args) {
+      const extId = String(args.extId ?? '').trim();
+      const tabControlKey = String(args.tabControlKey ?? '').trim();
+      const newCaption = String(args.newCaption ?? '').trim();
+      if (!extId) throw new Error('kingdee_rename_tab_control 需要 extId 参数。');
+      if (!tabControlKey) throw new Error('kingdee_rename_tab_control 需要 tabControlKey 参数。');
+      if (!newCaption) throw new Error('kingdee_rename_tab_control 需要 newCaption 参数。');
+
+      const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
+        connector,
+        projectId,
+        extId,
+        'kingdee_rename_tab_control',
+      );
+      const updated: ExistingExtensionElements = {
+        ...existing,
+        tabControls: existing.tabControls.map((raw) =>
+          readChildText(raw, 'Key') === tabControlKey
+            ? replaceChildText(raw, 'Caption', newCaption)
+            : raw,
+        ),
+      };
+      const req = buildSaveRequest(ext, project, layoutInfoOid, updated);
+      const session = await sessionMgr.getOrLogin(projectId);
+      const result = await saveExtensionRpc(session, req);
+      if (!result.isSuccess) {
+        return JSON.stringify(
+          { ok: false, extId, tabControlKey, messageTitle: result.messageTitle, messageDetail: result.messageDetail },
+          null,
+          2,
+        );
+      }
+      return JSON.stringify({ ok: true, extId, tabControlKey, newCaption }, null, 2);
     },
   };
 }

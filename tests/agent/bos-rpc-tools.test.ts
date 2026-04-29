@@ -147,16 +147,25 @@ beforeEach(() => {
 });
 
 describe('buildBosRpcTools', () => {
-  it('returns all six write tools when project has bos creds', async () => {
+  it('returns all write tools when project has bos creds', async () => {
     mockedGetProject.mockResolvedValue(makeProject(true));
     const tools = await buildBosRpcTools(makeFakeConnector(), 'p1', makeSessionMgr());
     expect(tools.map((t) => t.definition.name).sort()).toEqual([
       'kingdee_add_fields',
+      'kingdee_create_entry',
       'kingdee_create_enum_type',
       'kingdee_create_extension',
+      'kingdee_create_tab_control',
+      'kingdee_create_tab_page',
+      'kingdee_delete_entry',
       'kingdee_delete_enum_type',
       'kingdee_delete_extension',
+      'kingdee_delete_tab_control',
+      'kingdee_delete_tab_page',
       'kingdee_register_python_plugins',
+      'kingdee_rename_entry',
+      'kingdee_rename_tab_control',
+      'kingdee_rename_tab_page',
     ]);
   });
 
@@ -1431,5 +1440,568 @@ describe('kingdee_delete_enum_type', () => {
   it('rejects missing enumTypeId', async () => {
     const { tool } = await findDeleteEnum();
     await expect(tool.execute({})).rejects.toThrow(/enumTypeId/);
+  });
+});
+
+// ─── Plan 5.14 — entry / tab toolchain ─────────────────────────────────
+
+describe('kingdee_create_tab_control', () => {
+  const EXT_ID = 'ee0011223344556677889900aabbccdd';
+  const EXTENSION_OBJECT: ObjectMeta = {
+    id: EXT_ID,
+    name: '测试扩展',
+    modelTypeId: 100,
+    subsystemId: '23',
+    baseObjectId: 'SAL_SaleOrder',
+    isTemplate: false,
+    modifyDate: null,
+  };
+  const PARENT_LAYOUT_XML = `<FormMetadata><LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}"></LayoutInfo></LayoutInfos></FormMetadata>`;
+  const EMPTY_EXT_XML = `<FormMetadata><BusinessInfo><BusinessInfo><Elements><Form><Id>${EXT_ID}</Id></Form></Elements></BusinessInfo></BusinessInfo></FormMetadata>`;
+
+  const findTool = async (name: string) => {
+    mockedGetProject.mockResolvedValue(makeProject(true));
+    const c = makeFakeConnector({
+      getObject: async (id: string) =>
+        id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+      getKernelXml: async (id: string) =>
+        id === EXT_ID ? EMPTY_EXT_XML : PARENT_LAYOUT_XML,
+    });
+    const tools = await buildBosRpcTools(c, 'p1', makeSessionMgr());
+    const tool = tools.find((t) => t.definition.name === name);
+    if (!tool) throw new Error(`${name} not in tool list`);
+    return tool;
+  };
+
+  beforeEach(() => {
+    mockedSave.mockResolvedValue({
+      isSuccess: true,
+      funcResult: true,
+      messageTitle: null,
+      messageDetail: null,
+    });
+  });
+
+  it('creates 1 TabControl + 3 default TabPages with templated keys', async () => {
+    const tool = await findTool('kingdee_create_tab_control');
+    const out = JSON.parse(await tool.execute({ extId: EXT_ID }));
+    expect(out.ok).toBe(true);
+    expect(out.tabControlKey).toMatch(/^F_PAIJ_Tab_[a-z0-9]{3}$/);
+    expect(out.tabPageKeys).toHaveLength(3);
+
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addTabControls).toHaveLength(1);
+    expect(req.addTabControls![0]).toMatchObject({
+      key: out.tabControlKey,
+      caption: '页签控件',
+      container: 'FSPLITECONTAINER~Panel2',
+    });
+    expect(req.addTabPages).toHaveLength(3);
+    // Each TabPage attached to the new TabControl with index suffix.
+    for (let i = 0; i < 3; i++) {
+      expect(req.addTabPages![i]).toMatchObject({
+        container: out.tabControlKey,
+        caption: '页签',
+      });
+      expect(req.addTabPages![i].key).toMatch(
+        new RegExp(`^${out.tabControlKey}_P${i}_[a-z0-9]{3}$`),
+      );
+    }
+  });
+
+  it('honors custom caption + tabPageCount', async () => {
+    const tool = await findTool('kingdee_create_tab_control');
+    const out = JSON.parse(
+      await tool.execute({ extId: EXT_ID, caption: '质检页签组', tabPageCount: 5 }),
+    );
+    expect(out.tabPageKeys).toHaveLength(5);
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addTabControls![0].caption).toBe('质检页签组');
+    expect(req.addTabPages).toHaveLength(5);
+  });
+
+  it('rejects tabPageCount out of range', async () => {
+    const tool = await findTool('kingdee_create_tab_control');
+    await expect(
+      tool.execute({ extId: EXT_ID, tabPageCount: 0 }),
+    ).rejects.toThrow(/tabPageCount/);
+    await expect(
+      tool.execute({ extId: EXT_ID, tabPageCount: 11 }),
+    ).rejects.toThrow(/tabPageCount/);
+  });
+
+  it('rejects missing extId', async () => {
+    const tool = await findTool('kingdee_create_tab_control');
+    await expect(tool.execute({})).rejects.toThrow(/extId/);
+  });
+});
+
+describe('kingdee_create_tab_page', () => {
+  const EXT_ID = 'ee0011223344556677889900aabbccdd';
+  const EXTENSION_OBJECT: ObjectMeta = {
+    id: EXT_ID,
+    name: '测试扩展',
+    modelTypeId: 100,
+    subsystemId: '23',
+    baseObjectId: 'SAL_SaleOrder',
+    isTemplate: false,
+    modifyDate: null,
+  };
+  const PARENT_LAYOUT_XML = `<FormMetadata><LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}"></LayoutInfo></LayoutInfos></FormMetadata>`;
+  const EMPTY_EXT_XML = `<FormMetadata><BusinessInfo><BusinessInfo><Elements><Form><Id>${EXT_ID}</Id></Form></Elements></BusinessInfo></BusinessInfo></FormMetadata>`;
+
+  const findTool = async (extXmlOverride?: string) => {
+    mockedGetProject.mockResolvedValue(makeProject(true));
+    const c = makeFakeConnector({
+      getObject: async (id: string) =>
+        id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+      getKernelXml: async (id: string) =>
+        id === EXT_ID ? extXmlOverride ?? EMPTY_EXT_XML : PARENT_LAYOUT_XML,
+    });
+    const tools = await buildBosRpcTools(c, 'p1', makeSessionMgr());
+    const tool = tools.find((t) => t.definition.name === 'kingdee_create_tab_page');
+    if (!tool) throw new Error('kingdee_create_tab_page not in tool list');
+    return tool;
+  };
+
+  beforeEach(() => {
+    mockedSave.mockResolvedValue({
+      isSuccess: true,
+      funcResult: true,
+      messageTitle: null,
+      messageDetail: null,
+    });
+  });
+
+  it('defaults parent=FTab1 (entry-side) with FTab1_<DevCode>_P_<3char> key', async () => {
+    const tool = await findTool();
+    const out = JSON.parse(await tool.execute({ extId: EXT_ID }));
+    expect(out.ok).toBe(true);
+    expect(out.tabPageKey).toMatch(/^FTab1_PAIJ_P_[a-z0-9]{3}$/);
+
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addTabPages).toHaveLength(1);
+    expect(req.addTabPages![0]).toMatchObject({
+      key: out.tabPageKey,
+      container: 'FTab1',
+      caption: '页签',
+    });
+  });
+
+  it('honors custom caption', async () => {
+    const tool = await findTool();
+    await tool.execute({ extId: EXT_ID, caption: '质检明细页' });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addTabPages![0].caption).toBe('质检明细页');
+  });
+
+  it('attaches to a self-built TabControl with <TC>_P<idx>_<3char> key', async () => {
+    // Extension already has a self-built TabControl F_PAIJ_Tab_aaa with 0 pages —
+    // new page should be P0.
+    const populatedExtXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+      <Form><Id>${EXT_ID}</Id></Form>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <TabControlAppearance><Key>F_PAIJ_Tab_aaa</Key><Container>FSPLITECONTAINER~Panel2</Container><Caption>页签控件</Caption></TabControlAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+    const tool = await findTool(populatedExtXml);
+    const out = JSON.parse(
+      await tool.execute({ extId: EXT_ID, parentTabControlKey: 'F_PAIJ_Tab_aaa' }),
+    );
+    expect(out.tabPageKey).toMatch(/^F_PAIJ_Tab_aaa_P0_[a-z0-9]{3}$/);
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addTabPages![0].container).toBe('F_PAIJ_Tab_aaa');
+  });
+
+  it('next-index counter respects existing TabPages under same TabControl', async () => {
+    // Existing 2 pages under F_PAIJ_Tab_aaa (P0 + P1) — new page should be P2.
+    const populatedExtXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+      <Form><Id>${EXT_ID}</Id></Form>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <TabControlAppearance><Key>F_PAIJ_Tab_aaa</Key><Container>FSPLITECONTAINER~Panel2</Container></TabControlAppearance>
+        <TabPageAppearance><Key>F_PAIJ_Tab_aaa_P0_aaa</Key><Container>F_PAIJ_Tab_aaa</Container></TabPageAppearance>
+        <TabPageAppearance><Key>F_PAIJ_Tab_aaa_P1_aaa</Key><Container>F_PAIJ_Tab_aaa</Container></TabPageAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+    const tool = await findTool(populatedExtXml);
+    const out = JSON.parse(
+      await tool.execute({ extId: EXT_ID, parentTabControlKey: 'F_PAIJ_Tab_aaa' }),
+    );
+    expect(out.tabPageKey).toMatch(/^F_PAIJ_Tab_aaa_P2_[a-z0-9]{3}$/);
+  });
+});
+
+describe('kingdee_create_entry', () => {
+  const EXT_ID = 'ee0011223344556677889900aabbccdd';
+  const EXTENSION_OBJECT: ObjectMeta = {
+    id: EXT_ID,
+    name: '测试扩展',
+    modelTypeId: 100,
+    subsystemId: '23',
+    baseObjectId: 'SAL_SaleOrder',
+    isTemplate: false,
+    modifyDate: null,
+  };
+  /** Parent with 12 entries (Seq 1..12) — typical SAL_SaleOrder. */
+  const PARENT_WITH_12_ENTRIES = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+    <EntryEntity><Key>FE1</Key><Seq>1</Seq><TableName>T1</TableName></EntryEntity>
+    <EntryEntity><Key>FE2</Key><Seq>2</Seq><TableName>T2</TableName></EntryEntity>
+    <EntryEntity><Key>FE3</Key><Seq>3</Seq><TableName>T3</TableName></EntryEntity>
+    <EntryEntity><Key>FE4</Key><Seq>4</Seq><TableName>T4</TableName></EntryEntity>
+    <EntryEntity><Key>FE5</Key><Seq>5</Seq><TableName>T5</TableName></EntryEntity>
+    <EntryEntity><Key>FE6</Key><Seq>6</Seq><TableName>T6</TableName></EntryEntity>
+    <EntryEntity><Key>FE7</Key><Seq>7</Seq><TableName>T7</TableName></EntryEntity>
+    <EntryEntity><Key>FE8</Key><Seq>8</Seq><TableName>T8</TableName></EntryEntity>
+    <EntryEntity><Key>FE9</Key><Seq>9</Seq><TableName>T9</TableName></EntryEntity>
+    <EntryEntity><Key>FE10</Key><Seq>10</Seq><TableName>T10</TableName></EntryEntity>
+    <EntryEntity><Key>FE11</Key><Seq>11</Seq><TableName>T11</TableName></EntryEntity>
+    <EntryEntity><Key>FE12</Key><Seq>12</Seq><TableName>T12</TableName></EntryEntity>
+  </Elements></BusinessInfo></BusinessInfo>
+  <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}"></LayoutInfo></LayoutInfos></FormMetadata>`;
+  const EMPTY_EXT_XML = `<FormMetadata><BusinessInfo><BusinessInfo><Elements><Form><Id>${EXT_ID}</Id></Form></Elements></BusinessInfo></BusinessInfo></FormMetadata>`;
+
+  const findCreateEntry = async (
+    overrides: { extXml?: string; getNextSeq?: ReturnType<typeof vi.fn> } = {},
+  ) => {
+    mockedGetProject.mockResolvedValue(makeProject(true));
+    const getNextSeq =
+      overrides.getNextSeq ?? vi.fn().mockResolvedValue(100050);
+    const c = {
+      ...makeFakeConnector({
+        getObject: async (id: string) =>
+          id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+        getKernelXml: async (id: string) =>
+          id === EXT_ID ? overrides.extXml ?? EMPTY_EXT_XML : PARENT_WITH_12_ENTRIES,
+      }),
+      getNextSequenceInt32: getNextSeq,
+    } as unknown as K3CloudConnector;
+    const tools = await buildBosRpcTools(c, 'p1', makeSessionMgr());
+    const tool = tools.find((t) => t.definition.name === 'kingdee_create_entry');
+    if (!tool) throw new Error('kingdee_create_entry not in tool list');
+    return { tool, getNextSeq };
+  };
+
+  beforeEach(() => {
+    mockedSave.mockResolvedValue({
+      isSuccess: true,
+      funcResult: true,
+      messageTitle: null,
+      messageDetail: null,
+    });
+  });
+
+  it('allocates int via GetSequenceInt32 + builds EntryEntity with conventional names', async () => {
+    const { tool, getNextSeq } = await findCreateEntry();
+    const out = JSON.parse(
+      await tool.execute({
+        extId: EXT_ID,
+        name: '质检明细',
+        parentTabPageKey: 'FTab1_PAIJ_P_xyz',
+      }),
+    );
+    expect(getNextSeq).toHaveBeenCalledWith('t_BOS_CustEntry', 1);
+    expect(out.ok).toBe(true);
+    expect(out.entryName).toBe('PAIJ_Cust_Entry100050');
+    expect(out.tableName).toBe('PAIJ_t_Cust_Entry100050');
+    expect(out.entryKey).toMatch(/^F_PAIJ_Entity_[a-z0-9]{3}$/);
+    expect(out.seq).toBe(13); // 12 parent + 0 ext + 1
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addEntries).toHaveLength(1);
+    expect(req.addEntries![0]).toMatchObject({
+      entryName: 'PAIJ_Cust_Entry100050',
+      tableName: 'PAIJ_t_Cust_Entry100050',
+      seq: 13,
+      name: '质检明细',
+    });
+    expect(req.addEntryAppearances).toHaveLength(1);
+    expect(req.addEntryAppearances![0]).toMatchObject({
+      key: out.entryKey,
+      caption: '质检明细',
+      container: 'FTab1_PAIJ_P_xyz',
+    });
+  });
+
+  it('Seq increments by 1 per existing extension entry', async () => {
+    // Extension already has 2 entries (Seq 13, 14) → new entry Seq=15.
+    const populatedExtXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+      <EntryEntity><Key>F_PAIJ_Entity_aaa</Key><Seq>13</Seq><TableName>X1</TableName></EntryEntity>
+      <EntryEntity><Key>F_PAIJ_Entity_bbb</Key><Seq>14</Seq><TableName>X2</TableName></EntryEntity>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}"></LayoutInfo></LayoutInfos></FormMetadata>`;
+    const { tool } = await findCreateEntry({ extXml: populatedExtXml });
+    const out = JSON.parse(
+      await tool.execute({
+        extId: EXT_ID,
+        name: 'X',
+        parentTabPageKey: 'FTab1_PAIJ_P_xyz',
+      }),
+    );
+    expect(out.seq).toBe(15); // 12 + 2 + 1
+  });
+
+  it('rejects missing name / parentTabPageKey', async () => {
+    const { tool } = await findCreateEntry();
+    await expect(
+      tool.execute({ extId: EXT_ID, parentTabPageKey: 'X' }),
+    ).rejects.toThrow(/name/);
+    await expect(
+      tool.execute({ extId: EXT_ID, name: 'X' }),
+    ).rejects.toThrow(/parentTabPageKey/);
+  });
+});
+
+describe('kingdee_delete_entry / kingdee_delete_tab_page / kingdee_delete_tab_control', () => {
+  const EXT_ID = 'ee0011223344556677889900aabbccdd';
+  const EXTENSION_OBJECT: ObjectMeta = {
+    id: EXT_ID,
+    name: '测试扩展',
+    modelTypeId: 100,
+    subsystemId: '23',
+    baseObjectId: 'SAL_SaleOrder',
+    isTemplate: false,
+    modifyDate: null,
+  };
+  const PARENT_LAYOUT_XML = `<FormMetadata><LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}"></LayoutInfo></LayoutInfos></FormMetadata>`;
+
+  const findDeleteTool = async (name: string, extXml: string) => {
+    mockedGetProject.mockResolvedValue(makeProject(true));
+    const c = makeFakeConnector({
+      getObject: async (id: string) =>
+        id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+      getKernelXml: async (id: string) =>
+        id === EXT_ID ? extXml : PARENT_LAYOUT_XML,
+    });
+    const tools = await buildBosRpcTools(c, 'p1', makeSessionMgr());
+    const tool = tools.find((t) => t.definition.name === name);
+    if (!tool) throw new Error(`${name} not in tool list`);
+    return tool;
+  };
+
+  beforeEach(() => {
+    mockedSave.mockResolvedValue({
+      isSuccess: true,
+      funcResult: true,
+      messageTitle: null,
+      messageDetail: null,
+    });
+  });
+
+  it('delete_entry removes EntryEntity + EntryEntityAppearance + cascading entry-fields', async () => {
+    const extXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+      <EntryEntity><Key>F_PAIJ_Entity_xxx</Key><Seq>13</Seq><TableName>T</TableName><Name>测试</Name></EntryEntity>
+      <TextField ElementType="1"><Key>F_FIELD_IN_ENTRY</Key><EntityKey>F_PAIJ_Entity_xxx</EntityKey><PropertyName>F_FIELD_IN_ENTRY</PropertyName><Name>X</Name><Id>i1</Id></TextField>
+      <TextField ElementType="1"><Key>F_HEAD_FIELD</Key><PropertyName>F_HEAD_FIELD</PropertyName><Name>Y</Name><Id>i2</Id></TextField>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <EntryEntityAppearance><Key>F_PAIJ_Entity_xxx</Key><Container>FTab1_PAIJ_P_xyz</Container><Caption>测试</Caption></EntryEntityAppearance>
+        <TextFieldAppearance><Key>F_FIELD_IN_ENTRY</Key><EntityKey>F_PAIJ_Entity_xxx</EntityKey><Tabindex>1</Tabindex></TextFieldAppearance>
+        <TextFieldAppearance><Key>F_HEAD_FIELD</Key><Container>FTAB_P0</Container><Tabindex>9000</Tabindex></TextFieldAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+
+    const tool = await findDeleteTool('kingdee_delete_entry', extXml);
+    const out = JSON.parse(
+      await tool.execute({ extId: EXT_ID, entryKey: 'F_PAIJ_Entity_xxx' }),
+    );
+    expect(out.ok).toBe(true);
+
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    // Entry + entry-field gone from re-emitted baseline; head field stays.
+    expect(req.existingEntriesRaw ?? []).toHaveLength(0);
+    expect(req.existingEntryAppearancesRaw ?? []).toHaveLength(0);
+    expect(req.existingFieldsRaw?.some((s) => s.includes('F_HEAD_FIELD'))).toBe(true);
+    expect(req.existingFieldsRaw?.some((s) => s.includes('F_FIELD_IN_ENTRY'))).toBe(false);
+    expect(req.existingAppearancesRaw?.some((s) => s.includes('F_HEAD_FIELD'))).toBe(true);
+    expect(req.existingAppearancesRaw?.some((s) => s.includes('F_FIELD_IN_ENTRY'))).toBe(false);
+  });
+
+  it('delete_tab_page refuses when an entry is still attached', async () => {
+    const extXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+      <EntryEntity><Key>F_PAIJ_Entity_aaa</Key><Seq>13</Seq><TableName>T</TableName></EntryEntity>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <TabPageAppearance><Key>FTab1_PAIJ_P_xyz</Key><Container>FTab1</Container><Caption>p</Caption></TabPageAppearance>
+        <EntryEntityAppearance><Key>F_PAIJ_Entity_aaa</Key><Container>FTab1_PAIJ_P_xyz</Container></EntryEntityAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+    const tool = await findDeleteTool('kingdee_delete_tab_page', extXml);
+    const out = JSON.parse(
+      await tool.execute({ extId: EXT_ID, tabPageKey: 'FTab1_PAIJ_P_xyz' }),
+    );
+    expect(out.ok).toBe(false);
+    expect(out.attachedEntries).toContain('F_PAIJ_Entity_aaa');
+    // Should NOT have called saveExtension when refusing.
+    expect(mockedSave).not.toHaveBeenCalled();
+  });
+
+  it('delete_tab_page succeeds when no entry is attached', async () => {
+    const extXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <TabPageAppearance><Key>FTab1_PAIJ_P_xyz</Key><Container>FTab1</Container><Caption>p</Caption></TabPageAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+    const tool = await findDeleteTool('kingdee_delete_tab_page', extXml);
+    const out = JSON.parse(
+      await tool.execute({ extId: EXT_ID, tabPageKey: 'FTab1_PAIJ_P_xyz' }),
+    );
+    expect(out.ok).toBe(true);
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.existingTabPagesRaw ?? []).toHaveLength(0);
+  });
+
+  it('delete_tab_control cascades child TabPages, refuses when any page has entry', async () => {
+    const extXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+      <EntryEntity><Key>F_PAIJ_Entity_a</Key></EntryEntity>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <TabControlAppearance><Key>F_PAIJ_Tab_aaa</Key><Container>FSPLITECONTAINER~Panel2</Container></TabControlAppearance>
+        <TabPageAppearance><Key>F_PAIJ_Tab_aaa_P0_aaa</Key><Container>F_PAIJ_Tab_aaa</Container></TabPageAppearance>
+        <EntryEntityAppearance><Key>F_PAIJ_Entity_a</Key><Container>F_PAIJ_Tab_aaa_P0_aaa</Container></EntryEntityAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+    const tool = await findDeleteTool('kingdee_delete_tab_control', extXml);
+    const out = JSON.parse(
+      await tool.execute({ extId: EXT_ID, tabControlKey: 'F_PAIJ_Tab_aaa' }),
+    );
+    expect(out.ok).toBe(false);
+    expect(out.attachedEntries).toContain('F_PAIJ_Entity_a');
+    expect(mockedSave).not.toHaveBeenCalled();
+  });
+
+  it('delete_tab_control succeeds and removes child TabPages too', async () => {
+    const extXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <TabControlAppearance><Key>F_PAIJ_Tab_aaa</Key><Container>FSPLITECONTAINER~Panel2</Container></TabControlAppearance>
+        <TabPageAppearance><Key>F_PAIJ_Tab_aaa_P0_aaa</Key><Container>F_PAIJ_Tab_aaa</Container></TabPageAppearance>
+        <TabPageAppearance><Key>F_PAIJ_Tab_aaa_P1_aaa</Key><Container>F_PAIJ_Tab_aaa</Container></TabPageAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+    const tool = await findDeleteTool('kingdee_delete_tab_control', extXml);
+    const out = JSON.parse(
+      await tool.execute({ extId: EXT_ID, tabControlKey: 'F_PAIJ_Tab_aaa' }),
+    );
+    expect(out.ok).toBe(true);
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.existingTabControlsRaw ?? []).toHaveLength(0);
+    expect(req.existingTabPagesRaw ?? []).toHaveLength(0);
+  });
+});
+
+describe('kingdee_rename_entry / kingdee_rename_tab_page / kingdee_rename_tab_control', () => {
+  const EXT_ID = 'ee0011223344556677889900aabbccdd';
+  const EXTENSION_OBJECT: ObjectMeta = {
+    id: EXT_ID,
+    name: '测试扩展',
+    modelTypeId: 100,
+    subsystemId: '23',
+    baseObjectId: 'SAL_SaleOrder',
+    isTemplate: false,
+    modifyDate: null,
+  };
+  const PARENT_LAYOUT_XML = `<FormMetadata><LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}"></LayoutInfo></LayoutInfos></FormMetadata>`;
+
+  const findTool = async (name: string, extXml: string) => {
+    mockedGetProject.mockResolvedValue(makeProject(true));
+    const c = makeFakeConnector({
+      getObject: async (id: string) =>
+        id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+      getKernelXml: async (id: string) =>
+        id === EXT_ID ? extXml : PARENT_LAYOUT_XML,
+    });
+    const tools = await buildBosRpcTools(c, 'p1', makeSessionMgr());
+    const tool = tools.find((t) => t.definition.name === name);
+    if (!tool) throw new Error(`${name} not in tool list`);
+    return tool;
+  };
+
+  beforeEach(() => {
+    mockedSave.mockResolvedValue({
+      isSuccess: true,
+      funcResult: true,
+      messageTitle: null,
+      messageDetail: null,
+    });
+  });
+
+  it('rename_entry replaces both EntryEntity.Name and EntryEntityAppearance.Caption', async () => {
+    const extXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+      <EntryEntity><Key>F_PAIJ_Entity_x</Key><Seq>13</Seq><TableName>T</TableName><Name>旧名</Name></EntryEntity>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <EntryEntityAppearance><Key>F_PAIJ_Entity_x</Key><Container>FTab1_PAIJ_P_xyz</Container><Caption>旧名</Caption></EntryEntityAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+    const tool = await findTool('kingdee_rename_entry', extXml);
+    const out = JSON.parse(
+      await tool.execute({ extId: EXT_ID, entryKey: 'F_PAIJ_Entity_x', newName: '新名' }),
+    );
+    expect(out.ok).toBe(true);
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.existingEntriesRaw![0]).toContain('<Name>新名</Name>');
+    expect(req.existingEntriesRaw![0]).not.toContain('<Name>旧名</Name>');
+    expect(req.existingEntryAppearancesRaw![0]).toContain('<Caption>新名</Caption>');
+    expect(req.existingEntryAppearancesRaw![0]).not.toContain('<Caption>旧名</Caption>');
+  });
+
+  it('rename_tab_page replaces only the matched TabPageAppearance.Caption', async () => {
+    const extXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <TabPageAppearance><Key>FTab1_PAIJ_P_a</Key><Container>FTab1</Container><Caption>旧A</Caption></TabPageAppearance>
+        <TabPageAppearance><Key>FTab1_PAIJ_P_b</Key><Container>FTab1</Container><Caption>旧B</Caption></TabPageAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+    const tool = await findTool('kingdee_rename_tab_page', extXml);
+    await tool.execute({ extId: EXT_ID, tabPageKey: 'FTab1_PAIJ_P_a', newCaption: '新A' });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    const aChunk = req.existingTabPagesRaw!.find((s) => s.includes('FTab1_PAIJ_P_a'))!;
+    const bChunk = req.existingTabPagesRaw!.find((s) => s.includes('FTab1_PAIJ_P_b'))!;
+    expect(aChunk).toContain('<Caption>新A</Caption>');
+    expect(bChunk).toContain('<Caption>旧B</Caption>'); // unchanged
+  });
+
+  it('rename_tab_control replaces matched TabControlAppearance.Caption', async () => {
+    const extXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <TabControlAppearance><Key>F_PAIJ_Tab_aaa</Key><Container>FSPLITECONTAINER~Panel2</Container><Caption>旧</Caption></TabControlAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+    const tool = await findTool('kingdee_rename_tab_control', extXml);
+    await tool.execute({ extId: EXT_ID, tabControlKey: 'F_PAIJ_Tab_aaa', newCaption: '新页签组' });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.existingTabControlsRaw![0]).toContain('<Caption>新页签组</Caption>');
+  });
+
+  it('XML-escapes special characters in the new caption', async () => {
+    const extXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <TabControlAppearance><Key>F_PAIJ_Tab_aaa</Key><Container>FSPLITECONTAINER~Panel2</Container><Caption>old</Caption></TabControlAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+    const tool = await findTool('kingdee_rename_tab_control', extXml);
+    await tool.execute({
+      extId: EXT_ID,
+      tabControlKey: 'F_PAIJ_Tab_aaa',
+      newCaption: 'A&B<C>',
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.existingTabControlsRaw![0]).toContain('<Caption>A&amp;B&lt;C&gt;</Caption>');
   });
 });
