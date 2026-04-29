@@ -1,14 +1,15 @@
 ---
 name: convert-rules-decompiled
-title: BOS 单据转换规则 — 反编译 + DB 实证
-description: T_META_CONVERTRULE 表结构、ConvertRuleElement 属性模型、10 个 ConvertPolicy 子类语义、字段映射模型、kingdee_list_convert_rules / _describe_convert_rule 实现路径。基于 Kingdee.BOS.Core.decompiled.cs + AIS20260302144343 实证。
-fetched: 2026-04-25
+title: BOS 单据转换规则 — 反编译 + RPC 实证
+description: T_META_CONVERTRULE 表结构、ConvertRuleElement 属性模型、10 个 ConvertPolicy 子类语义、字段映射模型 + Plan 5.12.4 RPC 实现路径(GetAllPaths / GetConvertRule JSON 端点 + summarizer)。基于 Kingdee.BOS.Core.decompiled.cs + 2026-04-29 BOS Designer 抓包 + 真实 240KB JSON 实证。
+fetched: 2026-04-25, RPC 路径补全 2026-04-29
 ---
 
 # BOS 单据转换规则的完整工程模型
 
-> 反编译来源: `Kingdee.BOS.Core.decompiled.cs` (305 584 行)  
-> DB 实证: `AIS20260302144343` (SQL Server localhost:1433)  
+> 反编译来源: `Kingdee.BOS.Core.decompiled.cs` (305 584 行) + `Kingdee.BOS.ServiceFacade.KDServiceClient.decompiled.cs`(ConvertServiceProxy line 5679)
+> DB 实证: `AIS20260302144343` (SQL Server localhost:1433, 2026-04-25)
+> RPC 实证: BOS Designer 抓包 `.scratch/captures/2026-04-29T14-58-59-032Z.log` + JSON 样本 `.scratch/convert-rule-recon/`
 > 本文只描述**读取**路径；创建/修改转换规则延至 v0.2。
 
 ---
@@ -250,169 +251,142 @@ TargetBillTypeId - 同上逻辑，用于目标单据类型映射
 
 ---
 
-## 5. kingdee_list_convert_rules / kingdee_describe_convert_rule 实现路径
+## 5. kingdee_list_convert_rules / kingdee_describe_convert_rule 实现路径（RPC）
 
-### 5.1 kingdee_list_convert_rules(sourceFormId)
+> 🟢 **Plan 5.12.4 实证完成**（2026-04-29）：走 `Metadata.ConvertService` 的两个 JSON-emitting 方法，**无需 SQL 直连**。代码：`src/main/erp/k3cloud/rpc/convert-rules.ts` + `convert-rule-summarizer.ts` + 工具 `kingdee_list_convert_rules` / `kingdee_describe_convert_rule`。
 
-**目的**：列出某源单据的所有（或活跃）转换规则，供 agent 了解"这张单能下推到哪些目标单"。
+### 5.0 为什么走这两个端点（其他端点为什么不行）
 
-**SQL**（🟢 实证可执行）：
+`ConvertServiceProxy`（`Kingdee.BOS.ServiceFacade.KDServiceClient.dll` line 5679）暴露 17 个方法，按返回类型分两类：
 
-```sql
-SELECT
-  cr.FID               AS rule_id,
-  cr.FSOURCEFORMID     AS source_form,
-  cr.FTARGETFORMID     AS target_form,
-  cr.FSTATUS           AS status,       -- '1' = active
-  cr.FISDEFAULT        AS is_default,   -- '1' = default rule
-  cr.FINVISIBLE        AS invisible,    -- '1' = hidden from push button
-  l.FNAME              AS display_name  -- zh-CN name
-FROM T_META_CONVERTRULE cr
-LEFT JOIN T_META_CONVERTRULE_L l
-  ON cr.FID = l.FID AND l.FLOCALEID = 2052
-WHERE cr.FSOURCEFORMID = @sourceFormId
-  AND cr.FSTATUS = '1'          -- active only (可选参数控制是否过滤)
-ORDER BY cr.FISDEFAULT DESC, l.FNAME
-```
+| 方法 | 返回类型 | 序列化 | 可用? |
+|---|---|---|---|
+| `GetAllPaths()` | `List<ConvertRulePath>` | DataContract JSON | ✅ |
+| `GetConvertRule(id)` | `ConvertRuleMetaData`（含 ConvertRuleElement.Policies POCO 树）| DataContract JSON + `___InstClassType__` 多态标记 | ✅ |
+| `GetRuleDatas(src, tgt)` | `DynamicObjectCollection` | .NET BinaryFormatter (`<KingdeeXMLPack>`) | ❌ Node 不可读 |
+| `GetConvertRuleByRunTime(id, rt)` | `ConvertRuleMetaData` | BinaryFormatter（同名类不同方法走不同序列化器，BOS 内部决定）| ❌ |
+| `GetRulesByFormId(src, tgt)` | `List<ConvertRuleMetaData>` | BinaryFormatter | ❌ |
+| `MetadataServiceProxy.LoadByModelTypeIdV9(id, 790, false)` | object graph | BinaryFormatter | ❌ |
+| `SQLScriptServiceV9Proxy.GetBusinessObjectMetaData(id)` | `Dictionary<string,string>` JSON | JSON | ❌（"对象不存在"——只接受 `T_META_OBJECTTYPE` 表行）|
+| `SQLScriptServiceV9Proxy.Execute / ExecuteSafe / ExecuteDataSet` | string / DataSet | — | ❌ 服务端废弃，回错"请使用 SafeDoService.SafeDoWithParams" |
+| `DB.SafeDoService.SafeDo(DataSet)?WithParams(GUID, params)` | JSON DataSet | JSON | ❌ ap0 是预注册 SQL 模板 GUID 不是任意 SQL，闭集 RPC |
 
-**参数**：
-- `sourceFormId`：required，如 `SAL_SaleOrder`
-- `activeOnly`：optional，默认 true（过滤 `FSTATUS='1'`）
+**关键洞察**：同名类（`ConvertRuleMetaData`）在不同方法下走不同序列化器。判断"能不能用"必须按方法名实测，不能按类名一刀切。
 
-**返回结构（建议 JSON 数组）**：
+### 5.1 kingdee_list_convert_rules(sourceFormId?)
 
-```json
-[
-  {
-    "ruleId":       "SaleOrder-OutStock",
-    "sourceFormId": "SAL_SaleOrder",
-    "targetFormId": "SAL_OUTSTOCK",
-    "displayName":  "销售订单->销售出库单",
-    "isDefault":    true,
-    "isActive":     true,
-    "isInvisible":  false
-  }
-]
-```
+**RPC**：`POST /k3cloud/Kingdee.BOS.ServiceFacade.ServicesStub.Metadata.ConvertService.GetAllPaths.common.kdsvc`
+- 入参：无（`apFields: {}`）
+- 返回：~173KB JSON 数组（全系统下推路径），每条形如 `{SourceFormId, TargetFormId, SourceFormName: [{Key, Value}], TargetFormName: [{Key, Value}]}`
+- 客户端按 `sourceFormId` 过滤（trivial filter，零 RPC 成本）
 
-**parallelSafe**：`true`（只读查询）
-
-### 5.2 kingdee_describe_convert_rule(ruleId)
-
-**目的**：读取一条转换规则的完整定义，包括主字段映射、分组策略、过滤条件等，供 agent 理解规则内容。
-
-**SQL**（🟢 实证可执行）：
-
-```sql
-SELECT
-  cr.FID, cr.FSOURCEFORMID, cr.FTARGETFORMID,
-  cr.FSTATUS, cr.FISDEFAULT, cr.FINVISIBLE,
-  l.FNAME,
-  CONVERT(NVARCHAR(MAX), cr.FKERNELXML) AS kernel_xml
-FROM T_META_CONVERTRULE cr
-LEFT JOIN T_META_CONVERTRULE_L l
-  ON cr.FID = l.FID AND l.FLOCALEID = 2052
-WHERE cr.FID = @ruleId
-```
-
-**XML 解析策略**（用 TypeScript 或 XML parser）：
-
-```
-/ConvertRuleMetaData/Rule/ConvertRule
-  ├── <SourceFormId>, <TargetFormId>, <Status>, <IsDefault>, <Invisible>
-  ├── <ConvertType>     -- 0=标准, 1=反向勾稽
-  ├── <PushRunCondition> -- 前置条件表达式
-  ├── <Policies>
-  │   ├── <DefaultConvertPolicy ElementType="7002">
-  │   │   ├── <SourceEntryKey>, <TargetEntryKey>
-  │   │   └── <FieldMaps>
-  │   │       └── <FieldMap> × N
-  │   │           ├── <TargetFieldKey>, <SourceFieldKey>
-  │   │           ├── <ValueConvertMode>  -- 缺省 = Auto
-  │   │           ├── <Formula>           -- ValueConvertMode=Formula 时
-  │   │           └── <IsFilter>          -- 关联过滤字段
-  │   ├── <ConvertGroupByPolicy ElementType="7005">
-  │   │   ├── <GroupByMode>   -- None/OneToOne/GroupByField/GroupByFormula
-  │   │   └── <GroupByField>  -- 逗号分隔字段列表
-  │   ├── <ConvertFilterPolicy ElementType="7004">
-  │   │   ├── <AlertMessage>  -- 下推前提示
-  │   │   └── <CustFilter>    -- 自定义过滤表达式
-  │   ├── <ConvertPlugInPolicy ElementType="7003">
-  │   │   └── <Plugs> → <PlugIn> × N → <ClassName>
-  │   ├── <BillTypeMapPolicy ElementType="7009">
-  │   │   └── <BillTypeMaps> → <BillTypeMap> × N
-  │   │       ├── <SourceBillTypeId>  -- GUID 或 "(All)"/"(None)"
-  │   │       └── <TargetBillTypeId>
-  │   ├── <LinkEntityPolicy ElementType="7008">
-  │   │   ├── <ControlEntityKey>
-  │   │   └── <FieldMaps> → <FieldMap> × N
-  │   ├── <ConvertAttachmentPolicy ElementType="60003">
-  │   │   ├── <EnabledHeader>, <EnabledEntry>, <EnabledSubEntry>
-  │   ├── <ConvertTailDiffPolicy ElementType="60006">
-  │   │   ├── <IsEnabled>, <MarkFieldKey>
-  │   │   └── <FieldMaps> → <TailFieldMap> × N
-  │   └── <ConvertOrderByPolicy ElementType="7010">
-  │       └── <OrderByField>
-```
-
-**返回结构（建议）**：
-
+**返回结构**（agent 拿到的）：
 ```json
 {
-  "ruleId":      "SaleOrder-OutStock",
-  "displayName": "销售订单->销售出库单",
-  "sourceFormId":"SAL_SaleOrder",
-  "targetFormId":"SAL_OUTSTOCK",
-  "isDefault":   true,
-  "convertType": 0,
-  "pushRunCondition": null,
-  "defaultPolicy": {
-    "sourceEntryKey": "FSaleOrderEntry",
-    "targetEntryKey": "FEntity",
-    "fieldMaps": [
-      {
-        "targetField": "FSaleOrgId",
-        "sourceField": "FSaleOrgId",
-        "convertMode": "Auto",
-        "isFilter": false
-      },
-      {
-        "targetField": "FBussinessType",
-        "sourceField": null,
-        "convertMode": "Formula",
-        "formula": "\"NORMAL\" if FBusinessType = 'RETURNSO' else FBusinessType"
-      }
-    ]
-  },
-  "groupByPolicy": {
-    "mode": "GroupByField",
-    "fields": ["FCustId","FSettleModeId","FSettleOrgIds","FSettleCurrId","FStockOrgId"]
-  },
-  "filterPolicy": {
-    "alertMessage": "...",
-    "custFilter": null
-  },
-  "plugins": [
-    "Kingdee.K3.SCM.App.Sal.ServicePlugIn.OutStock.StraightOrderToOutStockCheckManmul, ..."
+  "count": 35,
+  "paths": [
+    { "sourceFormId": "SAL_SaleOrder", "targetFormId": "SAL_OUTSTOCK",
+      "sourceFormName": "销售订单", "targetFormName": "销售出库单" }
   ]
 }
 ```
 
-**parallelSafe**：`true`（只读查询）
+**注意**：列表里**没有 `ruleId`** —— BOS 用业务命名约定 `<SourceShort>-<TargetShort>`（如 `SaleOrder-OutStock`）。同一条 `(source, target)` 路径理论上可挂多条规则（默认 + 备用），`GetAllPaths` 只列路径不区分。要描述特定规则需要 agent 按约定拼 ruleId 或问用户在 BOS Designer 里看到的名字。
+
+**parallelSafe**：`true`
+
+### 5.2 kingdee_describe_convert_rule(ruleId)
+
+**RPC**：`POST /k3cloud/Kingdee.BOS.ServiceFacade.ServicesStub.Metadata.ConvertService.GetConvertRule.common.kdsvc`
+- 入参：`ap0 = ruleId`（raw app-layer string，如 `"SaleOrder-OutStock"`）
+- 返回：~240KB JSON `ConvertRuleMetaData`（含 28 个顶层字段 + `Rule` 字段嵌套 ConvertRuleElement + 10 Policy）
+- 字段命名：完全对齐第 2-4 节反编译的 ConvertRuleElement / FieldMapElement / 各 Policy 子类 attribute 表
+
+**JSON 形态示意**（已实证 240KB sample）：
+```json
+{
+  "Id": "SaleOrder-OutStock",
+  "ModelTypeId": 790,
+  "Name": [{"Key": 2052, "Value": "销售订单至销售出库单"}],
+  "SourceFormId": "SAL_SaleOrder",
+  "Rule": {
+    "___InstClassType__": "Kingdee.BOS.Core.Metadata.ConvertElement.ConvertRuleElement,Kingdee.BOS.Core",
+    "SourceFormId": "SAL_SaleOrder",
+    "TargetFormId": "SAL_OUTSTOCK",
+    "Status": false, "IsDefault": true, "ConvertType": 0,
+    "Policies": [
+      { "___InstClassType__": "...DefaultConvertPolicyElement,...",
+        "SourceEntryKey": "FSaleOrderEntry",
+        "TargetEntryKey": "FEntity",
+        "FieldMaps": [/* 273 个 FieldMap */] },
+      // ... 9 个其他 Policy
+    ]
+  }
+}
+```
+
+**摘要器策略**（`convert-rule-summarizer.ts`）：240KB → ~5KB，规则：
+- DefaultConvertPolicy.FieldMaps：**丢 Auto 默认映射**（`ValueConvertMode === 0`，占 264/273 是 noise），保留 Formula 映射 + 各类聚合映射
+- 各 Policy 抽出关键字段，丢 Id / Key / IsKingdeeElement / OriginKey 等 BOS 内部 metadata
+- enum int → string 反映射（ValueConvertMode：0=Auto / 6=Formula / ...，GroupByMode：2=GroupByField / ...，见 Section 4 的两张反映射表）
+
+**摘要返回结构**（agent 拿到的）：
+```json
+{
+  "ruleId": "SaleOrder-OutStock",
+  "displayName": "销售订单至销售出库单",
+  "sourceFormId": "SAL_SaleOrder", "targetFormId": "SAL_OUTSTOCK",
+  "isDefault": true, "isActive": false, "convertType": 0,
+  "pushRunCondition": null,
+  "defaultConvert": {
+    "sourceEntry": "FSaleOrderEntry", "targetEntry": "FEntity",
+    "fieldMapCount": 273,
+    "formulaMaps": [
+      { "target": "FBaseUnitQty", "mode": "Formula",
+        "formula": "FStockBaseCanOutQty if (FStockBaseCanOutQty > 0 ...) else 0",
+        "formulaDesc": "..." }
+      // ...9 个共
+    ],
+    "aggregateMaps": []
+  },
+  "groupBy": { "mode": "GroupByField", "fields": ["FCustId","FSettleModeId",...], "formula": null },
+  "filter": { "alertMessage": null, "customFilter": null },
+  "plugins": ["Kingdee.K3.SCM.App.Sal.ServicePlugIn.OutStock.StraightOrderToOutStockCheckManmul, ..."],
+  "billTypeMaps": [{"source": "guid-1", "target": "guid-2"}, ...],
+  "linkEntity": { "controlEntity": "FEntity", "fieldMapCount": 3 },
+  "attachment": {"header": false, "entry": false, "subEntry": false, "deduplication": false},
+  "tailDiff": { "enabled": false, "markField": null, "recordField": null },
+  "orderByField": null
+}
+```
+
+**parallelSafe**：`true`
 
 ### 5.3 实现注意事项
 
-1. **FKERNELXML 体积**：`SaleOrder-OutStock` 的 XML 达 100 788 字节（约 100 KB）。全量返回 XML 给 agent 会超 token。  
-   **方案**：解析后只返回结构化摘要；agent 需要看具体字段映射时再做二次 XML 查询（按 XPath 过滤）。
+1. **响应体积管理**：`GetConvertRule` 返回 ~240KB JSON（约 60K tokens），**禁止整发给 LLM** —— 必须通过 summarizer 压到 ~5KB（实测 SaleOrder-OutStock：239,645 → 5,188 bytes，2.16% = 1/46）。
 
-2. **FID 格式非 GUID**：`T_META_CONVERTRULE.FID` 是业务命名字符串（如 `SaleOrder-OutStock`），而 `T_META_CONVERTLOOKUP.FRULEID` 是内部 GUID（对应 XML 里 `<ConvertRule>` 的 `<Id>` 子元素）。  
-   `kingdee_list_convert_rules` 用 `FID` 作为 ruleId 参数即可；CONVERTLOOKUP 不需要查。
+2. **ruleId 命名约定**：业务字符串（如 `SaleOrder-OutStock`），不是 GUID。同一条 (source, target) 路径可挂多规则；当前工具只支持按 ruleId 描，没做"按 source+target 列规则"——需要会用到时再加（候选：实现 MS-NRBF 解析或找新 JSON 端点）。
 
-3. **SQL 白名单**：两个查询均只涉及 `T_META_CONVERTRULE` + `T_META_CONVERTRULE_L`，均属元数据读白名单，无需特殊权限豁免。
+3. **enum 反映射表**：`ValueConvertMode` / `GroupByMode` 的 int 值见 Section 4 末尾的反映射表，summarizer 用这两张表把 0/2/6 翻成 `Auto`/`GroupByField`/`Formula`。未知值返回 `Unknown(N)` 不抛错。
 
-4. **`ConvertType=1` 的规则**：反向勾稽规则，源/目标单可能是同一张单（如 `CN_BILLPAYABLE` 互转）。列表时可加注区分。
+4. **`ConvertType=1`**（反向勾稽）：源/目标可能同一张单（如 `CN_BILLPAYABLE` 互转），summarizer 直透 0/1，agent 看到 `convertType: 1` 时知道是反向。
 
-5. **不需要查 T_META_CONVERTLOOKUP**：该表只有 114 条（SAL_SaleOrder 仅 6 条），是画布子集，不是规则全集；直接查 `T_META_CONVERTRULE` 才能获取全量 764 条规则。
+5. **BillTypeId GUID 不翻译**：`BillTypeMaps` 直出 GUID，agent 想要中文要追加查 BillType 主数据（v0.2 范围）。
+
+6. **不存在规则的处理**：`GetConvertRule(unknownId)` 服务端返 `response_error: ...不存在`，工具层 catch 后返 `{found: false, ruleId, message: "..."}`，不抛 stack。
+
+### 5.4 与原 SQL 路径的等价关系（参考）
+
+下表把第 2-4 节描述的 DB schema 对应到 RPC 路径，便于对比：
+
+| 数据来源（SQL 时代）| 等价 RPC 拿到（BOS-only）|
+|---|---|
+| `T_META_CONVERTRULE` 行 | `GetConvertRule(id)` 返回的顶层包装（Id/ModelTypeId/Name/SourceFormId/.../Rule）|
+| `T_META_CONVERTRULE_L` zh-CN 行 | 顶层 `Name: [{Key:2052, Value:...}]` |
+| `FKERNELXML` 解析后的 ConvertRuleElement | `Rule` 字段（直接 POCO，无需 XML 解析）|
+| 全表 `GROUP BY FSOURCEFORMID/FTARGETFORMID` | `GetAllPaths()` 全表 + 客户端 `filter` |
+| `T_META_CONVERTLOOKUP`（画布子集，非全集）| 不需要查（GetAllPaths 已是全集）|
 
 ---
 
@@ -432,4 +406,7 @@ WHERE cr.FID = @ruleId
 | GroupByMode 枚举 | 🟢 | decompiled.cs + XML GroupByField 实证, 2026-04-25 |
 | CONVERTLOOKUP 为画布子集（非全集） | 🟢 | SAL_SaleOrder 35条 vs 6条对比, 2026-04-25 |
 | FKERNELXML 体积约 100KB（SaleOrder-OutStock） | 🟢 | `LEN()` 查询 = 100788 bytes, 2026-04-25 |
-| kingdee_describe_convert_rule XML 解析方案 | 🟡 | 基于 XML 结构推断，未实现 TypeScript 解析器验证 |
+| ConvertService.GetAllPaths 端点 + 入参 + JSON 形态 | 🟢 | smoke `smoke-convert-rule-element.ts` + capture #0072 (173KB JSON), 2026-04-29 |
+| ConvertService.GetConvertRule 端点 + 入参 + JSON 形态 | 🟢 | smoke 实证 + 240KB JSON sample 落 `.scratch/convert-rule-recon/`, 2026-04-29 |
+| GetRuleDatas / GetConvertRuleByRunTime / LoadByModelTypeIdV9 走 BinaryFormatter（不可用）| 🟢 | capture #0073 / #0074 / #0080 全是 `<KingdeeXMLPack>` 包装, 2026-04-29 |
+| Plan 5.12.4 RPC 实现路径 + summarizer 240KB → 5.2KB | 🟢 | 完整代码 + 真实 sample 实证, 2026-04-29 |
