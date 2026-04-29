@@ -837,7 +837,10 @@ function addFieldsTool(
         '多次调用会接着前次的字段往下顺排,无需手传坐标。窄基础资料表(无原厂头字段时)默认 left=1100 兜底,可能在窄表上偏右,需要时传 left/top 显式指定。' +
         '\n\n**写入后必反查闭环**:调 `kingdee_get_extension_fields <extId>` 验证字段都已落库;' +
         '不要用 `kingdee_get_fields`(那个只看父对象的原厂字段,扩展字段永远查不到)。' +
-        '\n\n**关于容器选择**(重要):头页签 / 单据体多个时**调用本工具前必须先 `kingdee_get_form_layout`** 看清父对象有几个 tab、几个 entry,把选项列给用户,让用户选具体 container,然后传 `container` 参数(每个 field 单独传)。不要默认 FTAB_P0 直接写。',
+        '\n\n**关于容器选择**(重要):`container` 既可以传**头 tab key**(如 `FTAB_P0` 基本信息)也可以传**entry key**(如 `FSaleOrderEntry` 明细信息)。' +
+        '工具会自动识别:命中 entry key → 走"明细行字段"分支(emit `<EntityKey>`,不需要也不接受 `top`/`left`/`zOrderIndex`,Tabindex 在该 entry 内独立计数);命中 tab key → 走头字段分支(自动排版到右侧一列)。' +
+        '调用本工具前**必须先 `kingdee_get_form_layout`** 看清父对象 / 扩展自身有哪些 tab、哪些 entry,把选项列给用户;不要默认 FTAB_P0 直接写。' +
+        '挂在自建 entry 上时同样这样:`kingdee_create_entry` 返回的 `entryKey` 直接传给本工具的 `container` 即可。',
       parameters: {
         type: 'object',
         properties: {

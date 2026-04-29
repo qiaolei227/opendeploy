@@ -94,12 +94,14 @@ OpenDeploy 创建的扩展,**必须用 `kingdee_delete_extension` 工具删**(�
 **头页签 / 单据体多于 1 个时,不能默认 FTAB_P0 直接写**——SAL_SaleOrder 头就有 5 个 tab(基本信息/客户信息/财务信息/订单条款/其他)+ 多个单据体(订单条款/明细信息/财务信息/计划信息/...),不同业务字段应落到对应容器。
 
 流程:
-1. 调 `kingdee_get_form_layout <parentFormId>` 拿到 `tabs` + `entries` 列表。
+1. 调 `kingdee_get_form_layout <parentFormId>` 拿到父对象 `tabs` + `entries` 列表。如果用户可能想加到扩展自建的 entry 上(`kingdee_create_entry` 后),把扩展自建的 entries 也一起列给用户。
 2. 容器只有 1 个(罕见,纯基础资料类)→ 静默用那个容器,不必问。
 3. 容器多于 1 个 → 用 caption / name **把选项列给用户**,问"你想把字段加到哪个容器?",等用户决定。
 4. 用户选定后,把对应的 `tabs[*].key` 或 `entries[*].key` 传给每个 field 的 `container` 参数。
 
-**头字段** → 用某个 tab 的 key(如 `FTAB_P0` 基本信息);**单据体字段** → 用 entry 的 key(如 `FSaleOrderEntry` 明细信息)。
+**头字段** → 用某个 tab 的 key(如 `FTAB_P0` 基本信息);**单据体字段** → 用 entry 的 key(如 `FSaleOrderEntry` 明细信息,或扩展自建的 `F_<DevCode>_Entity_xxx`)。
+
+**`container` = entry key 时工具会自动**:emit `<EntityKey>`,不接受 `top`/`left`/`zOrderIndex`(网格列由父 EntryEntityAppearance 定位,不是绝对坐标);Tabindex 在该 entry 内**独立**从 1(或现有 max+1)开始递增,不和头字段共用 9000+ 那套。
 
 ### `kingdee_add_fields` 自动排版(无需手传坐标)
 
