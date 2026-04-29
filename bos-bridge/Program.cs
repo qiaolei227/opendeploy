@@ -116,12 +116,21 @@ namespace OpenDeploy.BosBridge
 
         private static object BuildSerializerFromList(Assembly dataAsm, IList schemas)
         {
+            // Wrap the schemas in our TolerantListBinder so POCOs (which don't
+            // implement IDataEntityBase) can still resolve their schema during
+            // serialize via reflective type lookup.
             var idetInterface = dataAsm.GetType("Kingdee.BOS.Orm.Metadata.DataEntity.IDataEntityType", throwOnError: true)!;
-            var serializerType = dataAsm.GetType("Kingdee.BOS.Serialization.DcxmlSerializer", throwOnError: true)!;
             var enumerableType = typeof(System.Collections.Generic.IEnumerable<>).MakeGenericType(idetInterface);
-            var ctor = serializerType.GetConstructor(new[] { enumerableType })
-                ?? throw new InvalidOperationException("DcxmlSerializer(IEnumerable<IDataEntityType>) ctor not found");
-            return ctor.Invoke(new object[] { schemas });
+            var binderType = typeof(TolerantListBinder);
+            var binderCtor = binderType.GetConstructor(new[] { enumerableType })
+                ?? throw new InvalidOperationException("TolerantListBinder(IEnumerable<IDataEntityType>) ctor not found");
+            var binder = binderCtor.Invoke(new object[] { schemas });
+
+            var serializerType = dataAsm.GetType("Kingdee.BOS.Serialization.DcxmlSerializer", throwOnError: true)!;
+            var binderBaseType = dataAsm.GetType("Kingdee.BOS.Serialization.DcxmlBinder", throwOnError: true)!;
+            var serializerCtor = serializerType.GetConstructor(new[] { binderBaseType })
+                ?? throw new InvalidOperationException("DcxmlSerializer(DcxmlBinder) ctor not found");
+            return serializerCtor.Invoke(new object[] { binder });
         }
 
         /// <summary>

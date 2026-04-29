@@ -7,5 +7,24 @@
     <RootNamespace>OpenDeploy.BosBridge</RootNamespace>
     <AssemblyName>opendeploy-bos-serializer</AssemblyName>
     <PlatformTarget>x86</PlatformTarget>
+    <BosClientPath Condition="'$(BosClientPath)' == ''">C:\Program Files (x86)\Kingdee\K3Cloud\DeskClient\K3CloudClient</BosClientPath>
   </PropertyGroup>
+
+  <!--
+    Compile-time references to Kingdee DLLs. Private=false means they are NOT
+    copied to the output directory — at runtime they load from the customer's
+    K/3 install via DllResolver's AssemblyResolve hook. The dev machine and
+    customer machine both need K/3 Cloud DeskClient installed; the dev path
+    above can be overridden with `-p:BosClientPath=...`.
+  -->
+  <ItemGroup>
+    <Reference Include="Kingdee.BOS.DataEntity">
+      <HintPath>$(BosClientPath)\Kingdee.BOS.DataEntity.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Kingdee.BOS.Core">
+      <HintPath>$(BosClientPath)\Kingdee.BOS.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
 </Project>
