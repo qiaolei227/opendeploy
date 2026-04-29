@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildK3CloudTools } from '../../src/main/agent/k3cloud-tools';
+import { UnsupportedConvertRuleError } from '../../src/main/erp/k3cloud/rpc/convert-rule-baselines';
 import type { K3CloudConnector } from '../../src/main/erp/k3cloud/connector';
 import type {
   ExtensionMeta,
@@ -25,6 +26,10 @@ function makeFake(
       | 'listExtensions'
       | 'listFormPlugins'
       | 'getFormLayout'
+      | 'listConvertRules'
+      | 'describeConvertRule'
+      | 'extendConvertRule'
+      | 'deleteConvertRuleExtension'
     >
   > = {}
 ): K3CloudConnector {
@@ -46,19 +51,33 @@ function makeFake(
     listExtensions: vi.fn(async () => [] as ExtensionMeta[]),
     listFormPlugins: vi.fn(async () => [] as PluginMeta[]),
     getFormLayout: vi.fn(async () => null),
+    listConvertRules: vi.fn(async () => []),
+    describeConvertRule: vi.fn(async () => {
+      throw new Error('describeConvertRule mock not configured');
+    }),
+    extendConvertRule: vi.fn(async () => {
+      throw new Error('extendConvertRule mock not configured');
+    }),
+    deleteConvertRuleExtension: vi.fn(async () => {
+      throw new Error('deleteConvertRuleExtension mock not configured');
+    }),
     ...overrides
   } as unknown as K3CloudConnector;
 }
 
 describe('buildK3CloudTools', () => {
-  it('returns 11 tools when a connector is present', () => {
+  it('returns 15 tools when a connector is present', () => {
     const tools = buildK3CloudTools(makeFake());
     expect(tools.map((t) => t.definition.name).sort()).toEqual([
+      'kingdee_create_convert_rule_extension',
+      'kingdee_delete_convert_rule_extension',
       'kingdee_describe_basedata',
+      'kingdee_describe_convert_rule',
       'kingdee_get_extension_fields',
       'kingdee_get_fields',
       'kingdee_get_form_layout',
       'kingdee_get_object',
+      'kingdee_list_convert_rules',
       'kingdee_list_enum_types',
       'kingdee_list_extensions',
       'kingdee_list_form_plugins',
@@ -574,3 +593,316 @@ describe('kingdee_get_form_layout tool', () => {
   });
 });
 
+describe('kingdee_list_convert_rules tool', () => {
+  const findTool = (fake: K3CloudConnector) =>
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_list_convert_rules')!;
+
+  it('forwards sourceFormId filter to the connector', async () => {
+    const fake = makeFake({
+      listConvertRules: vi.fn(async () => [
+        {
+          sourceFormId: 'SAL_SaleOrder',
+          targetFormId: 'SAL_OUTSTOCK',
+          sourceFormName: '销售订单',
+          targetFormName: '销售出库单'
+        }
+      ])
+    });
+    const tool = findTool(fake);
+
+    const parsed = JSON.parse(await tool.execute({ sourceFormId: 'SAL_SaleOrder' }));
+
+    expect(fake.listConvertRules).toHaveBeenCalledWith('SAL_SaleOrder');
+    expect(parsed.count).toBe(1);
+    expect(parsed.paths[0].targetFormId).toBe('SAL_OUTSTOCK');
+  });
+
+  it('passes undefined when sourceFormId omitted (returns full table)', async () => {
+    const fake = makeFake({ listConvertRules: vi.fn(async () => []) });
+    const tool = findTool(fake);
+
+    await tool.execute({});
+
+    expect(fake.listConvertRules).toHaveBeenCalledWith(undefined);
+  });
+
+  it('treats whitespace-only sourceFormId as omitted', async () => {
+    const fake = makeFake({ listConvertRules: vi.fn(async () => []) });
+    const tool = findTool(fake);
+
+    await tool.execute({ sourceFormId: '   ' });
+
+    expect(fake.listConvertRules).toHaveBeenCalledWith(undefined);
+  });
+
+  it('marked parallelSafe', () => {
+    expect(findTool(makeFake()).parallelSafe).toBe(true);
+  });
+});
+
+describe('kingdee_describe_convert_rule tool', () => {
+  const findTool = (fake: K3CloudConnector) =>
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_describe_convert_rule')!;
+
+  it('returns the connector summary as pretty JSON', async () => {
+    const fake = makeFake({
+      describeConvertRule: vi.fn(async (id: string) => ({
+        ruleId: id,
+        displayName: '销售订单->销售出库单',
+        sourceFormId: 'SAL_SaleOrder',
+        targetFormId: 'SAL_OUTSTOCK',
+        isDefault: true,
+        isActive: true,
+        invisible: false,
+        convertType: 0,
+        pushRunCondition: null,
+        extension: { hasExtends: false, lineage: [], originId: null, isv: null, isInheritView: false },
+        defaultConvert: null,
+        groupBy: null,
+        filter: null,
+        plugins: [],
+        billTypeMaps: [],
+        linkEntity: null,
+        attachment: null,
+        tailDiff: null,
+        orderByField: null,
+        formBusinessServices: []
+      }))
+    });
+    const tool = findTool(fake);
+
+    const parsed = JSON.parse(await tool.execute({ ruleId: 'SaleOrder-OutStock' }));
+
+    expect(fake.describeConvertRule).toHaveBeenCalledWith('SaleOrder-OutStock');
+    expect(parsed.ruleId).toBe('SaleOrder-OutStock');
+    expect(parsed.isDefault).toBe(true);
+  });
+
+  it('trims whitespace before passing to connector', async () => {
+    const fake = makeFake({
+      describeConvertRule: vi.fn(async () => ({
+        ruleId: 'X',
+        displayName: '',
+        sourceFormId: '',
+        targetFormId: '',
+        isDefault: false,
+        isActive: false,
+        invisible: false,
+        convertType: 0,
+        pushRunCondition: null,
+        extension: { hasExtends: false, lineage: [], originId: null, isv: null, isInheritView: false },
+        defaultConvert: null,
+        groupBy: null,
+        filter: null,
+        plugins: [],
+        billTypeMaps: [],
+        linkEntity: null,
+        attachment: null,
+        tailDiff: null,
+        orderByField: null,
+        formBusinessServices: []
+      }))
+    });
+    const tool = findTool(fake);
+
+    await tool.execute({ ruleId: '  SaleOrder-OutStock  ' });
+
+    expect(fake.describeConvertRule).toHaveBeenCalledWith('SaleOrder-OutStock');
+  });
+
+  it('throws when ruleId is missing or empty', async () => {
+    const tool = findTool(makeFake());
+    await expect(tool.execute({})).rejects.toThrow(/ruleId/);
+    await expect(tool.execute({ ruleId: '' })).rejects.toThrow(/ruleId/);
+    await expect(tool.execute({ ruleId: '   ' })).rejects.toThrow(/ruleId/);
+  });
+
+  it('returns found=false JSON when server reports rule does not exist', async () => {
+    const fake = makeFake({
+      describeConvertRule: vi.fn(async () => {
+        throw new Error('response_error: 不存在的规则 X');
+      })
+    });
+    const tool = findTool(fake);
+
+    const parsed = JSON.parse(await tool.execute({ ruleId: 'X' }));
+
+    expect(parsed.found).toBe(false);
+    expect(parsed.ruleId).toBe('X');
+    expect(parsed.message).toContain('kingdee_list_convert_rules');
+  });
+
+  it('rethrows non-not-found errors', async () => {
+    const fake = makeFake({
+      describeConvertRule: vi.fn(async () => {
+        throw new Error('network unreachable');
+      })
+    });
+    const tool = findTool(fake);
+
+    await expect(tool.execute({ ruleId: 'X' })).rejects.toThrow(/network unreachable/);
+  });
+
+  it('marked parallelSafe', () => {
+    expect(findTool(makeFake()).parallelSafe).toBe(true);
+  });
+});
+
+describe('kingdee_create_convert_rule_extension tool', () => {
+  const findTool = (fake: K3CloudConnector) =>
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_create_convert_rule_extension')!;
+
+  it('forwards originRuleId + displayName to the connector', async () => {
+    const fake = makeFake({
+      extendConvertRule: vi.fn(async () => ({
+        ok: true,
+        raw: '',
+        newExtensionId: 'aabbccddeeff00112233445566778899'
+      }))
+    });
+    const tool = findTool(fake);
+
+    const parsed = JSON.parse(
+      await tool.execute({ originRuleId: 'SaleOrder-OutStock', displayName: '我的扩展' })
+    );
+
+    expect(fake.extendConvertRule).toHaveBeenCalledWith('SaleOrder-OutStock', '我的扩展');
+    expect(parsed.ok).toBe(true);
+    expect(parsed.newExtensionId).toBe('aabbccddeeff00112233445566778899');
+  });
+
+  it('passes undefined displayName when omitted or whitespace-only', async () => {
+    const fake = makeFake({
+      extendConvertRule: vi.fn(async () => ({
+        ok: true,
+        raw: '',
+        newExtensionId: 'newid'
+      }))
+    });
+    const tool = findTool(fake);
+
+    await tool.execute({ originRuleId: 'SaleOrder-OutStock' });
+    expect(fake.extendConvertRule).toHaveBeenLastCalledWith('SaleOrder-OutStock', undefined);
+
+    await tool.execute({ originRuleId: 'SaleOrder-OutStock', displayName: '   ' });
+    expect(fake.extendConvertRule).toHaveBeenLastCalledWith('SaleOrder-OutStock', undefined);
+  });
+
+  it('trims whitespace before passing to connector', async () => {
+    const fake = makeFake({
+      extendConvertRule: vi.fn(async () => ({
+        ok: true,
+        raw: '',
+        newExtensionId: 'newid'
+      }))
+    });
+    const tool = findTool(fake);
+
+    await tool.execute({ originRuleId: '  SaleOrder-OutStock  ', displayName: '  ext  ' });
+    expect(fake.extendConvertRule).toHaveBeenCalledWith('SaleOrder-OutStock', 'ext');
+  });
+
+  it('throws when originRuleId is missing or empty', async () => {
+    const tool = findTool(makeFake());
+    await expect(tool.execute({})).rejects.toThrow(/originRuleId/);
+    await expect(tool.execute({ originRuleId: '' })).rejects.toThrow(/originRuleId/);
+    await expect(tool.execute({ originRuleId: '   ' })).rejects.toThrow(/originRuleId/);
+  });
+
+  it('returns ok=false JSON for unsupported rules (v0.1 baseline limitation)', async () => {
+    const fake = makeFake({
+      extendConvertRule: vi.fn(async () => {
+        throw new UnsupportedConvertRuleError(
+          'extendConvertRule',
+          'PUR_PurchaseOrder-PUR_Receive'
+        );
+      })
+    });
+    const tool = findTool(fake);
+
+    const parsed = JSON.parse(
+      await tool.execute({ originRuleId: 'PUR_PurchaseOrder-PUR_Receive' })
+    );
+
+    expect(parsed.ok).toBe(false);
+    expect(parsed.message).toContain('BOS Designer');
+    expect(parsed.message).toContain('SaleOrder-OutStock');
+  });
+
+  it('rethrows on unrecognized errors (network, server)', async () => {
+    const fake = makeFake({
+      extendConvertRule: vi.fn(async () => {
+        throw new Error('network unreachable');
+      })
+    });
+    const tool = findTool(fake);
+
+    await expect(tool.execute({ originRuleId: 'SaleOrder-OutStock' })).rejects.toThrow(
+      /network unreachable/
+    );
+  });
+
+  it('omits parallelSafe (write tool — must serialize)', () => {
+    expect(findTool(makeFake()).parallelSafe).toBeUndefined();
+  });
+});
+
+describe('kingdee_delete_convert_rule_extension tool', () => {
+  const findTool = (fake: K3CloudConnector) =>
+    buildK3CloudTools(fake).find(
+      (t) => t.definition.name === 'kingdee_delete_convert_rule_extension'
+    )!;
+
+  it('forwards originRuleId + extId to the connector', async () => {
+    const fake = makeFake({
+      deleteConvertRuleExtension: vi.fn(async () => ({ ok: true, raw: '' }))
+    });
+    const tool = findTool(fake);
+
+    const parsed = JSON.parse(
+      await tool.execute({
+        originRuleId: 'SaleOrder-OutStock',
+        extId: 'fe6154fe-7144-4633-97e9-601f65135ae9'
+      })
+    );
+
+    expect(fake.deleteConvertRuleExtension).toHaveBeenCalledWith(
+      'SaleOrder-OutStock',
+      'fe6154fe-7144-4633-97e9-601f65135ae9'
+    );
+    expect(parsed.ok).toBe(true);
+  });
+
+  it('throws when either argument is missing or empty', async () => {
+    const tool = findTool(makeFake());
+    await expect(tool.execute({ originRuleId: 'SaleOrder-OutStock' })).rejects.toThrow(/extId/);
+    await expect(tool.execute({ extId: 'X' })).rejects.toThrow(/originRuleId/);
+    await expect(
+      tool.execute({ originRuleId: '   ', extId: 'X' })
+    ).rejects.toThrow(/originRuleId/);
+    await expect(
+      tool.execute({ originRuleId: 'SaleOrder-OutStock', extId: '   ' })
+    ).rejects.toThrow(/extId/);
+  });
+
+  it('returns ok=false JSON for unsupported rules', async () => {
+    const fake = makeFake({
+      deleteConvertRuleExtension: vi.fn(async () => {
+        throw new UnsupportedConvertRuleError('deleteConvertRuleExtension', 'X');
+      })
+    });
+    const tool = findTool(fake);
+
+    const parsed = JSON.parse(
+      await tool.execute({ originRuleId: 'X', extId: 'someExtId' })
+    );
+
+    expect(parsed.ok).toBe(false);
+    expect(parsed.message).toContain('BOS Designer');
+    expect(parsed.message).toContain('SaleOrder-OutStock');
+  });
+
+  it('omits parallelSafe (write tool — must serialize)', () => {
+    expect(findTool(makeFake()).parallelSafe).toBeUndefined();
+  });
+});

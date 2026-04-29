@@ -1,5 +1,29 @@
 import { K3CloudConnector } from './k3cloud/connector';
+import type { ConvertRuleBaseline } from './k3cloud/rpc/convert-rule-baselines';
 import type { ErpConnectionState, Project } from '@shared/erp-types';
+
+/**
+ * Bundled DCXML baselines for `extendConvertRule` / `deleteConvertRuleExtension`.
+ * Loaded lazily from a separate module to keep this file safe to import from
+ * scripts (tsx) — the bundle module uses Vite's `?raw` for XML inlining,
+ * which Node ESM rejects. Production (Electron) loads it on first connector
+ * construction; scripts can call `setBundledConvertRuleBaselines(...)` to
+ * inject without going through Vite.
+ */
+let bundledBaselines: Record<string, ConvertRuleBaseline> | null = null;
+
+export function setBundledConvertRuleBaselines(
+  baselines: Record<string, ConvertRuleBaseline>,
+): void {
+  bundledBaselines = baselines;
+}
+
+async function loadBundledBaselines(): Promise<Record<string, ConvertRuleBaseline>> {
+  if (bundledBaselines) return bundledBaselines;
+  const mod = await import('./k3cloud/rpc/bundled-convert-rule-baselines');
+  bundledBaselines = mod.bundledConvertRuleBaselines;
+  return bundledBaselines;
+}
 
 /**
  * Singleton holder for the currently-active connector. Only one project is
@@ -69,7 +93,8 @@ export async function setActiveProject(project: Project | null): Promise<void> {
     });
     return;
   }
-  const next = new K3CloudConnector(project.bos);
+  const baselines = await loadBundledBaselines();
+  const next = new K3CloudConnector(project.bos, baselines);
   try {
     await next.connect();
     connector = next;

@@ -1,4 +1,5 @@
 import { getActiveConnector, getConnectionState } from '../erp/active';
+import { UnsupportedConvertRuleError } from '../erp/k3cloud/rpc/convert-rule-baselines';
 import type { ToolHandler } from './tools';
 import type { K3CloudConnector } from '../erp/k3cloud/connector';
 
@@ -25,7 +26,11 @@ export function buildK3CloudTools(connector?: K3CloudConnector): ToolHandler[] {
     listExtensionsTool(c),
     getExtensionFieldsTool(c),
     listFormPluginsTool(c),
-    getFormLayoutTool(c)
+    getFormLayoutTool(c),
+    listConvertRulesTool(c),
+    describeConvertRuleTool(c),
+    createConvertRuleExtensionTool(c),
+    deleteConvertRuleExtensionTool(c)
   ];
 }
 
@@ -713,6 +718,214 @@ function getFormLayoutTool(c: K3CloudConnector): ToolHandler {
             };
       }
       return JSON.stringify(result, null, 2);
+    }
+  };
+}
+
+// ─── Convert rules (Plan 5.12.4) ────────────────────────────────────────
+// Read-only views over BOS bill-conversion rules. Driven by the JSON-emitting
+// `ConvertService.GetAllPaths` / `GetConvertRule` endpoints (the sibling
+// `GetRuleDatas` / `GetConvertRuleByRunTime` paths return .NET BinaryFormatter
+// which Node can't read). See `docs/plans/2026-04-29-plan-5.12.4-...md`.
+
+function listConvertRulesTool(c: K3CloudConnector): ToolHandler {
+  return {
+    parallelSafe: true,
+    definition: {
+      name: 'kingdee_list_convert_rules',
+      description:
+        '列出系统配置的所有「单据下推」路径(源单据 → 目标单据)。客户问"X 单可以推到什么"时第一调用。' +
+        '\n\n传 `sourceFormId` 过滤(如 "SAL_SaleOrder" 仅列销售订单出发的路径);不传返全量(可能数百条,按需自己过滤)。' +
+        '\n\n返回每条路径的 `{sourceFormId, targetFormId, sourceFormName, targetFormName}`。**注意:返回里没有 ruleId** —— BOS 的 ruleId 是业务命名约定(如 `SaleOrder-OutStock`),由 `<SourceShort>-<TargetShort>` 拼出。要看具体规则的字段映射 / 分组 / 公式,用 `kingdee_describe_convert_rule(ruleId)`。',
+      parameters: {
+        type: 'object',
+        properties: {
+          sourceFormId: {
+            type: 'string',
+            description: '(可选)源单据 FormID。传则只列从该源单出发的路径;不传返全量。'
+          }
+        }
+      }
+    },
+    async execute(args) {
+      const src = typeof args.sourceFormId === 'string' ? args.sourceFormId.trim() : '';
+      const paths = await c.listConvertRules(src || undefined);
+      return JSON.stringify({ count: paths.length, paths }, null, 2);
+    }
+  };
+}
+
+function describeConvertRuleTool(c: K3CloudConnector): ToolHandler {
+  return {
+    parallelSafe: true,
+    definition: {
+      name: 'kingdee_describe_convert_rule',
+      description:
+        '读一条转换规则的完整定义并返回**摘要**(原始 240KB JSON 压到 ~5KB,丢弃 Auto 默认字段映射的 noise,保留 Formula 映射 / 聚合映射 / GroupBy / Filter / Plugins / BillTypeMaps)。' +
+        '\n\n用法:客户问"销售订单到出库单是怎么映射的""为什么这个字段会被合并""下推前的过滤条件是什么"等具体规则细节时调用。' +
+        '\n\n`ruleId` 命名约定 = `<源短名>-<目标短名>`(如 `SaleOrder-OutStock`)。不知道时先 `kingdee_list_convert_rules` 看一遍 sourceFormId / targetFormId 然后按惯例拼,或者直接问用户在 BOS Designer 里看到的规则名。' +
+        '\n\n返回字段:`isDefault` / `isActive` / `convertType`(0=标准/1=反向勾稽) / `defaultConvert.{sourceEntry, targetEntry, fieldMapCount, formulaMaps[], aggregateMaps[]}` / `groupBy.{mode, fields}` / `plugins[]` / `billTypeMaps[]` / `formBusinessServices[]`(表单服务策略,下推后触发的联动服务+前置条件) 等。FormulaMap 的 `formula` 是 IronPython 表达式,客户最关心的就是这个。' +
+        '\n\n**扩展信息** `extension.{hasExtends, lineage, originId, isv, isInheritView}`:返回的是「运行时合并视图」,如果客户有 ISV 给这条规则做了扩展,扩展效果已经叠加在 isActive / formulaMaps / 等字段里。`hasExtends: true` 时一定要告诉用户:这条规则被 X 开发商(`isv.name`)定制过,扩展链路 `lineage`,效果已经合并在当前视图里——单独看每条扩展具体改了什么需要在 BOS Designer 里查。',
+      parameters: {
+        type: 'object',
+        properties: {
+          ruleId: {
+            type: 'string',
+            description: '规则业务 ID,如 "SaleOrder-OutStock"。命名规则 `<源短名>-<目标短名>`。'
+          }
+        },
+        required: ['ruleId']
+      }
+    },
+    async execute(args) {
+      const ruleId = args.ruleId;
+      if (typeof ruleId !== 'string' || ruleId.trim() === '') {
+        throw new Error('kingdee_describe_convert_rule requires a non-empty `ruleId` string.');
+      }
+      try {
+        const summary = await c.describeConvertRule(ruleId.trim());
+        return JSON.stringify(summary, null, 2);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // BOS returns response_error when ruleId doesn't exist — surface a
+        // clear hint instead of a generic stack so the agent can suggest
+        // calling list_convert_rules first.
+        if (msg.includes('response_error') || msg.includes('不存在')) {
+          return JSON.stringify(
+            {
+              found: false,
+              ruleId,
+              message: `规则 ${ruleId} 不存在 —— 用 kingdee_list_convert_rules 确认源/目标单据,然后按 <源短名>-<目标短名> 命名约定拼 ruleId。`
+            },
+            null,
+            2
+          );
+        }
+        throw err;
+      }
+    }
+  };
+}
+
+// ─── Convert rules — write ─────────────────────────────────────────
+//
+// v0.1 ships baselines for `SaleOrder-OutStock` only — see
+// `convert-rule-baselines.ts`. Add more by registering them in
+// `src/main/erp/active.ts:BUNDLED_CONVERT_RULE_BASELINES`.
+
+async function runWithUnsupportedAware<T>(
+  fn: () => Promise<T>,
+  shape: (result: T) => Record<string, unknown>,
+  unsupportedExtras: Record<string, unknown>,
+): Promise<string> {
+  try {
+    return JSON.stringify(shape(await fn()));
+  } catch (err) {
+    if (err instanceof UnsupportedConvertRuleError) {
+      return JSON.stringify({ ok: false, ...unsupportedExtras, message: err.message });
+    }
+    throw err;
+  }
+}
+
+function createConvertRuleExtensionTool(c: K3CloudConnector): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_create_convert_rule_extension',
+      description:
+        '在原厂转换规则上**新建一条扩展**(顾问最常做的二开),让客户可以叠加 ISV 自己的字段映射 / 过滤条件 / 分组规则 / 表单插件。' +
+        '\n\n调用前提:用户先用 `kingdee_describe_convert_rule(originRuleId)` 看过当前规则状态(`extension.hasExtends` 可能已经是 true)。然后调本工具创建空扩展,再用后续工具(Plan 5.12.4 v2 Task 3-4)往里加字段映射 / 改策略。' +
+        '\n\n**v0.1 重要限制:仅支持 `SaleOrder-OutStock`**(销售订单 → 销售出库单)一条规则。其他规则会报"未支持"错误,需要顾问到 BOS Designer 里手工建,等 v0.2 我们补上通用 XML 序列化器。' +
+        '\n\n返回 `{ok, newExtensionId, ...}`,`newExtensionId` 是 32 位 hex GUID,后续 Task 3-4 工具操作扩展时会需要。' +
+        '\n\n副作用:服务端建一条新的扩展行(`__rules__[1]` 的 paras.OldId=null + paras.Id=新 GUID,oldIds 不含新 GUID 即代表新建)。**用户在 BOS Designer 里要 F5 刷新或重开客户端才能看到**。',
+      parameters: {
+        type: 'object',
+        properties: {
+          originRuleId: {
+            type: 'string',
+            description: '要扩展的原厂规则 ID,v0.1 只支持 "SaleOrder-OutStock"。'
+          },
+          displayName: {
+            type: 'string',
+            description: '(可选)扩展的中文显示名。BOS Designer 默认是"转换规则",可以让 LLM 起一个更具体的名字(如"加客户分组的 SO 转 OUT")。'
+          }
+        },
+        required: ['originRuleId']
+      }
+    },
+    async execute(args) {
+      const originRuleId = args.originRuleId;
+      if (typeof originRuleId !== 'string' || originRuleId.trim() === '') {
+        throw new Error('kingdee_create_convert_rule_extension requires a non-empty `originRuleId` string.');
+      }
+      const displayName =
+        typeof args.displayName === 'string' && args.displayName.trim() !== ''
+          ? args.displayName.trim()
+          : undefined;
+      const trimmed = originRuleId.trim();
+      return runWithUnsupportedAware(
+        () => c.extendConvertRule(trimmed, displayName),
+        (result) => ({
+          ok: result.ok,
+          newExtensionId: result.newExtensionId,
+          originRuleId: trimmed,
+          message: result.ok
+            ? `扩展已创建,新扩展 ID = ${result.newExtensionId}。请用户在 BOS Designer 里 F5 刷新(或关闭客户端重登)以看到新扩展。`
+            : `服务端返回非空响应,可能未成功:${result.raw.slice(0, 200)}`
+        }),
+        { originRuleId: trimmed }
+      );
+    }
+  };
+}
+
+function deleteConvertRuleExtensionTool(c: K3CloudConnector): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_delete_convert_rule_extension',
+      description:
+        '删除原厂转换规则上的一条**扩展**。删除是把扩展从 `__rules__` 数组移除但保留在 `__oldIds__` —— 服务端会按差集语义清掉对应行。' +
+        '\n\n调用场景:顾问试错后想回滚某条扩展,或者扩展用错了 ISV 想重建。' +
+        '\n\n**v0.1 重要限制:仅支持 `SaleOrder-OutStock`** 一条规则。' +
+        '\n\n参数:`originRuleId` 是原厂规则 ID(目前只能是 "SaleOrder-OutStock"),`extId` 是要删的扩展 GUID(`kingdee_describe_convert_rule.extension.lineage` 里能看到链路)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          originRuleId: {
+            type: 'string',
+            description: '扩展所在的原厂规则 ID,v0.1 只支持 "SaleOrder-OutStock"。'
+          },
+          extId: {
+            type: 'string',
+            description: '要删除的扩展 GUID(从 `kingdee_describe_convert_rule.extension.lineage` 里取)。'
+          }
+        },
+        required: ['originRuleId', 'extId']
+      }
+    },
+    async execute(args) {
+      const originRuleId = args.originRuleId;
+      const extId = args.extId;
+      if (typeof originRuleId !== 'string' || originRuleId.trim() === '') {
+        throw new Error('kingdee_delete_convert_rule_extension requires a non-empty `originRuleId` string.');
+      }
+      if (typeof extId !== 'string' || extId.trim() === '') {
+        throw new Error('kingdee_delete_convert_rule_extension requires a non-empty `extId` string.');
+      }
+      const trimmedRule = originRuleId.trim();
+      const trimmedExt = extId.trim();
+      return runWithUnsupportedAware(
+        () => c.deleteConvertRuleExtension(trimmedRule, trimmedExt),
+        (result) => ({
+          ok: result.ok,
+          originRuleId: trimmedRule,
+          extId: trimmedExt,
+          message: result.ok
+            ? `扩展 ${trimmedExt} 已删除。请用户在 BOS Designer 里 F5 刷新(或关闭客户端重登)以确认。`
+            : `服务端返回非空响应,可能未成功:${result.raw.slice(0, 200)}`
+        }),
+        { originRuleId: trimmedRule, extId: trimmedExt }
+      );
     }
   };
 }

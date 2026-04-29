@@ -48,6 +48,24 @@ import {
 import { extractKernelXml, parseMetaDataXml } from './rpc/metadata-xml';
 import { login } from './rpc/login';
 import { getNextSequenceInt32 } from './rpc/sequence';
+import { getAllConvertPaths, getConvertRule } from './rpc/convert-rules';
+import {
+  summarizeConvertPath,
+  summarizeConvertRule,
+  type ConvertRulePathSummary,
+  type ConvertRuleSummary,
+} from './convert-rule-summarizer';
+import {
+  extendConvertRule as rpcExtendConvertRule,
+  deleteConvertRuleExtension as rpcDeleteConvertRuleExtension,
+  type ExtendConvertRuleResult,
+} from './rpc/extend-convert-rule';
+import { getCurrentIsv } from './rpc/get-current-isv';
+import {
+  UnsupportedConvertRuleError,
+  type ConvertRuleBaseline,
+} from './rpc/convert-rule-baselines';
+import type { IsvDescriptor, SaveConvertRulesResult } from './rpc/save-convert-rules';
 import type { KdSession } from './rpc/http-client';
 import type {
   BosRpcCredentials,
@@ -86,7 +104,14 @@ export class K3CloudConnector implements ErpConnector {
    */
   private enumObjectsByName: Map<string, EnumObjectSummary> | null = null;
 
-  constructor(public readonly config: BosRpcCredentials) {}
+  /** Memoized for the session — ISV is the developer's installation key, fixed
+   *  per data center. Cleared in `disconnect()` so a reconnect re-probes it. */
+  private cachedIsv: IsvDescriptor | null = null;
+
+  constructor(
+    public readonly config: BosRpcCredentials,
+    private readonly convertRuleBaselines: Record<string, ConvertRuleBaseline> = {},
+  ) {}
 
   /** Open the BOS session. Idempotent — second call no-ops. */
   async connect(): Promise<void> {
@@ -108,6 +133,7 @@ export class K3CloudConnector implements ErpConnector {
     this.session = null;
     this.lookupObjectsByFormId = null;
     this.enumObjectsByName = null;
+    this.cachedIsv = null;
   }
 
   /**
@@ -373,5 +399,76 @@ export class K3CloudConnector implements ErpConnector {
   /** Expose session for the RPC write tools — they need a logged-in session for SaveForIDE / Delete. */
   getSession(): KdSession | null {
     return this.session;
+  }
+
+  // ─── Convert rules (read-only — Plan 5.12.4) ───────────────────────
+
+  /**
+   * List system-wide source→target conversion paths. The server returns the
+   * full table (~hundreds of entries); we filter by sourceFormId on the
+   * client when caller wants to scope.
+   *
+   * The list does not include rule ids — those follow the BOS naming
+   * convention (`<SourceShort>-<TargetShort>`) and are derived inside
+   * `describeConvertRule`. When two rules map the same path (default + variant),
+   * GetAllPaths returns the path once; describing each variant would need
+   * the per-rule LoadByModelType BinaryFormatter path which we don't support.
+   */
+  async listConvertRules(sourceFormId?: string): Promise<ConvertRulePathSummary[]> {
+    const all = await getAllConvertPaths(this.requireSession());
+    const filtered = sourceFormId
+      ? all.filter((p) => p.SourceFormId === sourceFormId)
+      : all;
+    return filtered.map(summarizeConvertPath);
+  }
+
+  /**
+   * Pull one rule's full definition and compress it into an LLM-friendly
+   * summary. The raw response is ~240 KB JSON for a typical SAL rule;
+   * summarizer drops Auto-mapped FieldMaps and Id/Key noise, leaving
+   * Formula maps + GroupBy + Plugins + BillTypeMaps + the few essentials.
+   *
+   * Throws when the ruleId doesn't exist (server returns response_error).
+   */
+  async describeConvertRule(ruleId: string): Promise<ConvertRuleSummary> {
+    const raw = await getConvertRule(this.requireSession(), ruleId);
+    return summarizeConvertRule(raw);
+  }
+
+  // ─── Convert rules (write) ─────────────────────────────────────────
+  //
+  // v0.1 ships baselines for `SaleOrder-OutStock` only — generalizing
+  // requires a TS port of `DcxmlSerializer` or per-rule baseline capture.
+  // Throws `UnsupportedConvertRuleError` for any other ruleId; tool layer
+  // routes that to a friendly user message.
+
+  private requireBaseline(op: string, originRuleId: string): ConvertRuleBaseline {
+    const baseline = this.convertRuleBaselines[originRuleId];
+    if (!baseline) throw new UnsupportedConvertRuleError(op, originRuleId);
+    return baseline;
+  }
+
+  private async getIsv(session: KdSession): Promise<IsvDescriptor> {
+    return (this.cachedIsv ??= await getCurrentIsv(session));
+  }
+
+  async extendConvertRule(
+    originRuleId: string,
+    displayName?: string,
+  ): Promise<ExtendConvertRuleResult> {
+    const session = this.requireSession();
+    const baseline = this.requireBaseline('extendConvertRule', originRuleId);
+    const isv = await this.getIsv(session);
+    return rpcExtendConvertRule(session, { baseline, isv, displayName });
+  }
+
+  async deleteConvertRuleExtension(
+    originRuleId: string,
+    extId: string,
+  ): Promise<SaveConvertRulesResult> {
+    const session = this.requireSession();
+    const baseline = this.requireBaseline('deleteConvertRuleExtension', originRuleId);
+    const isv = await this.getIsv(session);
+    return rpcDeleteConvertRuleExtension(session, { baseline, extId, isv });
   }
 }
