@@ -47,6 +47,7 @@ import {
 } from './rpc/enum-objects';
 import { extractKernelXml, parseMetaDataXml } from './rpc/metadata-xml';
 import { login } from './rpc/login';
+import { getNextSequenceInt32 } from './rpc/sequence';
 import type { KdSession } from './rpc/http-client';
 import type {
   BosRpcCredentials,
@@ -353,6 +354,20 @@ export class K3CloudConnector implements ErpConnector {
     const xml = await this.getKernelXml(formId);
     if (!xml) return null;
     return parseFormLayoutContainers(xml);
+  }
+
+  /**
+   * Allocate the next int from the server's sequence allocator. Used by
+   * `kingdee_create_entry` to generate the `<int>` part of EntryName /
+   * TableName (`<DevCode>_Cust_Entry<int>` / `<DevCode>_t_Cust_Entry<int>`).
+   *
+   * Server reserves the int on call — no rollback. If a save fails after
+   * allocation, the int is leaked (next call gets max+1). Acceptable for
+   * v0.1 since BOS Designer leaks the same way.
+   */
+  async getNextSequenceInt32(category: string, increment: number = 1): Promise<number> {
+    if (!this.session) throw new Error('Not connected');
+    return getNextSequenceInt32(this.session, category, increment);
   }
 
   /** Expose session for the RPC write tools — they need a logged-in session for SaveForIDE / Delete. */
