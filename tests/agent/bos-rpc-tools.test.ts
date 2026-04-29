@@ -1716,6 +1716,84 @@ describe('kingdee_create_tab_page', () => {
     expect(req.addTabPages![0].container).toBe('F_PAIJ_Tab_aaa');
   });
 
+  it('appends to the right end via PageIndex + ZOrderIndex independently', async () => {
+    // Parent SAL_SaleOrder has 8 native tabs under FTab1 — pageIndex 0..10
+    // (with gaps from historical deletes) but zOrderIndex only 0..7. New tab
+    // must land beyond *both* maxes to be visually last AND z-sort last.
+    const parentXml = `<FormMetadata><LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <TabPageAppearance><Container>FTab1</Container><PageIndex>0</PageIndex><ZOrderIndex>0</ZOrderIndex><Key>FTab1_P0</Key></TabPageAppearance>
+        <TabPageAppearance><Container>FTab1</Container><PageIndex>3</PageIndex><ZOrderIndex>3</ZOrderIndex><Key>FTab1_P3</Key></TabPageAppearance>
+        <TabPageAppearance><Container>FTab1</Container><PageIndex>10</PageIndex><ZOrderIndex>7</ZOrderIndex><Key>FTab1_P</Key></TabPageAppearance>
+        <TabPageAppearance><Container>FTab</Container><PageIndex>99</PageIndex><ZOrderIndex>99</ZOrderIndex><Key>FTab_P99</Key></TabPageAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+    mockedGetProject.mockResolvedValue(makeProject(true));
+    const c = makeFakeConnector({
+      getObject: async (id: string) =>
+        id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+      getKernelXml: async (id: string) =>
+        id === EXT_ID ? EMPTY_EXT_XML : parentXml,
+    });
+    const tools = await buildBosRpcTools(c, 'p1', makeSessionMgr());
+    const tool = tools.find((t) => t.definition.name === 'kingdee_create_tab_page')!;
+    const out = JSON.parse(await tool.execute({ extId: EXT_ID }));
+    expect(out.pageIndex).toBe(11); // max parent FTab1.pageIndex (10) + 1
+    expect(out.zOrderIndex).toBe(8); // max parent FTab1.zOrderIndex (7) + 1
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addTabPages![0].pageIndex).toBe(11);
+    expect(req.addTabPages![0].zOrderIndex).toBe(8);
+  });
+
+  it('honors explicit zOrderIndex from caller (insert in front)', async () => {
+    const parentXml = `<FormMetadata><LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <TabPageAppearance><Container>FTab1</Container><ZOrderIndex>5</ZOrderIndex><Key>FTab1_P5</Key></TabPageAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+    mockedGetProject.mockResolvedValue(makeProject(true));
+    const c = makeFakeConnector({
+      getObject: async (id: string) =>
+        id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+      getKernelXml: async (id: string) =>
+        id === EXT_ID ? EMPTY_EXT_XML : parentXml,
+    });
+    const tools = await buildBosRpcTools(c, 'p1', makeSessionMgr());
+    const tool = tools.find((t) => t.definition.name === 'kingdee_create_tab_page')!;
+    const out = JSON.parse(
+      await tool.execute({ extId: EXT_ID, zOrderIndex: 0 }),
+    );
+    expect(out.zOrderIndex).toBe(0);
+  });
+
+  it('counts both parent siblings and extension-built siblings', async () => {
+    // Parent has FTab1 with ZOrderIndex 7; extension already added one at 8.
+    const parentXml = `<FormMetadata><LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <TabPageAppearance><Container>FTab1</Container><ZOrderIndex>7</ZOrderIndex><Key>FTab1_P7</Key></TabPageAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+    const extXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>
+      <Form><Id>${EXT_ID}</Id></Form>
+    </Elements></BusinessInfo></BusinessInfo>
+    <LayoutInfos><LayoutInfo oid="${SAL_LAYOUT_OID}">
+      <Appearances>
+        <TabPageAppearance><Container>FTab1</Container><ZOrderIndex>8</ZOrderIndex><Key>FTab1_PAIJ_P_xnn</Key></TabPageAppearance>
+      </Appearances>
+    </LayoutInfo></LayoutInfos></FormMetadata>`;
+    mockedGetProject.mockResolvedValue(makeProject(true));
+    const c = makeFakeConnector({
+      getObject: async (id: string) =>
+        id === EXT_ID ? EXTENSION_OBJECT : SAL_PARENT_OBJECT,
+      getKernelXml: async (id: string) =>
+        id === EXT_ID ? extXml : parentXml,
+    });
+    const tools = await buildBosRpcTools(c, 'p1', makeSessionMgr());
+    const tool = tools.find((t) => t.definition.name === 'kingdee_create_tab_page')!;
+    const out = JSON.parse(await tool.execute({ extId: EXT_ID }));
+    expect(out.zOrderIndex).toBe(9);
+  });
+
   it('next-index counter respects existing TabPages under same TabControl', async () => {
     // Existing 2 pages under F_PAIJ_Tab_aaa (P0 + P1) — new page should be P2.
     const populatedExtXml = `<FormMetadata><BusinessInfo><BusinessInfo><Elements>

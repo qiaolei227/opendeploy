@@ -263,8 +263,17 @@ export interface BosTabPageAppearance {
   /** Parent TabControl key (e.g. "FTab1" for original-vendor entry-side, or
    * a self-built "F_<DevCode>_Tab_<3 char>"). */
   container: string;
-  /** Optional zero-based index within the parent TabControl. */
+  /** "页签序号" shown in BOS Designer's TabPage property panel. This is the
+   * field the user reads / edits when reordering tabs by hand. We populate
+   * it together with `zOrderIndex` (typically same value) so the UI doesn't
+   * show 0 on every new tab. */
   pageIndex?: number;
+  /** Internal Z-order (stacking order) under the parent TabControl. Distinct
+   * from `pageIndex` despite both being numeric — `pageIndex` is the
+   * user-facing label, `zOrderIndex` is what the renderer uses. Both are
+   * needed: BOS Designer's UI reads `pageIndex` for display but the runtime
+   * sorter reads `zOrderIndex`. */
+  zOrderIndex?: number;
   id?: string;
 }
 

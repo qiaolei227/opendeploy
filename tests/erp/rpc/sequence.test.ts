@@ -29,7 +29,7 @@ describe('getNextSequenceInt32', () => {
     await getNextSequenceInt32(session, 't_BOS_CustEntry', 1);
 
     expect(capturedUrl).toBe(
-      'http://localhost/k3cloud/Kingdee.BOS.ServiceFacade.ServicesStub.BusinessDataService.GetSequenceInt32.common.kdsvc',
+      'http://localhost/k3cloud/Kingdee.BOS.ServiceFacade.ServicesStub.BusinessData.BusinessDataService.GetSequenceInt32.common.kdsvc',
     );
   });
 

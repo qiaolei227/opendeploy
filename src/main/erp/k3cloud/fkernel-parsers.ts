@@ -356,6 +356,14 @@ export interface FormTabContainer {
   caption: string;
   /** Owning TabControl key, e.g. "FTab" or "FTab1" — null when absent. */
   parentControl: string | null;
+  /** "页签序号" shown in BOS Designer's TabPage property panel — the field
+   * the UI sorts on (smaller = further left). Distinct from `zOrderIndex`:
+   * historical deletes/renames can desync them (e.g. SAL_SaleOrder's
+   * 收款执行明细 has pageIndex=10 but zOrderIndex=7). Both must be queried
+   * independently when computing the next slot for a new tab. */
+  pageIndex: number | null;
+  /** Internal Z-order under the parent TabControl. */
+  zOrderIndex: number | null;
 }
 
 export interface FormEntryContainer {
@@ -432,8 +440,20 @@ export function parseFormLayoutContainers(xml: string): FormLayout {
     if (!key || seenTabKeys.has(key)) continue;
     const caption = findLastTopLevelChildText(inner, 'Caption') ?? '';
     const parentControl = findLastTopLevelChildText(inner, 'Container') ?? null;
+    const parseIntChild = (tag: string): number | null => {
+      const raw = findLastTopLevelChildText(inner, tag);
+      if (raw == null || raw === '') return null;
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : null;
+    };
     seenTabKeys.add(key);
-    tabs.push({ key, caption, parentControl });
+    tabs.push({
+      key,
+      caption,
+      parentControl,
+      pageIndex: parseIntChild('PageIndex'),
+      zOrderIndex: parseIntChild('ZOrderIndex'),
+    });
   }
 
   // ── tab controls ──

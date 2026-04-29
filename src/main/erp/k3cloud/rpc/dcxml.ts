@@ -349,7 +349,13 @@ function renderTabPageAppearance(out: XmlWriter, a: BosTabPageAppearance): void 
   out.push(`<TabPageAppearance ElementType="1004" ElementStyle="1">`);
   child(out, 'Key', a.key);
   child(out, 'Container', a.container);
+  // PageIndex = "页签序号" shown in BOS Designer's UI (user-facing).
+  // ZOrderIndex = internal stacking sort key. Both are emitted together
+  // — BOS Designer's parent SAL_SaleOrder tabs all carry both with the same
+  // value, and missing PageIndex defaults to 0 in the UI label even when
+  // ZOrderIndex is set correctly.
   child(out, 'PageIndex', a.pageIndex);
+  child(out, 'ZOrderIndex', a.zOrderIndex);
   child(out, 'Caption', a.caption);
   child(out, 'Id', id);
   out.push(`</TabPageAppearance>`);

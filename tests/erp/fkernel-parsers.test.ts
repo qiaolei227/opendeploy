@@ -127,10 +127,34 @@ describe('parseFormLayoutContainers', () => {
       </TabPageAppearance>
     </Appearances>`;
     expect(parseFormLayoutContainers(xml).tabs).toEqual([
-      { key: 'FTab_P0', caption: '基本信息', parentControl: 'FTab' },
-      { key: 'FTab_P1', caption: '客户信息', parentControl: 'FTab' },
-      { key: 'FTab1_P0', caption: '明细信息', parentControl: 'FTab1' },
+      { key: 'FTab_P0', caption: '基本信息', parentControl: 'FTab', pageIndex: null, zOrderIndex: null },
+      { key: 'FTab_P1', caption: '客户信息', parentControl: 'FTab', pageIndex: null, zOrderIndex: null },
+      { key: 'FTab1_P0', caption: '明细信息', parentControl: 'FTab1', pageIndex: null, zOrderIndex: null },
     ]);
+  });
+
+  it('extracts PageIndex + ZOrderIndex independently (they can desync)', () => {
+    // SAL_SaleOrder's 收款执行明细 has pageIndex=10 zOrderIndex=7 in real data,
+    // a side effect of historical tab deletes.
+    const xml = `<Appearances>
+      <TabPageAppearance>
+        <Container>FTab1</Container>
+        <PageIndex>0</PageIndex>
+        <ZOrderIndex>0</ZOrderIndex>
+        <Caption>明细信息</Caption>
+        <Key>FTab1_P0</Key>
+      </TabPageAppearance>
+      <TabPageAppearance>
+        <Container>FTab1</Container>
+        <PageIndex>10</PageIndex>
+        <ZOrderIndex>7</ZOrderIndex>
+        <Caption>收款执行明细</Caption>
+        <Key>FTab1_P</Key>
+      </TabPageAppearance>
+    </Appearances>`;
+    const tabs = parseFormLayoutContainers(xml).tabs;
+    expect(tabs[0]).toMatchObject({ pageIndex: 0, zOrderIndex: 0 });
+    expect(tabs[1]).toMatchObject({ pageIndex: 10, zOrderIndex: 7 });
   });
 
   it('extracts EntryEntity + SubEntryEntity with kind label', () => {

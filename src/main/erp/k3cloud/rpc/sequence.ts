@@ -25,7 +25,7 @@ import {
 } from './http-client';
 
 const BUSINESS_DATA_SERVICE =
-  'Kingdee.BOS.ServiceFacade.ServicesStub.BusinessDataService';
+  'Kingdee.BOS.ServiceFacade.ServicesStub.BusinessData.BusinessDataService';
 
 /** Category for client-built EntryEntity tables (`<DevCode>_t_Cust_Entry<int>`). */
 export const SEQUENCE_CATEGORY_CUST_ENTRY = 't_BOS_CustEntry';

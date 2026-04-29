@@ -395,6 +395,52 @@ function readChildText(rawChunk: string, tag: string): string | null {
 }
 
 /**
+ * Compute the next `{pageIndex, zOrderIndex}` for a new TabPage under
+ * `parentTabControlKey`. Each is `max(siblings) + 1` independently —
+ * historical edits can desync the two fields (SAL_SaleOrder's 收款执行明细
+ * has pageIndex=10 but zOrderIndex=7), so a single max would put the new
+ * tab visually before whichever field is lagging.
+ *
+ * Sources: parent form's native tabs (parsed from `parentKernelXml`) +
+ * extension's own already-saved TabPages (`existingTabPagesRaw`). Filtered
+ * by parent TabControl. Returns 0 for either field when no siblings exist.
+ *
+ * Without this, BOS defaults missing PageIndex/ZOrderIndex to 0 — every
+ * new tab lands in front of every existing one (the user-reported bug).
+ */
+function nextTabIndices(
+  parentKernelXml: string | null,
+  existingTabPagesRaw: string[],
+  parentTabControlKey: string,
+): { pageIndex: number; zOrderIndex: number } {
+  let maxPage = -1;
+  let maxZ = -1;
+
+  if (parentKernelXml) {
+    const layout = parseFormLayoutContainers(parentKernelXml);
+    for (const t of layout.tabs) {
+      if (t.parentControl !== parentTabControlKey) continue;
+      const p = t.pageIndex ?? 0;
+      if (p > maxPage) maxPage = p;
+      const z = t.zOrderIndex ?? 0;
+      if (z > maxZ) maxZ = z;
+    }
+  }
+
+  for (const raw of existingTabPagesRaw) {
+    if (readChildText(raw, 'Container') !== parentTabControlKey) continue;
+    const pRaw = readChildText(raw, 'PageIndex');
+    const p = pRaw != null && pRaw !== '' ? Number(pRaw) : 0;
+    if (Number.isFinite(p) && p > maxPage) maxPage = p;
+    const zRaw = readChildText(raw, 'ZOrderIndex');
+    const z = zRaw != null && zRaw !== '' ? Number(zRaw) : 0;
+    if (Number.isFinite(z) && z > maxZ) maxZ = z;
+  }
+
+  return { pageIndex: maxPage + 1, zOrderIndex: maxZ + 1 };
+}
+
+/**
  * Replace the body of the first matched `<tag>...</tag>` in `rawChunk`.
  * Caller's responsibility to ensure `tag` is a direct child only — used for
  * single-level Name / Caption rewrites on appearance / entry chunks (no
@@ -1599,7 +1645,11 @@ function createTabControlTool(
           key: pageKey,
           caption: DEFAULT_TAB_PAGE_CAPTION,
           container: tabControlKey,
+          // Self-built TabControl has no pre-existing siblings — children
+          // index from 0 in creation order. pageIndex == zOrderIndex so the
+          // user-facing "页签序号" matches the actual order.
           pageIndex: i,
+          zOrderIndex: i,
         });
         tabPageKeys.push({ key: pageKey, index: i });
       }
@@ -1657,7 +1707,9 @@ function createTabPageTool(
         '在指定 TabControl 下新建一个 TabPage(单页签)。' +
         '\n\n默认 `parentTabControlKey="FTab1"`(原厂单据体侧 TabControl,所有 K/3 单据都有)。' +
         '想挂到自建 TabControl 时传 `kingdee_create_tab_control` 返回的 `tabControlKey`。' +
-        '\n\n返回 `{ ok, tabPageKey }`。后续:' +
+        '\n\n**位置**:默认追加到该 TabControl 下所有现有页签的最右侧(自动算 max ZOrderIndex+1)。' +
+        '想插到指定位置时显式传 `zOrderIndex`(0 = 最左,序号越大越靠右)。' +
+        '\n\n返回 `{ ok, tabPageKey, zOrderIndex }`。后续:' +
         '\n- 在该 TabPage 上挂 entry → `kingdee_create_entry(parentTabPageKey=tabPageKey)`',
       parameters: {
         type: 'object',
@@ -1669,6 +1721,12 @@ function createTabPageTool(
               '父 TabControl 的 Key。默认 "FTab1"(原厂单据体侧)。自建则传 kingdee_create_tab_control 返回的 tabControlKey。',
           },
           caption: { type: 'string', description: 'TabPage 显示文字,默认 "页签"。' },
+          zOrderIndex: {
+            type: 'number',
+            description:
+              '页签序号(BOS 单据上的"页签序号"属性)。0=最左、序号越大越靠右。' +
+              '不传默认取 max(同 parent 下现有页签序号)+1,即追加到最右侧。',
+          },
         },
         required: ['extId'],
       },
@@ -1681,13 +1739,19 @@ function createTabPageTool(
         ORIGINAL_ENTRY_TAB_CONTROL;
       const caption =
         String(args.caption ?? DEFAULT_TAB_PAGE_CAPTION).trim() || DEFAULT_TAB_PAGE_CAPTION;
+      const explicitZ =
+        args.zOrderIndex != null ? Number(args.zOrderIndex) : null;
+      if (explicitZ != null && (!Number.isInteger(explicitZ) || explicitZ < 0)) {
+        throw new Error('kingdee_create_tab_page 的 zOrderIndex 必须为非负整数。');
+      }
 
-      const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
-        connector,
-        projectId,
-        extId,
-        'kingdee_create_tab_page',
-      );
+      const { ext, project, layoutInfoOid, existing, parentKernelXml } =
+        await loadExtensionForSave(
+          connector,
+          projectId,
+          extId,
+          'kingdee_create_tab_page',
+        );
 
       let pageKey: string;
       if (parentKey === ORIGINAL_ENTRY_TAB_CONTROL) {
@@ -1715,8 +1779,11 @@ function createTabPageTool(
         pageKey = `${parentKey}_P${nextIdx}_${tail}`;
       }
 
+      const auto = nextTabIndices(parentKernelXml, existing.tabPages, parentKey);
+      const pageIndex = explicitZ ?? auto.pageIndex;
+      const zOrderIndex = explicitZ ?? auto.zOrderIndex;
       const addTabPages: BosTabPageAppearance[] = [
-        { key: pageKey, caption, container: parentKey },
+        { key: pageKey, caption, container: parentKey, pageIndex, zOrderIndex },
       ];
       const req = buildSaveRequest(ext, project, layoutInfoOid, existing, { addTabPages });
       const session = await sessionMgr.getOrLogin(projectId);
@@ -1741,8 +1808,14 @@ function createTabPageTool(
           extId,
           tabPageKey: pageKey,
           parentTabControlKey: parentKey,
+          pageIndex,
+          zOrderIndex,
           reminder:
-            'TabPage 已建。挂 entry 上去:`kingdee_create_entry(parentTabPageKey="' +
+            'TabPage 已建(页签序号 ' +
+            pageIndex +
+            ',Z 序 ' +
+            zOrderIndex +
+            ',追加在末尾)。挂 entry 上去:`kingdee_create_entry(parentTabPageKey="' +
             pageKey +
             '")`。',
         },
