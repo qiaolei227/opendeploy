@@ -159,6 +159,7 @@ export async function runAgentLoop(params: RunAgentLoopParams): Promise<Message[
       blocks: blocks.length > 0 ? blocks : undefined,
       ...(reasoningContent ? { reasoningContent } : {}),
       ...(reasoningSignature ? { reasoningSignature } : {}),
+      ...(errored ? { errored: true } : {}),
       createdAt: new Date().toISOString()
     };
     messages.push(assistantMsg);

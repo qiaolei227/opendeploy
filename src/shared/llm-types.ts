@@ -31,6 +31,15 @@ export interface Message {
    * LLM API (which only consumes content + toolCalls).
    */
   blocks?: MessageBlock[];
+  /**
+   * Set on assistant messages whose stream errored (network failure, HTTP
+   * 4xx/5xx). The `content` field carries the human-readable error so the
+   * UI can render it inline, but these messages MUST be excluded from the
+   * slice sent back to the LLM — DeepSeek V4 / Claude / Qwen3 thinking
+   * models reject any assistant turn that lacks reasoning_content, and
+   * fetch-failed turns never produced any.
+   */
+  errored?: boolean;
   createdAt: string;           // ISO timestamp
 }
 

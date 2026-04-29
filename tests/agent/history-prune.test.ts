@@ -126,4 +126,23 @@ describe('pruneOldToolResults', () => {
     pruneOldToolResults(msgs, 0);
     expect(msgs).toEqual(snapshot);
   });
+
+  it('drops errored assistant messages so DeepSeek thinking-mode round-trip stays valid', () => {
+    // Regression: assistant.errored=true messages carry our local error string,
+    // not real model output, and have no reasoning_content. Round-tripping
+    // them via the LLM API produces HTTP 400 on thinking models. They must
+    // be excluded from the slice sent to the API entirely.
+    const errored: Message = {
+      id: 'aerr',
+      role: 'assistant',
+      content: 'fetch failed',
+      errored: true,
+      createdAt: '',
+    };
+    const msgs: Message[] = [u('hi'), a('first'), errored, u('再来一次')];
+    const out = pruneOldToolResults(msgs, 5);
+    expect(out).toHaveLength(3);
+    expect(out.find((m) => (m as Message).errored)).toBeUndefined();
+    expect(out.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+  });
 });

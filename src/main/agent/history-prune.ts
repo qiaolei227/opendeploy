@@ -23,16 +23,25 @@ const PRUNED_PLACEHOLDER =
  */
 export function pruneOldToolResults(messages: Message[], keepLastN: number): Message[] {
   if (keepLastN < 0) throw new Error('keepLastN must be >= 0');
+
+  // Drop errored assistant messages first — they carry no model output
+  // (just our local error string), and round-tripping them breaks
+  // thinking-model contracts (DeepSeek V4 / Claude reject assistants
+  // without reasoning_content). Drop the user message that immediately
+  // preceded one too if it's now adjacent to a fresh user turn — leaves
+  // the conversation looking like the failed turn never happened.
+  const filtered = messages.filter((m) => !(m.role === 'assistant' && m.errored));
+
   const toolIndexes: number[] = [];
-  for (let i = 0; i < messages.length; i++) {
-    if (messages[i].role === 'tool') toolIndexes.push(i);
+  for (let i = 0; i < filtered.length; i++) {
+    if (filtered[i].role === 'tool') toolIndexes.push(i);
   }
-  if (toolIndexes.length <= keepLastN) return messages;
+  if (toolIndexes.length <= keepLastN) return filtered;
   // Math.max form avoids slice(-0) === slice(0) footgun that keeps everything
   // when keepLastN === 0.
   const keepFrom = Math.max(0, toolIndexes.length - keepLastN);
   const keep = new Set(toolIndexes.slice(keepFrom));
-  return messages.map((m, i) => {
+  return filtered.map((m, i) => {
     if (m.role === 'tool' && !keep.has(i)) {
       return { ...m, content: PRUNED_PLACEHOLDER };
     }
