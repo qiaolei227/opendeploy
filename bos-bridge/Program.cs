@@ -104,14 +104,11 @@ namespace OpenDeploy.BosBridge
                 case "ping":
                     return "pong";
                 case "normalize_convert_rule":
-                {
-                    var xml = (string?)req["xml"] ?? throw new InvalidOperationException("missing field: xml");
-                    return new { xml = ctx.NormalizeConvertRule(xml) };
-                }
+                    return new { xml = ctx.NormalizeConvertRule(RequireString(req, "xml")) };
                 case "add_convert_field_map":
                 {
-                    var xml = (string?)req["xml"] ?? throw new InvalidOperationException("missing field: xml");
-                    var target = (string?)req["target_field_key"] ?? throw new InvalidOperationException("missing field: target_field_key");
+                    var xml = RequireString(req, "xml");
+                    var target = RequireString(req, "target_field_key");
                     var source = (string?)req["source_field_key"];
                     var mode = (string?)req["mode"] ?? "Auto";
                     var formula = (string?)req["formula"];
@@ -120,8 +117,8 @@ namespace OpenDeploy.BosBridge
                 }
                 case "set_convert_group_by":
                 {
-                    var xml = (string?)req["xml"] ?? throw new InvalidOperationException("missing field: xml");
-                    var mode = (string?)req["mode"] ?? throw new InvalidOperationException("missing field: mode");
+                    var xml = RequireString(req, "xml");
+                    var mode = RequireString(req, "mode");
                     var field1 = (string?)req["field1"];
                     var field2 = (string?)req["field2"];
                     var field3 = (string?)req["field3"];
@@ -132,6 +129,9 @@ namespace OpenDeploy.BosBridge
                     throw new InvalidOperationException($"unknown op: {op}");
             }
         }
+
+        private static string RequireString(JObject req, string field) =>
+            (string?)req[field] ?? throw new InvalidOperationException($"missing field: {field}");
 
         private static void EmitOk(JToken? id, object result)
         {

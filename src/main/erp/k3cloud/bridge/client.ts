@@ -47,7 +47,8 @@ const STARTUP_TIMEOUT_MS = 60_000;
 
 export class BridgeClient {
   private proc: ChildProcess | null = null;
-  private readline: Interface | null = null;
+  private stdoutRl: Interface | null = null;
+  private stderrRl: Interface | null = null;
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
   private startPromise: Promise<void> | null = null;
@@ -131,16 +132,20 @@ export class BridgeClient {
     const proc = this.proc;
     if (!proc) return;
     return new Promise<void>((resolve) => {
+      // Force-kill after 5s if it didn't exit cleanly. Cleared in onExit so
+      // the timer doesn't fire after a clean shutdown.
+      const forceKillTimer = setTimeout(() => {
+        if (this.proc) proc.kill('SIGKILL');
+      }, 5_000);
+      forceKillTimer.unref();
+
       const onExit = () => {
+        clearTimeout(forceKillTimer);
         this.cleanup();
         resolve();
       };
       proc.once('exit', onExit);
       proc.stdin?.end();
-      // Force-kill after 5s if it didn't exit cleanly.
-      setTimeout(() => {
-        if (this.proc) proc.kill('SIGKILL');
-      }, 5_000).unref();
     });
   }
 
@@ -164,20 +169,12 @@ export class BridgeClient {
       this.failAll(new Error(`bos-bridge exited (${reason})`));
     });
 
-    this.readline = createInterface({ input: proc.stdout!, crlfDelay: Infinity });
-    this.readline.on('line', (line) => this.handleResponseLine(line));
+    this.stdoutRl = createInterface({ input: proc.stdout!, crlfDelay: Infinity });
+    this.stdoutRl.on('line', (line) => this.handleResponseLine(line));
 
-    proc.stderr!.setEncoding('utf8');
-    let stderrBuf = '';
-    proc.stderr!.on('data', (chunk: string) => {
-      stderrBuf += chunk;
-      let nl: number;
-      while ((nl = stderrBuf.indexOf('\n')) >= 0) {
-        const line = stderrBuf.slice(0, nl).replace(/\r$/, '');
-        stderrBuf = stderrBuf.slice(nl + 1);
-        if (line.length) this.options.onLog?.(line);
-      }
-    });
+    // Use readline for stderr too — same contract as stdout, no manual buffering.
+    this.stderrRl = createInterface({ input: proc.stderr!, crlfDelay: Infinity });
+    this.stderrRl.on('line', (line) => { if (line.length) this.options.onLog?.(line); });
 
     // Confirm liveness — first ping doubles as schema-build wait. Use
     // _sendInternal because send() would await this.start(), which is the
@@ -225,8 +222,12 @@ export class BridgeClient {
   }
 
   private cleanup(): void {
-    this.readline?.close();
-    this.readline = null;
+    this.stdoutRl?.close();
+    this.stdoutRl = null;
+    this.stderrRl?.close();
+    this.stderrRl = null;
     this.proc = null;
+    this.startPromise = null;
+    this.fatalError = null;
   }
 }

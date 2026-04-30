@@ -1,6 +1,6 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using Kingdee.BOS.Core.Metadata.ConvertElement;
 using Kingdee.BOS.Orm.Metadata.DataEntity;
@@ -37,7 +37,7 @@ namespace OpenDeploy.BosBridge
             var coreAsm = resolver.LoadAssembly("Kingdee.BOS.Core");
 
             var schemas = CollectSerializableSchemas(coreAsm);
-            var binder = new TolerantListBinder(Cast(schemas));
+            var binder = new TolerantListBinder(schemas);
             var serializer = new DcxmlSerializer(binder)
             {
                 ColloctionIgnorePKValue = true,
@@ -69,8 +69,7 @@ namespace OpenDeploy.BosBridge
         /// <summary>
         /// Append a FieldMap to a ConvertRuleMetaData's DefaultConvertPolicy and
         /// re-serialize. Picks the policy whose TargetEntryKey matches; pass
-        /// null/empty to target the header-level policy. Used by Plan 5.12.4
-        /// v2 Task 3 (字段映射) to patch an existing extension XML.
+        /// null/empty to target the header-level policy.
         /// </summary>
         public string AddConvertFieldMap(
             string xml,
@@ -80,35 +79,32 @@ namespace OpenDeploy.BosBridge
             string? formula,
             string? targetEntryKey)
         {
-            if (string.IsNullOrEmpty(xml)) throw new ArgumentException("xml is empty", nameof(xml));
             if (string.IsNullOrEmpty(targetFieldKey)) throw new ArgumentException("target_field_key is empty", nameof(targetFieldKey));
             if (string.IsNullOrEmpty(sourceFieldKey) && string.IsNullOrEmpty(formula))
                 throw new ArgumentException("either source_field_key or formula must be provided");
 
-            var meta = _serializer.DeserializeFromString(xml) as ConvertRuleMetaData
-                ?? throw new InvalidOperationException("input XML did not deserialize to ConvertRuleMetaData");
-
-            var policy = FindDefaultConvertPolicy(meta, targetEntryKey);
-            if (policy == null)
+            return PatchMeta(xml, meta =>
             {
-                var key = string.IsNullOrEmpty(targetEntryKey) ? "(header)" : targetEntryKey!;
-                throw new InvalidOperationException($"no DefaultConvertPolicy with TargetEntryKey={key}");
-            }
+                var policy = FindDefaultConvertPolicy(meta, targetEntryKey);
+                if (policy == null)
+                {
+                    var key = string.IsNullOrEmpty(targetEntryKey) ? "(header)" : targetEntryKey!;
+                    throw new InvalidOperationException($"no DefaultConvertPolicy with TargetEntryKey={key}");
+                }
 
-            ValueConvertMode parsedMode;
-            try { parsedMode = (ValueConvertMode)Enum.Parse(typeof(ValueConvertMode), mode, ignoreCase: true); }
-            catch (Exception ex) { throw new ArgumentException($"invalid mode '{mode}': {ex.Message}", nameof(mode)); }
+                ValueConvertMode parsedMode;
+                try { parsedMode = (ValueConvertMode)Enum.Parse(typeof(ValueConvertMode), mode, ignoreCase: true); }
+                catch (Exception ex) { throw new ArgumentException($"invalid mode '{mode}': {ex.Message}", nameof(mode)); }
 
-            var fm = new FieldMapElement(BuildFieldMapKey(targetFieldKey, sourceFieldKey, formula))
-            {
-                TargetFieldKey = targetFieldKey,
-                SourceFieldKey = sourceFieldKey ?? string.Empty,
-                ValueConvertMode = parsedMode,
-                Formula = formula ?? string.Empty,
-            };
-            policy.FieldMaps.Add(fm);
-
-            return _serializer.SerializeToString(meta, null);
+                var fm = new FieldMapElement(BuildFieldMapKey(targetFieldKey, sourceFieldKey, formula))
+                {
+                    TargetFieldKey = targetFieldKey,
+                    SourceFieldKey = sourceFieldKey ?? string.Empty,
+                    ValueConvertMode = parsedMode,
+                    Formula = formula ?? string.Empty,
+                };
+                policy.FieldMaps.Add(fm);
+            });
         }
 
         private static DefaultConvertPolicyElement? FindDefaultConvertPolicy(
@@ -135,9 +131,7 @@ namespace OpenDeploy.BosBridge
         /// <summary>
         /// Replace the rule-level GroupBy policy (one per ConvertRule). Mode
         /// must be one of None / OneToOne / GroupByField / GroupByFormula;
-        /// for GroupByField pass field1..field3 (comma-joined into the
-        /// single field slot if you have more than 3); for GroupByFormula
-        /// pass `formula`. Plan 5.12.4 v2 Task 4 (策略配置).
+        /// for GroupByField pass field1..field3; for GroupByFormula pass `formula`.
         /// </summary>
         public string SetConvertGroupBy(
             string xml,
@@ -147,29 +141,25 @@ namespace OpenDeploy.BosBridge
             string? field3,
             string? formula)
         {
-            if (string.IsNullOrEmpty(xml)) throw new ArgumentException("xml is empty", nameof(xml));
-
-            var meta = _serializer.DeserializeFromString(xml) as ConvertRuleMetaData
-                ?? throw new InvalidOperationException("input XML did not deserialize to ConvertRuleMetaData");
-
-            ConvertGroupByPolicyElement? policy = null;
-            foreach (var p in meta.Rule.Policies)
+            return PatchMeta(xml, meta =>
             {
-                if (p is ConvertGroupByPolicyElement gp) { policy = gp; break; }
-            }
-            if (policy == null) throw new InvalidOperationException("no ConvertGroupByPolicy in rule");
+                ConvertGroupByPolicyElement? policy = null;
+                foreach (var p in meta.Rule.Policies)
+                {
+                    if (p is ConvertGroupByPolicyElement gp) { policy = gp; break; }
+                }
+                if (policy == null) throw new InvalidOperationException("no ConvertGroupByPolicy in rule");
 
-            GroupByMode parsed;
-            try { parsed = (GroupByMode)Enum.Parse(typeof(GroupByMode), mode, ignoreCase: true); }
-            catch (Exception ex) { throw new ArgumentException($"invalid GroupByMode '{mode}': {ex.Message}", nameof(mode)); }
+                GroupByMode parsed;
+                try { parsed = (GroupByMode)Enum.Parse(typeof(GroupByMode), mode, ignoreCase: true); }
+                catch (Exception ex) { throw new ArgumentException($"invalid GroupByMode '{mode}': {ex.Message}", nameof(mode)); }
 
-            policy.GroupByMode = parsed;
-            policy.GroupByField = field1 ?? string.Empty;
-            policy.GroupByField2 = field2 ?? string.Empty;
-            policy.GroupByField3 = field3 ?? string.Empty;
-            policy.GroupByFormula = formula ?? string.Empty;
-
-            return _serializer.SerializeToString(meta, null);
+                policy.GroupByMode = parsed;
+                policy.GroupByField = field1 ?? string.Empty;
+                policy.GroupByField2 = field2 ?? string.Empty;
+                policy.GroupByField3 = field3 ?? string.Empty;
+                policy.GroupByFormula = formula ?? string.Empty;
+            });
         }
 
         private static string BuildFieldMapKey(string targetFieldKey, string? sourceFieldKey, string? formula)
@@ -180,6 +170,20 @@ namespace OpenDeploy.BosBridge
             if (!string.IsNullOrEmpty(formula))
                 return $"{targetFieldKey}_F{Math.Abs(formula!.GetHashCode()):X}";
             return $"{targetFieldKey}_{sourceFieldKey ?? "auto"}";
+        }
+
+        /// <summary>
+        /// Deserialize <paramref name="xml"/> to a ConvertRuleMetaData, apply
+        /// <paramref name="patch"/>, and re-serialize. Centralizes the
+        /// deserialize-patch-serialize triple used by every patch operation.
+        /// </summary>
+        private string PatchMeta(string xml, Action<ConvertRuleMetaData> patch)
+        {
+            if (string.IsNullOrEmpty(xml)) throw new ArgumentException("xml is empty", nameof(xml));
+            var meta = _serializer.DeserializeFromString(xml) as ConvertRuleMetaData
+                ?? throw new InvalidOperationException("input XML did not deserialize to ConvertRuleMetaData");
+            patch(meta);
+            return _serializer.SerializeToString(meta, null);
         }
 
         // ── helpers ────────────────────────────────────────────────────
@@ -208,12 +212,8 @@ namespace OpenDeploy.BosBridge
             try { return asm.GetTypes(); }
             catch (ReflectionTypeLoadException ex)
             {
-                var loaded = new List<Type>();
-                foreach (var t in ex.Types) if (t != null) loaded.Add(t);
-                return loaded;
+                return ex.Types.Where(t => t != null)!;
             }
         }
-
-        private static IEnumerable<IDataEntityType> Cast(List<IDataEntityType> schemas) => schemas;
     }
 }

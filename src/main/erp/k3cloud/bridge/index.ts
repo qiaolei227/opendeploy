@@ -6,6 +6,7 @@ export { BridgeClient, BridgeError } from './client';
 export type { BridgeOptions } from './client';
 
 let instance: BridgeClient | null = null;
+let startingPromise: Promise<BridgeClient> | null = null;
 
 /**
  * Locate the bos-bridge executable. In dev we look at the build output
@@ -39,15 +40,23 @@ export function resolveBridgeExePath(opts: { projectRoot?: string; appRoot?: str
  */
 export async function getBridge(options: Partial<BridgeOptions> = {}): Promise<BridgeClient> {
   if (instance) return instance;
-  const exePath = options.exePath ?? resolveBridgeExePath();
-  instance = new BridgeClient({ exePath, ...options });
-  try {
-    await instance.start();
-  } catch (err) {
-    instance = null;
-    throw err;
-  }
-  return instance;
+  // Guard against concurrent callers both seeing instance===null and each
+  // spawning their own bridge process — the second would be orphaned.
+  if (startingPromise) return startingPromise;
+  startingPromise = (async () => {
+    const exePath = options.exePath ?? resolveBridgeExePath();
+    const client = new BridgeClient({ exePath, ...options });
+    try {
+      await client.start();
+    } catch (err) {
+      startingPromise = null;
+      throw err;
+    }
+    instance = client;
+    startingPromise = null;
+    return client;
+  })();
+  return startingPromise;
 }
 
 export async function stopBridge(): Promise<void> {
@@ -60,4 +69,5 @@ export async function stopBridge(): Promise<void> {
 
 export function _resetBridgeForTests(): void {
   instance = null;
+  startingPromise = null;
 }

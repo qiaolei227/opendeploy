@@ -810,8 +810,8 @@ function describeConvertRuleTool(c: K3CloudConnector): ToolHandler {
 // ─── Convert rules — write ─────────────────────────────────────────
 //
 // v0.1 ships baselines for `SaleOrder-OutStock` only — see
-// `convert-rule-baselines.ts`. Add more by registering them in
-// `src/main/erp/active.ts:BUNDLED_CONVERT_RULE_BASELINES`.
+// `convert-rule-baselines.ts`. Add more in
+// `src/main/erp/k3cloud/rpc/bundled-convert-rule-baselines.ts`.
 
 async function runWithUnsupportedAware<T>(
   fn: () => Promise<T>,
