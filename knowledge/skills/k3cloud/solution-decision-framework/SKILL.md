@@ -68,11 +68,23 @@ Python 插件是 OpenDeploy 的**主力支持方向**。
 
 | ✅ Python 插件能搞 | ❌ Python 插件搞不定 |
 |---|---|
-| 保存前校验业务规则 | 审核 / 反审核服务端拦截(操作插件,v0.2) |
-| 字段变化时自动填充 / 计算 | 下推单据字段映射(转换插件,v0.2) |
-| 按钮点击触发自定义动作 | 跨单据数据聚合报表(需另建报表) |
-| 金额 / 数量自动汇总 | 高频大数据处理(性能不够) |
-| 客户 / 物料信息联动携带 | 复杂线程 / 并发逻辑(IronPython 限制) |
+| 保存前校验业务规则 | 跨单据数据聚合报表(需另建报表) |
+| 字段变化时自动填充 / 计算 | 高频大数据处理(性能不够) |
+| 按钮点击触发自定义动作 | 复杂线程 / 并发逻辑(IronPython 限制) |
+| 金额 / 数量自动汇总 | 第三方 NuGet 包依赖 / 复杂 .NET 类型 |
+| 客户 / 物料信息联动携带 | 套打 widget 定制(K/3 套打用 widget 框架,不是 PlugIn) |
+| **下推时字段映射 / 关联干预**(`kingdee_add_convert_plugin` 注册 Python 转换插件)| |
+| **审核 / 反审核 / 删除拦截**(`PythonOperationServicePlugIn`,产品工具暂未覆盖,Python 路径机制存在,2026-04-30 反编译实证)| |
+
+> **⚠ 字段映射"看起来标准能做"但实际要插件的雷区**:
+>
+> 当 agent 用 `kingdee_add_convert_field_mapping` 配置字段映射时,**先确认源字段和目标字段在同一个标准 entry**(头→头,或 sourceEntry→targetEntry)。如果出现以下任一信号,**必须 load `bos-features-index/references/multi-entry-convert-via-plugin` 走转换插件路径**:
+>
+> 1. 源字段在自建 entry,目标字段在另一个 entry(包括标准 entry / 另一自建 entry)
+> 2. 源字段在标准子单据体,目标字段在标准单据体(或反之)
+> 3. 用户描述"多单据体都要带数据" / "两个单据体合并到目标"
+>
+> 标准产品**只支持 1 主关联实体**(单据头→单据头 + 1 个单据体→1 个单据体)。其他单据体携带要走 `OnAfterCreateLink` 事件 + 创建关联数据包,标准 `kingdee_add_convert_field_mapping` 配上去也不生效(无 mount point 直接 throw,或落库后下推时数据没带过来)。**这一步走错会让用户在签字方案后撞失败,后果重于"多 load 一份 reference"**。
 
 **到这一层的行动顺序**:
 1. 先用 `kingdee_list_extensions` 查父单据有没有现成扩展可复用

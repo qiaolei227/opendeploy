@@ -944,6 +944,11 @@ function addConvertFieldMappingTool(c: K3CloudConnector): ToolHandler {
       name: 'kingdee_add_convert_field_mapping',
       description:
         '在已建的转换规则扩展上**增加一条字段映射**。支持直接字段取值(`sourceFieldKey + mode=Auto/Sum/...`)和 IronPython 公式映射(`formula + mode=Formula`)两种形式。' +
+        '\n\n**⚠ 调用前必须确认源字段和目标字段 entry 一致**。本工具只在 `targetEntryKey` 指定的 DefaultConvertPolicy 层做映射(头层或 FEntity 行体层),**跨 entry 携带不生效**。如果遇到下面任一信号:' +
+        '\n  1. 源字段在自建 entry,目标字段在另一 entry(自建或标准均算)' +
+        '\n  2. 源字段在标准子单据体,目标字段在标准单据体(或反向)' +
+        '\n  3. 用户描述"多单据体都要带数据" / "两个单据体合并"' +
+        '\n→ **必须先 `load_skill_file("k3cloud/bos-features-index", "references/multi-entry-convert-via-plugin")`** 走转换插件路径(`kingdee_add_convert_plugin` 注册 PythonConvertPlugIn,在 `OnAfterCreateLink` 里手动塞数据 + 创建关联),不要硬调本工具配字段映射 — 标准产品只支持 1 主关联实体,跨 entry 配上去会撞 mount point 不存在或下推时数据带不过来。' +
         '\n\n前提:已通过 `kingdee_create_convert_rule_extension` 建立了扩展(v0.1 仅支持 SaleOrder-OutStock)。工具会读取 OpenDeploy 本地保存的扩展 XML 状态,通过 .NET 桥修改后重新保存到服务端。' +
         '\n\n`targetEntryKey` 指定要操作的 DefaultConvertPolicy 层(SaleOrder-OutStock 典型值 `FEntity` = 行体层;不传则操作头体层)。' +
         '\n\n`mode` 枚举:Auto / Sum / Average / Count / Max / Min / Formula / Join / SumFormula。常用:Auto(直接取值) / Sum(合并求和) / Formula(IronPython 公式)。' +
