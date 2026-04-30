@@ -77,6 +77,7 @@ import {
   saveConvertRuleExtState,
   loadConvertRuleExtState,
 } from './rpc/convert-rule-state';
+import { buildPatchBaseXml } from './rpc/build-patch-base-xml';
 import { getBridge } from './bridge';
 import type { KdSession } from './rpc/http-client';
 import type {
@@ -501,12 +502,25 @@ export class K3CloudConnector implements ErpConnector {
     const isv = await this.getIsv(session);
     const result = await rpcExtendConvertRule(session, { baseline, isv, displayName });
     // Persist state so subsequent patch operations have a base XML to work with.
+    //
+    // The wire `result.extensionXml` is the 275-byte minimal body the server
+    // got — that's right for SaveRulesV9 (server inherits Policies via
+    // BaseObjectId) but **wrong for the local patch base**: the bridge's
+    // FindDefaultConvertPolicy/RequirePolicy<T> need the Policy schemas
+    // present in the deserialized object. We rebuild the patch base from the
+    // bundled extension template (full Policy shells) with cleared FieldMaps.
+    // See `build-patch-base-xml.ts` for the full rationale.
     if (result.ok && this.projectId) {
       const desc = await getConvertRule(session, result.newExtensionId);
+      const patchBaseXml = buildPatchBaseXml({
+        templateXml: baseline.extensionTemplateXml,
+        newExtensionId: result.newExtensionId,
+        displayName: displayName ?? '转换规则',
+      });
       await saveConvertRuleExtState(this.projectId, {
         extId: result.newExtensionId,
         originRuleId,
-        xml: result.extensionXml,
+        xml: patchBaseXml,
         inheritPath: desc.InheritPath ?? null,
         version: desc.Version ?? null,
         mainVersion: desc.MainVersion ?? null,

@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { encodeAppLayer } from '../../src/main/erp/k3cloud/rpc/codec';
 import { K3CloudConnector } from '../../src/main/erp/k3cloud/connector';
+import { buildSaleOrderOutStockBaseline } from '../../src/main/erp/k3cloud/rpc/convert-rule-baselines';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { BosRpcCredentials } from '@shared/erp-types';
 
 /**
@@ -275,5 +279,205 @@ describe('K3CloudConnector metadata RPC reads', () => {
     expect(plugins).toHaveLength(1);
     expect(plugins[0].type).toBe('dll');
     expect(plugins[0].className).toContain('SaleOrderEdit');
+  });
+});
+
+/**
+ * Regression for the patch-base-XML follow-up flagged in commit 0df79625:
+ * `extendConvertRule` must persist a state.xml that the .NET bridge can
+ * deserialize into a `ConvertRuleMetaData` with populated Policies — not
+ * the 275-byte minimal extension XML we send to the server (that has no
+ * <Policies> at all, so subsequent `addConvertFieldMapping` would fail
+ * client-side with `no DefaultConvertPolicy with TargetEntryKey=…`).
+ */
+describe('K3CloudConnector.extendConvertRule patch-base XML persistence', () => {
+  // Minimal extension-template fixture mirroring the bundled
+  // `sale-order-outstock-extension-template.xml` shape — full Policies
+  // collection + cloned FieldMaps + rule-level Name/Id/Key triple.
+  const EXT_TEMPLATE_XML =
+    '<?xml version="1.0" encoding="utf-16"?>' +
+    '<ConvertRuleMetaData><Rule>' +
+    '<ConvertRule ElementType="6000" ElementStyle="0">' +
+    '<Policies>' +
+    '<DefaultConvertPolicy ElementType="7002" ElementStyle="0">' +
+    '<SourceEntryKey /><TargetEntryKey />' +
+    '<FieldMaps>' +
+    '<FieldMap ElementType="60002" ElementStyle="0">' +
+    '<TargetFieldKey>FBillNo</TargetFieldKey>' +
+    '<SourceFieldKey>FBillNo</SourceFieldKey>' +
+    '<Id>521162116b1442c6a4fcb70cdca6c57c</Id>' +
+    '</FieldMap>' +
+    '</FieldMaps>' +
+    '<Id>aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee</Id>' +
+    '</DefaultConvertPolicy>' +
+    '<ConvertGroupByPolicy ElementType="7003" ElementStyle="0">' +
+    '<Id>11111111-2222-3333-4444-555555555555</Id>' +
+    '</ConvertGroupByPolicy>' +
+    '</Policies>' +
+    '<Name>转换规则</Name>' +
+    '<Id>793e8fdc-da7f-4058-a6b6-08422cd82688</Id>' +
+    '<Key>fd7c0d17-162c-4af0-8865-d88b56f8bbbf</Key>' +
+    '<ElementType>6000</ElementType>' +
+    '</ConvertRule>' +
+    '</Rule></ConvertRuleMetaData>';
+
+  const ORIGIN_XML =
+    '<?xml version="1.0" encoding="utf-16"?>' +
+    '<ConvertRuleMetaData><Rule>' +
+    '<ConvertRule ElementType="6000"><Id>SaleOrder-OutStock</Id></ConvertRule>' +
+    '</Rule></ConvertRuleMetaData>';
+
+  const baseline = buildSaleOrderOutStockBaseline({
+    originXml: ORIGIN_XML,
+    extensionTemplateXml: EXT_TEMPLATE_XML,
+  });
+  const baselines = { 'SaleOrder-OutStock': baseline };
+
+  const PROJECT_ID = 'p-test-extend-convert';
+
+  let tempHome: string;
+  let originalHome: string | undefined;
+
+  // Use OPENDEPLOY_HOME to redirect state-file writes into a temp directory
+  // — saveConvertRuleExtState resolves its path off this env var.
+  function setupHome(): void {
+    tempHome = mkdtempSync(join(tmpdir(), 'opendeploy-test-'));
+    originalHome = process.env.OPENDEPLOY_HOME;
+    process.env.OPENDEPLOY_HOME = tempHome;
+  }
+
+  function teardownHome(): void {
+    if (originalHome === undefined) delete process.env.OPENDEPLOY_HOME;
+    else process.env.OPENDEPLOY_HOME = originalHome;
+    rmSync(tempHome, { recursive: true, force: true });
+  }
+
+  /**
+   * Mock fetch covering every RPC the extendConvertRule path issues:
+   *   1. login (GetPublicKeyInfo + ValidateLoginInfo) — connect()
+   *   2. GetCurrentISV — getIsv() before SaveRulesV9
+   *   3. GetConvertRule(originId) — liveOriginParas reads live Version
+   *   4. SaveRulesV9 — the actual save
+   *   5. GetConvertRule(newExtensionId) — to read InheritPath/Version after save
+   * The new-extension-id GetConvertRule returns minimal metadata.
+   */
+  function buildFetch(): typeof fetch {
+    let saveCount = 0;
+    return (async (url: string) => {
+      if (url.includes('GetPublicKeyInfo')) return new Response(encodeAppLayer('""'));
+      if (url.includes('ValidateLoginInfo'))
+        return new Response(
+          encodeAppLayer(
+            JSON.stringify({
+              LoginResultType: 1,
+              Message: 'ok',
+              KDSVCSessionId: 'sess1',
+              Context: { UserId: 1, UserName: 'demo', CustomName: 'demo' },
+            }),
+          ),
+        );
+      if (url.includes('GetCurrentISV'))
+        return new Response(
+          encodeAppLayer(
+            JSON.stringify({ Id: 'ISV-ID', Name: 'UNW', ISVSignal: '', PackageSignal: '', DevCode: 'UNW' }),
+          ),
+        );
+      if (url.includes('GetConvertRule')) {
+        // First call resolves originId for liveOriginParas; second resolves
+        // the new ext for the post-save InheritPath read. Both share the
+        // same minimal stub.
+        return new Response(
+          encodeAppLayer(
+            JSON.stringify({
+              Id: 'whatever',
+              Version: '1',
+              MainVersion: '1',
+              InheritPath: ',SaleOrder-OutStock,',
+              Rule: { Policies: [] },
+            }),
+          ),
+        );
+      }
+      if (url.includes('SaveRulesV9')) {
+        saveCount++;
+        return new Response(encodeAppLayer(''));
+      }
+      throw new Error(`unexpected fetch URL: ${url}`);
+    }) as typeof fetch;
+  }
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it('persists patch-base XML with empty FieldMaps + full Policy shells (NOT the 275-byte minimal)', async () => {
+    setupHome();
+    try {
+      globalThis.fetch = buildFetch();
+      const c = new K3CloudConnector(TEST_CREDS, baselines, PROJECT_ID);
+      await c.connect();
+
+      const result = await c.extendConvertRule('SaleOrder-OutStock', '我的扩展');
+      expect(result.ok).toBe(true);
+
+      const statePath = join(
+        tempHome,
+        'projects',
+        PROJECT_ID,
+        'convert-rule-ext',
+        `${result.newExtensionId}.json`,
+      );
+      const state = JSON.parse(readFileSync(statePath, 'utf-8'));
+      const stateXml: string = state.xml;
+
+      // Bridge mount-points must be present
+      expect(stateXml).toMatch(/<DefaultConvertPolicy[^>]+ElementType="7002"[^>]*>/);
+      expect(stateXml).toMatch(/<ConvertGroupByPolicy[^>]+>/);
+
+      // FieldMaps wrapper present, contents cleared (regression on the
+      // bug: parent's FieldMap entries must NOT be cloned into our state)
+      expect(stateXml).toContain('<FieldMaps />');
+      expect(stateXml).not.toContain('<FieldMap ');
+      expect(stateXml).not.toContain('FBillNo');
+      expect(stateXml).not.toContain('521162116b1442c6a4fcb70cdca6c57c');
+
+      // Rule-level Id/Key swapped to the newExtensionId
+      expect(stateXml).toContain(`<Id>${result.newExtensionId}</Id>`);
+      expect(stateXml).toContain(`<Key>${result.newExtensionId}</Key>`);
+      expect(stateXml).toContain('<Name>我的扩展</Name>');
+
+      // Specifically NOT the minimal extension XML that goes to the server
+      expect(stateXml).not.toMatch(/<Status action="reset" \/>.*<\/ConvertRule>/s);
+
+      // server-supplied lineage / version copied through to state
+      expect(state.inheritPath).toBe(',SaleOrder-OutStock,');
+      expect(state.originRuleId).toBe('SaleOrder-OutStock');
+    } finally {
+      teardownHome();
+    }
+  });
+
+  it('uses default display name "转换规则" when caller omits one', async () => {
+    setupHome();
+    try {
+      globalThis.fetch = buildFetch();
+      const c = new K3CloudConnector(TEST_CREDS, baselines, PROJECT_ID);
+      await c.connect();
+
+      const result = await c.extendConvertRule('SaleOrder-OutStock');
+      expect(result.ok).toBe(true);
+
+      const statePath = join(
+        tempHome,
+        'projects',
+        PROJECT_ID,
+        'convert-rule-ext',
+        `${result.newExtensionId}.json`,
+      );
+      const stateXml: string = JSON.parse(readFileSync(statePath, 'utf-8')).xml;
+      expect(stateXml).toContain('<Name>转换规则</Name>');
+    } finally {
+      teardownHome();
+    }
   });
 });
