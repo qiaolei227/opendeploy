@@ -144,12 +144,7 @@ namespace OpenDeploy.BosBridge
         {
             return PatchMeta(xml, meta =>
             {
-                ConvertGroupByPolicyElement? policy = null;
-                foreach (var p in meta.Rule.Policies)
-                {
-                    if (p is ConvertGroupByPolicyElement gp) { policy = gp; break; }
-                }
-                if (policy == null) throw new InvalidOperationException("no ConvertGroupByPolicy in rule");
+                var policy = RequirePolicy<ConvertGroupByPolicyElement>(meta);
 
                 GroupByMode parsed;
                 try { parsed = (GroupByMode)Enum.Parse(typeof(GroupByMode), mode, ignoreCase: true); }
@@ -177,12 +172,7 @@ namespace OpenDeploy.BosBridge
 
             return PatchMeta(xml, meta =>
             {
-                ConvertFilterPolicyElement? policy = null;
-                foreach (var p in meta.Rule.Policies)
-                {
-                    if (p is ConvertFilterPolicyElement fp) { policy = fp; break; }
-                }
-                if (policy == null) throw new InvalidOperationException("no ConvertFilterPolicy in rule");
+                var policy = RequirePolicy<ConvertFilterPolicyElement>(meta);
 
                 if (alertMessage != null) policy.AlertMessageView = alertMessage;
                 if (custFilter != null) policy.CustFilter = custFilter;
@@ -199,13 +189,7 @@ namespace OpenDeploy.BosBridge
 
             return PatchMeta(xml, meta =>
             {
-                ConvertPlugInPolicyElement? policy = null;
-                foreach (var p in meta.Rule.Policies)
-                {
-                    if (p is ConvertPlugInPolicyElement pp) { policy = pp; break; }
-                }
-                if (policy == null) throw new InvalidOperationException("no ConvertPlugInPolicy in rule");
-
+                var policy = RequirePolicy<ConvertPlugInPolicyElement>(meta);
                 if (policy.Plugs == null) policy.Plugs = new List<FormPlugIn>();
                 if (policy.Plugs.Any(p => p.ClassName == className)) return;
 
@@ -228,13 +212,7 @@ namespace OpenDeploy.BosBridge
 
             return PatchMeta(xml, meta =>
             {
-                ConvertPlugInPolicyElement? policy = null;
-                foreach (var p in meta.Rule.Policies)
-                {
-                    if (p is ConvertPlugInPolicyElement pp) { policy = pp; break; }
-                }
-                if (policy == null) throw new InvalidOperationException("no ConvertPlugInPolicy in rule");
-
+                var policy = RequirePolicy<ConvertPlugInPolicyElement>(meta);
                 policy.Plugs?.RemoveAll(p => p.ClassName == className);
             });
         }
@@ -250,12 +228,7 @@ namespace OpenDeploy.BosBridge
         {
             return PatchMeta(xml, meta =>
             {
-                BillTypeMapPolicyElement? policy = null;
-                foreach (var p in meta.Rule.Policies)
-                {
-                    if (p is BillTypeMapPolicyElement bp) { policy = bp; break; }
-                }
-                if (policy == null) throw new InvalidOperationException("no BillTypeMapPolicy in rule");
+                var policy = RequirePolicy<BillTypeMapPolicyElement>(meta);
 
                 foreach (var m in policy.BillTypeMaps)
                 {
@@ -296,6 +269,13 @@ namespace OpenDeploy.BosBridge
         }
 
         // ── helpers ────────────────────────────────────────────────────
+
+        private static T RequirePolicy<T>(ConvertRuleMetaData meta) where T : class
+        {
+            foreach (var p in meta.Rule.Policies)
+                if (p is T typed) return typed;
+            throw new InvalidOperationException($"no {typeof(T).Name} in rule");
+        }
 
         private static List<IDataEntityType> CollectSerializableSchemas(Assembly coreAsm)
         {

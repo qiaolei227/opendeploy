@@ -936,7 +936,7 @@ function deleteConvertRuleExtensionTool(c: K3CloudConnector): ToolHandler {
   };
 }
 
-// ── Convert-rule write tools (Task 4) ────────────────────────────────────────
+// ── Convert-rule write tools ──────────────────────────────────────────────────
 
 function addConvertFieldMappingTool(c: K3CloudConnector): ToolHandler {
   return {
@@ -1186,14 +1186,10 @@ function addConvertBillTypeMapTool(c: K3CloudConnector): ToolHandler {
     },
     async execute(args) {
       const extId = args.extId as string;
-      const src = args.sourceBillTypeId as string;
-      const tgt = args.targetBillTypeId as string;
+      const src = typeof args.sourceBillTypeId === 'string' ? args.sourceBillTypeId : '';
+      const tgt = typeof args.targetBillTypeId === 'string' ? args.targetBillTypeId : '';
       if (!extId?.trim()) throw new Error('extId is required');
-      const result = await c.addConvertBillTypeMap(
-        extId.trim(),
-        typeof src === 'string' ? src : '',
-        typeof tgt === 'string' ? tgt : '',
-      );
+      const result = await c.addConvertBillTypeMap(extId.trim(), src, tgt);
       return JSON.stringify({
         ok: result.ok,
         message: result.ok

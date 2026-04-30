@@ -504,9 +504,7 @@ export class K3CloudConnector implements ErpConnector {
     const state = await loadConvertRuleExtState(this.projectId, extId);
     const baseline = this.requireBaseline(op, state.originRuleId);
     const session = this.requireSession();
-    const isv = await this.getIsv(session);
-
-    const bridge = await getBridge();
+    const [isv, bridge] = await Promise.all([this.getIsv(session), getBridge()]);
     const { xml: patchedXml } = await bridge.send<{ xml: string }>(op, { xml: state.xml, ...bridgeArgs });
 
     const result = await saveConvertRules(session, {
