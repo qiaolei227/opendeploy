@@ -2184,3 +2184,132 @@ describe('kingdee_rename_entry / kingdee_rename_tab_page / kingdee_rename_tab_co
     expect(req.existingTabControlsRaw![0]).toContain('<Caption>A&amp;B&lt;C&gt;</Caption>');
   });
 });
+
+describe('kingdee_create_extension — parent FormId case normalization', () => {
+  // K/3 父对象 FID 拼写不统一(SAL_SaleOrder 混合 / SAL_OUTSTOCK 全大写)。RPC 服务端 case-insensitive
+  // 找父对象,但 BOS Designer 列扩展时严格按字符串匹配 FBASEOBJECTID,所以工具落库必须用
+  // connector.getObject() 返回的 parent.id 作为 baseObjectId,而非 agent 输入的 raw 拼写。
+  // 实证:2026-04-30 销售出库单扩展因 raw='SAL_OutStock' / canonical='SAL_OUTSTOCK' 在 Designer 不可见。
+  const OUTSTOCK_LAYOUT_OID = 'fa50ddec-b1cf-43cb-a9be-dee3ce2bdb12';
+  const OUTSTOCK_PARENT_OBJECT: ObjectMeta = {
+    id: 'SAL_OUTSTOCK', // canonical 拼写,服务端真实 FID
+    name: '销售出库单',
+    modelTypeId: 100,
+    subsystemId: '23',
+    baseObjectId: null,
+    isTemplate: false,
+    modifyDate: null,
+  };
+
+  const findCreate = async (connector: K3CloudConnector, session = makeSessionMgr()) => {
+    mockedGetProject.mockResolvedValue(makeProject(true));
+    const tools = await buildBosRpcTools(connector, 'p1', session);
+    const tool = tools.find((t) => t.definition.name === 'kingdee_create_extension');
+    if (!tool) throw new Error('kingdee_create_extension not in tool list');
+    return tool;
+  };
+
+  /**
+   * Stable mock factory: 服务端 case-insensitive,任何拼写都返回 canonical 版本的 ObjectMeta。
+   * 模拟真实 K/3 RPC 行为(getBusinessObjectMetaData 拿到的 FID 列就是规范拼写)。
+   */
+  const mixedCaseConnector = (): K3CloudConnector =>
+    makeFakeConnector({
+      getObject: async (_id: string) => OUTSTOCK_PARENT_OBJECT,
+      getKernelXml: async (_id: string) =>
+        `<FormMetadata><LayoutInfos><LayoutInfo oid="${OUTSTOCK_LAYOUT_OID}"></LayoutInfo></LayoutInfos></FormMetadata>`,
+    });
+
+  beforeEach(() => {
+    mockedSave.mockResolvedValue({
+      isSuccess: true,
+      funcResult: true,
+      messageTitle: null,
+      messageDetail: null,
+    });
+  });
+
+  it.each([
+    ['SAL_OutStock'],   // PascalCase guess (LLM 历史训练数据常见)
+    ['sal_outstock'],   // 全小写
+    ['SAL_outstock'],
+    ['SAL_OUTSTOCK '],  // 带尾部空格,trim 后是 canonical
+  ])('writes canonical FBASEOBJECTID even when agent passes %s', async (raw) => {
+    const tool = await findCreate(mixedCaseConnector());
+
+    await tool.execute({ parentFormId: raw, extName: '测试' });
+
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.extension.baseObjectId).toBe('SAL_OUTSTOCK');
+  });
+
+  it('returns canonical parentFormId in success response (not raw input)', async () => {
+    const tool = await findCreate(mixedCaseConnector());
+
+    const out = JSON.parse(
+      await tool.execute({ parentFormId: 'SAL_OutStock', extName: '测试' }),
+    );
+
+    expect(out.ok).toBe(true);
+    expect(out.parentFormId).toBe('SAL_OUTSTOCK');
+  });
+
+  it('reminder explicitly tells agent the canonical spelling when input differs', async () => {
+    const tool = await findCreate(mixedCaseConnector());
+
+    const out = JSON.parse(
+      await tool.execute({ parentFormId: 'SAL_OutStock', extName: '测试' }),
+    );
+
+    expect(out.reminder).toContain('SAL_OutStock');     // 输入拼写
+    expect(out.reminder).toContain('SAL_OUTSTOCK');     // 规范拼写
+    expect(out.reminder).toMatch(/规范拼写/);
+  });
+
+  it('omits the case-hint noise when input already matches canonical', async () => {
+    const tool = await findCreate(mixedCaseConnector());
+
+    const out = JSON.parse(
+      await tool.execute({ parentFormId: 'SAL_OUTSTOCK', extName: '测试' }),
+    );
+
+    expect(out.reminder).not.toMatch(/规范拼写/);
+    expect(out.reminder).not.toMatch(/你输入的父单据/);
+  });
+
+  it('uses canonical FormId when fetching FKERNELXML for layoutInfoOid auto-discovery', async () => {
+    const getKernelXml = vi.fn(
+      async (_id: string) =>
+        `<FormMetadata><LayoutInfos><LayoutInfo oid="${OUTSTOCK_LAYOUT_OID}"></LayoutInfo></LayoutInfos></FormMetadata>`,
+    );
+    const tool = await findCreate(
+      makeFakeConnector({
+        getObject: async () => OUTSTOCK_PARENT_OBJECT,
+        getKernelXml,
+      }),
+    );
+
+    await tool.execute({ parentFormId: 'sal_outstock', extName: '测试' });
+
+    expect(getKernelXml).toHaveBeenCalledTimes(1);
+    expect(getKernelXml).toHaveBeenCalledWith('SAL_OUTSTOCK');
+  });
+
+  it('error path keeps raw input visible to surface user typo (no normalization on rejection)', async () => {
+    mockedSave.mockResolvedValue({
+      isSuccess: false,
+      funcResult: false,
+      messageTitle: '保存失败',
+      messageDetail: 'something else',
+    });
+    const tool = await findCreate(mixedCaseConnector());
+
+    const out = JSON.parse(
+      await tool.execute({ parentFormId: 'SAL_OutStock', extName: '测试' }),
+    );
+
+    expect(out.ok).toBe(false);
+    // 错误响应保留 raw 让用户看到自己输入的是什么(便于诊断 typo)
+    expect(out.parentFormId).toBe('SAL_OutStock');
+  });
+});

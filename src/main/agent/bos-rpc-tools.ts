@@ -548,11 +548,15 @@ function createExtensionTool(
           `父单据 ${parentFormId} 元数据不完整(modelTypeId=${parent.modelTypeId}, subsystemId=${parent.subsystemId}),无法创建扩展。`,
         );
       }
+      // Canonical FID lookup — K/3 父对象 FID 拼写不统一(SAL_SaleOrder 混合 / SAL_OUTSTOCK 全大写),
+      // 服务端 RPC case-insensitive 能查到,但 BOS Designer 列扩展时严格按字符串匹配 FBASEOBJECTID
+      // 列。直接用 raw 输入会让混合大小写的 FBASEOBJECTID 落库,Designer 看不到扩展(2026-04-30 实证)。
+      const canonicalFormId = parent.id;
 
       // Discover layoutInfoOid from parent FKERNELXML unless agent overrode.
       let layoutInfoOid = typeof args.layoutInfoOid === 'string' ? args.layoutInfoOid.trim() : '';
       if (!layoutInfoOid) {
-        const xml = await connector.getKernelXml(parentFormId);
+        const xml = await connector.getKernelXml(canonicalFormId);
         if (!xml) {
           throw new Error(`父单据 ${parentFormId} 无 FKERNELXML,无法自动发现 layoutInfoOid。`);
         }
@@ -569,7 +573,7 @@ function createExtensionTool(
       const req: SaveExtensionRequest = {
         extension: {
           formId,
-          baseObjectId: parentFormId,
+          baseObjectId: canonicalFormId,
           modelTypeId: parent.modelTypeId,
           subSystemId: parent.subsystemId,
           name: [{ localeId: 2052, value: extName }],
@@ -597,16 +601,22 @@ function createExtensionTool(
         );
       }
 
+      const baseReminder =
+        '扩展已创建。后续添加字段 / 插件请把上面的 extId 传给 kingdee_add_fields / kingdee_register_python_plugins(都接数组,一次保存里把要加的全部传进来,不要拆多次)。' +
+        'BOS Designer 中需点工具栏刷新按钮才能在扩展列表里看到新建的扩展。';
+      const caseHint =
+        canonicalFormId !== parentFormId
+          ? `提示:你输入的父单据 ID 拼写为 "${parentFormId}",规范拼写为 "${canonicalFormId}",已按规范写入。后续工具调用请使用规范拼写。`
+          : '';
+
       return JSON.stringify(
         {
           ok: true,
           extId: formId,
-          parentFormId,
+          parentFormId: canonicalFormId,
           extName,
           layoutInfoOid,
-          reminder:
-            '扩展已创建。后续添加字段 / 插件请把上面的 extId 传给 kingdee_add_fields / kingdee_register_python_plugins(都接数组,一次保存里把要加的全部传进来,不要拆多次)。' +
-            'BOS Designer 中需点工具栏刷新按钮才能在扩展列表里看到新建的扩展。',
+          reminder: caseHint ? `${caseHint}\n${baseReminder}` : baseReminder,
         },
         null,
         2,
