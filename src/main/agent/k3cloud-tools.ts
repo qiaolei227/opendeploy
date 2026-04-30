@@ -944,11 +944,7 @@ function addConvertFieldMappingTool(c: K3CloudConnector): ToolHandler {
       name: 'kingdee_add_convert_field_mapping',
       description:
         '在已建的转换规则扩展上**增加一条字段映射**。支持直接字段取值(`sourceFieldKey + mode=Auto/Sum/...`)和 IronPython 公式映射(`formula + mode=Formula`)两种形式。' +
-        '\n\n**⚠ 调用前必须确认源字段和目标字段 entry 一致**。本工具只在 `targetEntryKey` 指定的 DefaultConvertPolicy 层做映射(头层或 FEntity 行体层),**跨 entry 携带不生效**。如果遇到下面任一信号:' +
-        '\n  1. 源字段在自建 entry,目标字段在另一 entry(自建或标准均算)' +
-        '\n  2. 源字段在标准子单据体,目标字段在标准单据体(或反向)' +
-        '\n  3. 用户描述"多单据体都要带数据" / "两个单据体合并"' +
-        '\n→ **必须先 `load_skill_file("k3cloud/bos-features-index", "references/multi-entry-convert-via-plugin")`** 走转换插件路径(`kingdee_add_convert_plugin` 注册 PythonConvertPlugIn,在 `OnAfterCreateLink` 里手动塞数据 + 创建关联),不要硬调本工具配字段映射 — 标准产品只支持 1 主关联实体,跨 entry 配上去会撞 mount point 不存在或下推时数据带不过来。' +
+        '\n\n**能力边界**:本工具只在父规则的 DefaultConvertPolicy 层(头→头 / 标准 sourceEntry→targetEntry)做映射,K/3 标准转换规则只支持 1 主关联实体。跨 entry 携带(自建 entry 之间 / 子单据体↔单据体)不在范围内 — **工具内部对 entry 一致性做了校验,不一致的调用返回 `entry_mismatch` 并 hint 转向 `kingdee_add_convert_plugin`**(注册 PythonConvertPlugIn,在 `OnAfterCreateLink` 事件里手动塞数据 + 创建关联)。' +
         '\n\n前提:已通过 `kingdee_create_convert_rule_extension` 建立了扩展(v0.1 仅支持 SaleOrder-OutStock)。工具会读取 OpenDeploy 本地保存的扩展 XML 状态,通过 .NET 桥修改后重新保存到服务端。' +
         '\n\n`targetEntryKey` 指定要操作的 DefaultConvertPolicy 层(SaleOrder-OutStock 典型值 `FEntity` = 行体层;不传则操作头体层)。' +
         '\n\n`mode` 枚举:Auto / Sum / Average / Count / Max / Min / Formula / Join / SumFormula。常用:Auto(直接取值) / Sum(合并求和) / Formula(IronPython 公式)。' +
@@ -997,10 +993,34 @@ function addConvertFieldMappingTool(c: K3CloudConnector): ToolHandler {
       const mode = typeof args.mode === 'string' && args.mode.trim() !== '' ? args.mode.trim() : 'Auto';
       const formula = typeof args.formula === 'string' && args.formula.trim() !== '' ? args.formula.trim() : undefined;
       const targetEntryKey = typeof args.targetEntryKey === 'string' && args.targetEntryKey.trim() !== '' ? args.targetEntryKey.trim() : undefined;
+      const sourceField = typeof sourceFieldKey === 'string' ? sourceFieldKey.trim() : '';
+
+      // Entry-consistency validation. K/3 standard convert rules support only
+      // 1 main link entity (header→header + 1 sourceEntry→1 targetEntry).
+      // Mapping a field whose source/target entry doesn't match any of the
+      // origin rule's DefaultConvertPolicy mount points will silently fail
+      // at runtime (no data carried over) or throw at the bridge. Reject up
+      // front and point the agent at the convert-plugin escape hatch.
+      //
+      // Skipped when source field is empty (formula-only mappings reference
+      // fields by name inside IronPython, can't be statically resolved).
+      if (sourceField !== '' && mode !== 'Formula') {
+        const validation = await validateEntryConsistency(c, extId.trim(), sourceField, targetFieldKey.trim(), targetEntryKey);
+        if (!validation.ok) {
+          return JSON.stringify({
+            ok: false,
+            reason: 'entry_mismatch',
+            message: validation.message,
+            hint: '使用 kingdee_add_convert_plugin 注册 PythonConvertPlugIn,在 OnAfterCreateLink 事件里手动塞数据 + 创建关联数据包(FlowId / FlowLineId / RuleId / STableName / SBillId / SId 6 个字段)。骨架代码与决策依据见 load_skill_file("k3cloud/bos-features-index", "references/multi-entry-convert-via-plugin")。',
+            detected: validation.detected,
+          });
+        }
+      }
+
       const result = await c.addConvertFieldMapping(
         extId.trim(),
         targetFieldKey.trim(),
-        typeof sourceFieldKey === 'string' ? sourceFieldKey.trim() : '',
+        sourceField,
         mode,
         formula,
         targetEntryKey,
@@ -1014,6 +1034,105 @@ function addConvertFieldMappingTool(c: K3CloudConnector): ToolHandler {
           : `服务端返回非空响应,可能未成功:${result.raw.slice(0, 200)}`
       });
     }
+  };
+}
+
+/**
+ * Pre-flight check for `kingdee_add_convert_field_mapping`.
+ *
+ * Walks the origin rule's DefaultConvertPolicy list (head + each entry pair),
+ * resolves source / target field's actual entry from form metadata, and
+ * verifies an exact (sourceEntry, targetEntry) pair exists. Returns a
+ * structured failure when no match — the caller turns this into an
+ * `entry_mismatch` tool result with a hint pointing at add_convert_plugin.
+ *
+ * Header field convention: K/3's parseFieldsFromKernelXml sets
+ * `isEntryField: false` and `entryKey: undefined` for header fields; we
+ * normalize to `''` here to align with how header DCPs encode their
+ * SourceEntryKey / TargetEntryKey ('' for header).
+ */
+async function validateEntryConsistency(
+  c: K3CloudConnector,
+  extId: string,
+  sourceFieldKey: string,
+  targetFieldKey: string,
+  requestedTargetEntryKey: string | undefined,
+): Promise<{
+  ok: boolean;
+  message?: string;
+  detected: {
+    sourceField: string;
+    sourceEntry: string;
+    targetField: string;
+    targetEntry: string;
+    requestedTargetEntryKey: string | undefined;
+    rulePolicies: Array<{ sourceEntry: string; targetEntry: string }>;
+  };
+}> {
+  const dcps = await c.describeOriginRuleDcps(extId);
+  const [sourceFields, targetFields] = await Promise.all([
+    c.getFields(dcps.sourceFormId),
+    c.getFields(dcps.targetFormId),
+  ]);
+
+  const sourceFieldMeta = sourceFields.find((f) => f.key === sourceFieldKey);
+  const targetFieldMeta = targetFields.find((f) => f.key === targetFieldKey);
+
+  // Field unknown to source / target form: don't block — could be an
+  // extension field not yet refreshed in metadata cache, or the agent typed
+  // a field key we just created. Server-side will surface real errors.
+  if (!sourceFieldMeta || !targetFieldMeta) {
+    return {
+      ok: true,
+      detected: {
+        sourceField: sourceFieldKey,
+        sourceEntry: sourceFieldMeta?.entryKey ?? '',
+        targetField: targetFieldKey,
+        targetEntry: targetFieldMeta?.entryKey ?? '',
+        requestedTargetEntryKey,
+        rulePolicies: dcps.policies,
+      },
+    };
+  }
+
+  const sourceEntry = sourceFieldMeta.isEntryField ? sourceFieldMeta.entryKey ?? '' : '';
+  const targetEntry = targetFieldMeta.isEntryField ? targetFieldMeta.entryKey ?? '' : '';
+
+  const matched = dcps.policies.find((p) => p.sourceEntry === sourceEntry && p.targetEntry === targetEntry);
+  if (matched) {
+    return {
+      ok: true,
+      detected: {
+        sourceField: sourceFieldKey,
+        sourceEntry,
+        targetField: targetFieldKey,
+        targetEntry,
+        requestedTargetEntryKey,
+        rulePolicies: dcps.policies,
+      },
+    };
+  }
+
+  const formatEntry = (e: string) => (e === '' ? '(头层)' : e);
+  const policiesDesc = dcps.policies
+    .map((p) => `${formatEntry(p.sourceEntry)} → ${formatEntry(p.targetEntry)}`)
+    .join(' / ');
+
+  return {
+    ok: false,
+    message:
+      `源字段 ${sourceFieldKey} 在 ${formatEntry(sourceEntry)},` +
+      `目标字段 ${targetFieldKey} 在 ${formatEntry(targetEntry)}。` +
+      `K/3 标准转换规则(${dcps.originRuleId})只在以下层做映射:${policiesDesc}。` +
+      `当前组合不在标准 DefaultConvertPolicy 集合内,标准产品携带不到目标 entry。`,
+    detected: {
+      sourceField: sourceFieldKey,
+      sourceEntry,
+      targetField: targetFieldKey,
+      targetEntry,
+      requestedTargetEntryKey,
+      rulePolicies: dcps.policies,
+    },
   };
 }
 

@@ -76,15 +76,9 @@ Python 插件是 OpenDeploy 的**主力支持方向**。
 | **下推时字段映射 / 关联干预**(`kingdee_add_convert_plugin` 注册 Python 转换插件)| |
 | **审核 / 反审核 / 删除拦截**(`PythonOperationServicePlugIn`,产品工具暂未覆盖,Python 路径机制存在,2026-04-30 反编译实证)| |
 
-> **⚠ 字段映射"看起来标准能做"但实际要插件的雷区**:
->
-> 当 agent 用 `kingdee_add_convert_field_mapping` 配置字段映射时,**先确认源字段和目标字段在同一个标准 entry**(头→头,或 sourceEntry→targetEntry)。如果出现以下任一信号,**必须 load `bos-features-index/references/multi-entry-convert-via-plugin` 走转换插件路径**:
->
-> 1. 源字段在自建 entry,目标字段在另一个 entry(包括标准 entry / 另一自建 entry)
-> 2. 源字段在标准子单据体,目标字段在标准单据体(或反之)
-> 3. 用户描述"多单据体都要带数据" / "两个单据体合并到目标"
->
-> 标准产品**只支持 1 主关联实体**(单据头→单据头 + 1 个单据体→1 个单据体)。其他单据体携带要走 `OnAfterCreateLink` 事件 + 创建关联数据包,标准 `kingdee_add_convert_field_mapping` 配上去也不生效(无 mount point 直接 throw,或落库后下推时数据没带过来)。**这一步走错会让用户在签字方案后撞失败,后果重于"多 load 一份 reference"**。
+**关于 `kingdee_add_convert_field_mapping` 的事实**:K/3 标准转换规则只支持 **1 主关联实体**(头→头 + 1 个 sourceEntry→targetEntry)。其他 entry 携带(包括跨自建 entry / 子单据体↔单据体)不在这个工具的能力范围,需要用 `kingdee_add_convert_plugin` 注册 `PythonConvertPlugIn`,在 `OnAfterCreateLink` 事件里手动塞数据 + 创建关联数据包(`FlowId` / `FlowLineId` / `RuleId` / `STableName` / `SBillId` / `SId` 6 个字段)。完整骨架见 `bos-features-index/references/multi-entry-convert-via-plugin`。
+
+工具内部已对入参做 entry 一致性校验,跨 entry 调用会被 reject 并返回 hint。但 agent 应当在出方案前自己判断"这条字段映射跨不跨 entry",及早走对路径,而不是依赖工具兜底。
 
 **到这一层的行动顺序**:
 1. 先用 `kingdee_list_extensions` 查父单据有没有现成扩展可复用

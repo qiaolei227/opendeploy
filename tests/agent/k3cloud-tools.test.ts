@@ -31,6 +31,7 @@ function makeFake(
       | 'extendConvertRule'
       | 'deleteConvertRuleExtension'
       | 'addConvertFieldMapping'
+      | 'describeOriginRuleDcps'
       | 'setConvertGroupBy'
       | 'setConvertFilter'
       | 'addConvertPlugin'
@@ -63,6 +64,7 @@ function makeFake(
     extendConvertRule: notConfigured('extendConvertRule'),
     deleteConvertRuleExtension: notConfigured('deleteConvertRuleExtension'),
     addConvertFieldMapping: notConfigured('addConvertFieldMapping'),
+    describeOriginRuleDcps: notConfigured('describeOriginRuleDcps'),
     setConvertGroupBy: notConfigured('setConvertGroupBy'),
     setConvertFilter: notConfigured('setConvertFilter'),
     addConvertPlugin: notConfigured('addConvertPlugin'),
@@ -1031,5 +1033,196 @@ describe('kingdee_add_convert_plugin tool', () => {
 
   it('omits parallelSafe (write tool — must serialize)', () => {
     expect(findTool(makeFake()).parallelSafe).toBeUndefined();
+  });
+});
+
+describe('kingdee_add_convert_field_mapping — entry consistency validation', () => {
+  const findTool = (fake: K3CloudConnector) =>
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_add_convert_field_mapping')!;
+
+  // SaleOrder-OutStock parent rule shape (header DCP + 1 entry-level DCP).
+  const standardDcps = {
+    originRuleId: 'SaleOrder-OutStock',
+    sourceFormId: 'SAL_SaleOrder',
+    targetFormId: 'SAL_OUTSTOCK',
+    policies: [
+      { sourceEntry: '', targetEntry: '' },
+      { sourceEntry: 'FSaleOrderEntry', targetEntry: 'FEntity' },
+    ],
+  };
+
+  const standardSourceFields: FieldMeta[] = [
+    { key: 'FCustomerId', name: '客户', type: 'BasedataField', isEntryField: false },
+    { key: 'FQty', name: '数量', type: 'DecimalField', isEntryField: true, entryKey: 'FSaleOrderEntry' },
+    { key: 'F_PAIJ_Hello', name: '自建头字段', type: 'TextField', isEntryField: true, entryKey: 'F_PAIJ_Entity_61b' },
+  ];
+
+  const standardTargetFields: FieldMeta[] = [
+    { key: 'FCustomerId', name: '客户', type: 'BasedataField', isEntryField: false },
+    { key: 'FOutQty', name: '实发数量', type: 'DecimalField', isEntryField: true, entryKey: 'FEntity' },
+    { key: 'F_PAIJ_OtherField', name: '自建目标', type: 'TextField', isEntryField: true, entryKey: 'F_PAIJ_Entity_jo3' },
+  ];
+
+  const happySaveResult = { ok: true as const, raw: '' };
+
+  it('header→header: passes validation, forwards to addConvertFieldMapping', async () => {
+    const fake = makeFake({
+      describeOriginRuleDcps: vi.fn(async () => standardDcps),
+      getFields: vi.fn(async (formId) =>
+        formId === 'SAL_SaleOrder' ? standardSourceFields : standardTargetFields
+      ),
+      addConvertFieldMapping: vi.fn(async () => happySaveResult),
+    });
+    const tool = findTool(fake);
+
+    const raw = await tool.execute({
+      extId: 'ext_abc',
+      sourceFieldKey: 'FCustomerId',
+      targetFieldKey: 'FCustomerId',
+    });
+
+    expect(JSON.parse(raw).ok).toBe(true);
+    expect(fake.addConvertFieldMapping).toHaveBeenCalled();
+  });
+
+  it('FSaleOrderEntry→FEntity (standard entry pair): passes', async () => {
+    const fake = makeFake({
+      describeOriginRuleDcps: vi.fn(async () => standardDcps),
+      getFields: vi.fn(async (formId) =>
+        formId === 'SAL_SaleOrder' ? standardSourceFields : standardTargetFields
+      ),
+      addConvertFieldMapping: vi.fn(async () => happySaveResult),
+    });
+    const tool = findTool(fake);
+
+    const raw = await tool.execute({
+      extId: 'ext_abc',
+      sourceFieldKey: 'FQty',
+      targetFieldKey: 'FOutQty',
+      targetEntryKey: 'FEntity',
+    });
+
+    expect(JSON.parse(raw).ok).toBe(true);
+    expect(fake.addConvertFieldMapping).toHaveBeenCalled();
+  });
+
+  it('cross self-built entries: rejects with entry_mismatch + hint, no save call', async () => {
+    const fake = makeFake({
+      describeOriginRuleDcps: vi.fn(async () => standardDcps),
+      getFields: vi.fn(async (formId) =>
+        formId === 'SAL_SaleOrder' ? standardSourceFields : standardTargetFields
+      ),
+      addConvertFieldMapping: vi.fn(async () => happySaveResult),
+    });
+    const tool = findTool(fake);
+
+    const raw = await tool.execute({
+      extId: 'ext_abc',
+      sourceFieldKey: 'F_PAIJ_Hello',
+      targetFieldKey: 'F_PAIJ_OtherField',
+      targetEntryKey: 'F_PAIJ_Entity_jo3',
+    });
+    const parsed = JSON.parse(raw);
+
+    expect(parsed.ok).toBe(false);
+    expect(parsed.reason).toBe('entry_mismatch');
+    expect(parsed.hint).toMatch(/kingdee_add_convert_plugin/);
+    expect(parsed.hint).toMatch(/multi-entry-convert-via-plugin/);
+    expect(parsed.detected.sourceEntry).toBe('F_PAIJ_Entity_61b');
+    expect(parsed.detected.targetEntry).toBe('F_PAIJ_Entity_jo3');
+    expect(parsed.detected.rulePolicies).toEqual(standardDcps.policies);
+    expect(fake.addConvertFieldMapping).not.toHaveBeenCalled();
+  });
+
+  it('header → entry: rejects (no DCP for that pair)', async () => {
+    const fake = makeFake({
+      describeOriginRuleDcps: vi.fn(async () => standardDcps),
+      getFields: vi.fn(async (formId) =>
+        formId === 'SAL_SaleOrder' ? standardSourceFields : standardTargetFields
+      ),
+      addConvertFieldMapping: vi.fn(async () => happySaveResult),
+    });
+    const tool = findTool(fake);
+
+    const raw = await tool.execute({
+      extId: 'ext_abc',
+      sourceFieldKey: 'FCustomerId',
+      targetFieldKey: 'FOutQty',
+      targetEntryKey: 'FEntity',
+    });
+    const parsed = JSON.parse(raw);
+
+    expect(parsed.ok).toBe(false);
+    expect(parsed.reason).toBe('entry_mismatch');
+    expect(parsed.detected.sourceEntry).toBe('');
+    expect(parsed.detected.targetEntry).toBe('FEntity');
+    expect(fake.addConvertFieldMapping).not.toHaveBeenCalled();
+  });
+
+  it('entry → header: rejects', async () => {
+    const fake = makeFake({
+      describeOriginRuleDcps: vi.fn(async () => standardDcps),
+      getFields: vi.fn(async (formId) =>
+        formId === 'SAL_SaleOrder' ? standardSourceFields : standardTargetFields
+      ),
+      addConvertFieldMapping: vi.fn(async () => happySaveResult),
+    });
+    const tool = findTool(fake);
+
+    const raw = await tool.execute({
+      extId: 'ext_abc',
+      sourceFieldKey: 'FQty',
+      targetFieldKey: 'FCustomerId',
+    });
+    const parsed = JSON.parse(raw);
+
+    expect(parsed.ok).toBe(false);
+    expect(parsed.reason).toBe('entry_mismatch');
+    expect(parsed.detected.sourceEntry).toBe('FSaleOrderEntry');
+    expect(parsed.detected.targetEntry).toBe('');
+  });
+
+  it('Formula mode: skips validation (formula references resolve at runtime)', async () => {
+    const fake = makeFake({
+      describeOriginRuleDcps: vi.fn(async () => {
+        throw new Error('describeOriginRuleDcps should not be called in Formula mode');
+      }),
+      getFields: vi.fn(async () => {
+        throw new Error('getFields should not be called in Formula mode');
+      }),
+      addConvertFieldMapping: vi.fn(async () => happySaveResult),
+    });
+    const tool = findTool(fake);
+
+    const raw = await tool.execute({
+      extId: 'ext_abc',
+      sourceFieldKey: 'FQty',
+      targetFieldKey: 'FCustomerId',
+      mode: 'Formula',
+      formula: 'sourceData["FQty"] * 2',
+    });
+
+    expect(JSON.parse(raw).ok).toBe(true);
+    expect(fake.addConvertFieldMapping).toHaveBeenCalled();
+  });
+
+  it('unknown source/target field: passes through (lets server-side surface the real error)', async () => {
+    const fake = makeFake({
+      describeOriginRuleDcps: vi.fn(async () => standardDcps),
+      getFields: vi.fn(async (formId) =>
+        formId === 'SAL_SaleOrder' ? standardSourceFields : standardTargetFields
+      ),
+      addConvertFieldMapping: vi.fn(async () => happySaveResult),
+    });
+    const tool = findTool(fake);
+
+    const raw = await tool.execute({
+      extId: 'ext_abc',
+      sourceFieldKey: 'FNonExistent',
+      targetFieldKey: 'FOutQty',
+    });
+
+    expect(JSON.parse(raw).ok).toBe(true);
+    expect(fake.addConvertFieldMapping).toHaveBeenCalled();
   });
 });

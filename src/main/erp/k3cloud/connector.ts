@@ -566,6 +566,39 @@ export class K3CloudConnector implements ErpConnector {
     return result;
   }
 
+  /**
+   * Inspect the origin rule of an extension and return its DefaultConvertPolicy
+   * shape — the (sourceEntry, targetEntry) pairs that field mappings can mount
+   * onto. Used by `kingdee_add_convert_field_mapping`'s entry-consistency
+   * validator to refuse multi-entry-mismatch wiring before it hits the bridge.
+   *
+   * Header-level entries surface as `''` (the K/3 convention — empty
+   * SourceEntryKey / TargetEntryKey on the header DCP).
+   */
+  async describeOriginRuleDcps(extId: string): Promise<{
+    originRuleId: string;
+    sourceFormId: string;
+    targetFormId: string;
+    policies: Array<{ sourceEntry: string; targetEntry: string }>;
+  }> {
+    if (!this.projectId) throw new Error('connector not created with a projectId — cannot access ext state');
+    const state = await loadConvertRuleExtState(this.projectId, extId);
+    const raw = await getConvertRule(this.requireSession(), state.originRuleId);
+    const rule = raw.Rule;
+    const policies = (rule.Policies ?? [])
+      .filter((p) => typeof p.___InstClassType__ === 'string' && p.___InstClassType__.endsWith('DefaultConvertPolicyElement'))
+      .map((p) => ({
+        sourceEntry: (p.SourceEntryKey as string | undefined) ?? '',
+        targetEntry: (p.TargetEntryKey as string | undefined) ?? '',
+      }));
+    return {
+      originRuleId: state.originRuleId,
+      sourceFormId: rule.SourceFormId,
+      targetFormId: rule.TargetFormId,
+      policies,
+    };
+  }
+
   /** Add a FieldMap to an extension's DefaultConvertPolicy. */
   async addConvertFieldMapping(
     extId: string,
