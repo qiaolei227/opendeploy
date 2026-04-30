@@ -32,8 +32,8 @@ category: plugin-dev
 |---|---|---|
 | 执行位置 | 客户端(winform)/ Web 浏览器 | **服务端** IIS / AppServer |
 | 事件范围 | 仅 `AbstractBillPlugIn` 客户端事件 | **所有 6 类插件基类** |
-| 能拦截服务端操作? | ❌ 无法 | ✅ 通过 `AbstractOperationServicePlugIn` |
-| 能改下推行为? | ❌ | ✅ 通过 `AbstractConvertPlugIn` |
+| 能拦截服务端操作? | 🔴 写"❌"但**未反编译验证**;Designer 有 `AvalonOperationPluginPythonEditor`,可能实际可走 Python | ✅ 通过 `AbstractOperationServicePlugIn` |
+| 能改下推行为? | 🟢 ✅ 通过 `PythonConvertPlugIn`(2026-04-30 反编译实证) | ✅ 通过 `AbstractConvertPlugIn` |
 | 性能 | IronPython 解释执行,慢 | 原生 .NET,快 |
 | 调试 | BOS Designer 脚本编辑器 | Visual Studio + 金蝶 DLL 引用 |
 | 部署 | **改元数据**(扩展的 FKERNELXML) | **改元数据 + 发布 DLL 到 WebSite\Bin** |

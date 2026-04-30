@@ -1,7 +1,25 @@
-<!-- 来源:open.kingdee.com 二开规范 + help.open.kingdee.com dokuwiki;实证状态:🟡 主流程;非客户环境实测 -->
+<!--
+来源:open.kingdee.com 二开规范 + help.open.kingdee.com dokuwiki + 2026-04-30 反编译 K/3 Cloud 客户端 DLL 实证
+实证状态:转换插件相关 🟢 实证(PythonConvertPlugIn 反编译确认);其他场景 🔴 未反编译验证
+-->
+
 # Python 表单插件 vs DLL 插件 决策指南
 
 > agent 在"要不要写 Python"分叉点必读。
+
+---
+
+> **⚠ 2026-04-30 实证修正(必读)**
+>
+> 本文件 Plan 5.8 初版未做反编译实证,直接照搬"Python 表单插件不能做服务端"这条普遍误解。**实际反编译发现 K/3 服务端为多个插件基类提供了 Python 衍生类**:
+>
+> - **`PythonConvertPlugIn : AbstractConvertPlugIn`** — 转换插件 Python 路径已实证存在,22 个虚方法全部支持(`OnAfterCreateLink` / `OnAfterFieldMapping` / `OnAfterConvert` / 等)。**下文表中"下推 ❌ Python"的行已修正为 ✅**
+> - **操作插件 / 打印插件 / 列表插件 / 报表插件** 是否有 Python 衍生(`PythonOperationServicePlugIn` 等)— **暂未反编译验证**。Designer 里 `AvalonOperationPluginPythonEditor` 类的存在是强信号,可能这些场景实际也支持 Python,只是本文件还是按"❌ Python"写
+>
+> **使用本文件的纪律**:
+> - 标 🟢 的行(转换插件相关)可信
+> - 标 🔴 的行(其他 ❌ Python 行)使用前应反编译相应基类(`Kingdee.BOS.Core.Metadata.*.PlugIn` 命名空间)确认是否真有 Python 路径
+> - 当用户问"X 操作能不能用 Python",优先反编译验证而非照搬本表
 
 ---
 
@@ -15,14 +33,14 @@
 | 默认值 / UI 控制(隐藏按钮等) | ✅ | 不必 | AfterBindData 事件 |
 | 自定义按钮点击逻辑 | ✅(轻逻辑) | ✅(重逻辑) | 涉及多表更新走 DLL |
 | 弹窗交互 | ✅ | ✅ | 客户端事件 |
-| **审核 / 反审核拦截** | ❌ | ✅ **只能 DLL** | 服务端操作,Python 触不到 |
-| **删除拦截** | ❌ | ✅ **只能 DLL** | 同上 |
-| **提交 / 撤销提交拦截** | ❌ | ✅ **只能 DLL** | 同上 |
-| **下推前服务端校验** | ❌ | ✅ **只能 DLL** | AbstractConvertPlugIn |
-| **下推时字段复杂映射** | ❌ | ✅ **只能 DLL** | 同上 |
-| **打印时动态条码 / 动态选模板** | ❌ | ✅ **只能 DLL** | AbstractPrintControlPlugIn |
-| **列表自定义过滤 / 行格式** | ❌ | ✅ **只能 DLL** | AbstractListPlugIn |
-| **报表自定义取数逻辑** | ❌ | ✅ **只能 DLL** | SysReportBaseService |
+| **审核 / 反审核拦截** | 🔴 ❌(未验证) | ✅ | 操作插件 Python 衍生未反编译验证,可能实际支持 |
+| **删除拦截** | 🔴 ❌(未验证) | ✅ | 同上 |
+| **提交 / 撤销提交拦截** | 🔴 ❌(未验证) | ✅ | 同上 |
+| **下推前服务端校验** | 🟢 ✅ | ✅ | `PythonConvertPlugIn.OnBeforeFieldMapping` / `OnGetSourceData` 等;反编译实证 2026-04-30 |
+| **下推时字段复杂映射** | 🟢 ✅ | ✅ | `PythonConvertPlugIn.OnFieldMapping` / `OnAfterFieldMapping`;反编译实证 |
+| **打印时动态条码 / 动态选模板** | 🔴 ❌(未验证) | ✅ | PrintControl Python 衍生未验证 |
+| **列表自定义过滤 / 行格式** | 🔴 ❌(未验证) | ✅ | List Python 衍生未验证 |
+| **报表自定义取数逻辑** | 🔴 ❌(未验证) | ✅ | SysReport Python 衍生未验证 |
 | **保存事务内的多表更新**(原子性) | ❌(BeforeSave 不在事务内) | ✅ AbstractOperationServicePlugIn 在事务内 | 数据一致性要求高时必须 DLL |
 | **高频循环 + 大数据量**(批量审核 1000 单) | ❌(IronPython 慢 5-20 倍) | ✅(原生 .NET) | 性能 |
 | **调外部 HTTP API** | ⚠️(IronPython 限制 + 客户端发起,网络) | ✅(服务端,可控) | 调外部用 DLL |
@@ -48,7 +66,8 @@
   │     → ❌ Python 做不到 → DLL 操作插件(AbstractOperationServicePlugIn)
   │
   ├── 是下推时字段映射 / 跨单据校验?
-  │     → ❌ Python 做不到 → DLL 转换插件(AbstractConvertPlugIn)
+  │     → ✅ **Python 优先**(`PythonConvertPlugIn`,无需编译部署)
+  │     → 也可 DLL(团队已有 .NET 工程 / 性能极致 / 需 NuGet 包时)
   │
   ├── 是打印模板动态化(条码 / 大写 / 选模板)?
   │     → ❌ 默认 Python 做不到 → DLL 打印插件
@@ -90,11 +109,13 @@
 
 ### 场景 C:用户描述"销售订单下推到出库单时,把客户简称拼到出库单备注里"
 
-**判定**:下推映射 = 服务端转换 → DLL
+**判定**:下推映射 = 服务端转换 → **Python 优先**(无需编译部署),DLL 也可
 
-> 你这个需求是**下推时字段映射加工**——必须用 DLL 转换插件(`AbstractConvertPlugIn`)。
+> 你这个需求是**下推时字段映射加工**——可以走 Python 转换插件(`PythonConvertPlugIn`,2026-04-30 反编译实证),也可以走 DLL(`AbstractConvertPlugIn`),能力等价。
 >
 > 简单的字段直映射或表达式 BOS Designer 的转换规则就能配,但**拼接其他单据(客户档案)的字段**到目标单据的备注,需要写代码——挂 `OnAfterFieldMapping` 事件,在里面读源数据的客户 ID,查 `T_BD_CUSTOMER` 拿简称,拼到目标的 `FRemarks`。
+>
+> **推荐 Python**:OpenDeploy 一键写入 + 无需编译 + 无需重启。除非团队已有 .NET 工程要复用,否则走 Python。
 >
 > 不过先核实:能不能在销售订单里加个"客户简称"自定义字段(BOS Designer 配公式),下推时直映射这个字段?如果可以,根本不用插件。
 
