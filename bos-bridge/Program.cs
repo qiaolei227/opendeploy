@@ -104,8 +104,30 @@ namespace OpenDeploy.BosBridge
                 case "ping":
                     return "pong";
                 case "normalize_convert_rule":
+                {
                     var xml = (string?)req["xml"] ?? throw new InvalidOperationException("missing field: xml");
                     return new { xml = ctx.NormalizeConvertRule(xml) };
+                }
+                case "add_convert_field_map":
+                {
+                    var xml = (string?)req["xml"] ?? throw new InvalidOperationException("missing field: xml");
+                    var target = (string?)req["target_field_key"] ?? throw new InvalidOperationException("missing field: target_field_key");
+                    var source = (string?)req["source_field_key"];
+                    var mode = (string?)req["mode"] ?? "Auto";
+                    var formula = (string?)req["formula"];
+                    var entry = (string?)req["target_entry_key"];
+                    return new { xml = ctx.AddConvertFieldMap(xml, target, source ?? string.Empty, mode, formula, entry) };
+                }
+                case "set_convert_group_by":
+                {
+                    var xml = (string?)req["xml"] ?? throw new InvalidOperationException("missing field: xml");
+                    var mode = (string?)req["mode"] ?? throw new InvalidOperationException("missing field: mode");
+                    var field1 = (string?)req["field1"];
+                    var field2 = (string?)req["field2"];
+                    var field3 = (string?)req["field3"];
+                    var formula = (string?)req["formula"];
+                    return new { xml = ctx.SetConvertGroupBy(xml, mode, field1, field2, field3, formula) };
+                }
                 default:
                     throw new InvalidOperationException($"unknown op: {op}");
             }

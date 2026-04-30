@@ -72,4 +72,84 @@ describeIfBridge('bos-bridge integration', () => {
   it('returns BridgeError for unknown ops', async () => {
     await expect(client.send('this_op_does_not_exist')).rejects.toThrow(/unknown op/);
   });
+
+  it('add_convert_field_map appends a FieldMap to the named entry', async () => {
+    const inputXml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/sale-order-outstock-origin.xml',
+      'utf8',
+    );
+    const countTag = (xml: string, tag: string) =>
+      (xml.match(new RegExp(`<${tag}[ />]`, 'g')) || []).length;
+    const before = countTag(inputXml, 'FieldMap');
+
+    const result = await client.send<{ xml: string }>('add_convert_field_map', {
+      xml: inputXml,
+      target_field_key: 'FBridgeProbe',
+      source_field_key: 'FQty',
+      mode: 'Auto',
+      target_entry_key: 'FEntity',
+    });
+
+    expect(countTag(result.xml, 'FieldMap')).toBe(before + 1);
+    expect(result.xml).toContain('<TargetFieldKey>FBridgeProbe</TargetFieldKey>');
+    expect(result.xml).toContain('<SourceFieldKey>FQty</SourceFieldKey>');
+  });
+
+  it('add_convert_field_map rejects unknown ValueConvertMode', async () => {
+    const inputXml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/sale-order-outstock-origin.xml',
+      'utf8',
+    );
+    await expect(
+      client.send('add_convert_field_map', {
+        xml: inputXml,
+        target_field_key: 'FBridgeProbe',
+        source_field_key: 'FQty',
+        mode: 'NotARealMode',
+        target_entry_key: 'FEntity',
+      }),
+    ).rejects.toThrow(/invalid mode/);
+  });
+
+  it('add_convert_field_map rejects when target entry not found', async () => {
+    const inputXml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/sale-order-outstock-origin.xml',
+      'utf8',
+    );
+    await expect(
+      client.send('add_convert_field_map', {
+        xml: inputXml,
+        target_field_key: 'FBridgeProbe',
+        source_field_key: 'FQty',
+        mode: 'Auto',
+        target_entry_key: 'FDoesNotExist',
+      }),
+    ).rejects.toThrow(/no DefaultConvertPolicy/);
+  });
+
+  it('set_convert_group_by replaces the rule-level group-by policy', async () => {
+    const inputXml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/sale-order-outstock-origin.xml',
+      'utf8',
+    );
+    const result = await client.send<{ xml: string }>('set_convert_group_by', {
+      xml: inputXml,
+      mode: 'GroupByField',
+      field1: 'FCustId',
+      field2: 'FBillTypeId',
+    });
+    expect(result.xml).toContain('<GroupByMode>GroupByField</GroupByMode>');
+    expect(result.xml).toContain('<GroupByField>FCustId</GroupByField>');
+    expect(result.xml).toContain('<GroupByField2>FBillTypeId</GroupByField2>');
+  });
+
+  it('set_convert_group_by rejects unknown mode', async () => {
+    const inputXml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/sale-order-outstock-origin.xml',
+      'utf8',
+    );
+    await expect(
+      client.send('set_convert_group_by', { xml: inputXml, mode: 'NotARealMode' }),
+    ).rejects.toThrow(/invalid GroupByMode/);
+  });
 });
