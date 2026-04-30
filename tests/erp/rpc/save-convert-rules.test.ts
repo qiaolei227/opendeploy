@@ -3,6 +3,7 @@ import { encodeAppLayer, decodeAppLayerString } from '../../../src/main/erp/k3cl
 import {
   saveConvertRules,
   buildNewExtensionParas,
+  buildModifyExtensionParas,
   envelopeToJsonString,
   type ConvertRuleEnvelope,
   type IsvDescriptor,
@@ -111,6 +112,26 @@ describe('buildNewExtensionParas', () => {
     });
     const names = JSON.parse(p.Name);
     expect(names.find((n: { Key: number; Value: string }) => n.Key === 2052)?.Value).toBe('转换规则');
+  });
+});
+
+describe('buildModifyExtensionParas', () => {
+  it('preserves baseObjectId so the server keeps the extension parented to the origin rule', () => {
+    // Regression: empty baseObjectId here turned 0c537acc... into an
+    // orphan top-level rule (FBASEOBJECTID = '') in UAT 2026-05-01,
+    // making BOS Designer render it as an independent convert rule
+    // instead of a child of SaleOrder-OutStock.
+    const p = buildModifyExtensionParas({
+      extId: 'abc12345-1234-5678-90ab-cdef01234567',
+      baseObjectId: 'SaleOrder-OutStock',
+      isv: UNW_ISV,
+      inheritPath: ',SaleOrder-OutStock,',
+      version: '634553997696460779',
+      mainVersion: '634553997696460779',
+    });
+    expect(p.BaseObjectId).toBe('SaleOrder-OutStock');
+    expect(p.Id).toBe('abc12345-1234-5678-90ab-cdef01234567');
+    expect(p.OldId).toBe('abc12345-1234-5678-90ab-cdef01234567');
   });
 });
 

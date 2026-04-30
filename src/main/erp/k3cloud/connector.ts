@@ -553,7 +553,7 @@ export class K3CloudConnector implements ErpConnector {
         {
           localeSlots: DEFAULT_LOCALE_SLOTS,
           source: patchedXml,
-          paras: buildModifyExtensionParas({ extId, isv, inheritPath: state.inheritPath, version: state.version, mainVersion: state.mainVersion }),
+          paras: buildModifyExtensionParas({ extId, baseObjectId: state.originRuleId, isv, inheritPath: state.inheritPath, version: state.version, mainVersion: state.mainVersion }),
         },
       ],
       oldIds: [baseline.originParas.Id, extId],

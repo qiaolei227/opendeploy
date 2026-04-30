@@ -199,9 +199,16 @@ export function buildNewExtensionParas(args: {
  * (non-null) tells the server this is a modify rather than a create.
  * `inheritPath`, `version`, `mainVersion` are the values saved from the
  * server response at creation time (see `convert-rule-state.ts`).
+ *
+ * `baseObjectId` MUST be the parent rule's id (e.g. 'SaleOrder-OutStock').
+ * Empty string here makes the server orphan the extension — it persists
+ * with FBASEOBJECTID = '' and BOS Designer renders it as an independent
+ * top-level convert rule rather than a child of the parent. UAT
+ * 2026-05-01 实证 (rule 0c537acc5b88...) confirmed this.
  */
 export function buildModifyExtensionParas(args: {
   extId: string;
+  baseObjectId: string;
   isv: IsvDescriptor;
   inheritPath: string | null;
   version: string | null;
@@ -218,7 +225,7 @@ export function buildModifyExtensionParas(args: {
     Id: args.extId,
     OldId: args.extId,
     ModelTypeId: CONVERT_RULE_MODEL_TYPE_ID,
-    BaseObjectId: '',
+    BaseObjectId: args.baseObjectId,
     DevType: 0,
     SubSystemId: null,
     Version: args.version,
