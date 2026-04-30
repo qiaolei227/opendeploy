@@ -94,7 +94,7 @@ export async function setActiveProject(project: Project | null): Promise<void> {
     return;
   }
   const baselines = await loadBundledBaselines();
-  const next = new K3CloudConnector(project.bos, baselines);
+  const next = new K3CloudConnector(project.bos, baselines, project.id);
   try {
     await next.connect();
     connector = next;

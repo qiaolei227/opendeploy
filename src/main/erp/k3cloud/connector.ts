@@ -64,8 +64,20 @@ import { getCurrentIsv } from './rpc/get-current-isv';
 import {
   UnsupportedConvertRuleError,
   type ConvertRuleBaseline,
+  DEFAULT_LOCALE_SLOTS,
 } from './rpc/convert-rule-baselines';
-import type { IsvDescriptor, SaveConvertRulesResult } from './rpc/save-convert-rules';
+import {
+  buildModifyExtensionParas,
+  type IsvDescriptor,
+  type ConvertRuleEnvelope,
+  type SaveConvertRulesResult,
+} from './rpc/save-convert-rules';
+import { saveConvertRules } from './rpc/save-convert-rules';
+import {
+  saveConvertRuleExtState,
+  loadConvertRuleExtState,
+} from './rpc/convert-rule-state';
+import { getBridge } from './bridge';
 import type { KdSession } from './rpc/http-client';
 import type {
   BosRpcCredentials,
@@ -111,6 +123,8 @@ export class K3CloudConnector implements ErpConnector {
   constructor(
     public readonly config: BosRpcCredentials,
     private readonly convertRuleBaselines: Record<string, ConvertRuleBaseline> = {},
+    /** Project ID for on-disk state (convert-rule-ext XML, backups). */
+    private readonly projectId?: string,
   ) {}
 
   /** Open the BOS session. Idempotent — second call no-ops. */
@@ -459,7 +473,90 @@ export class K3CloudConnector implements ErpConnector {
     const session = this.requireSession();
     const baseline = this.requireBaseline('extendConvertRule', originRuleId);
     const isv = await this.getIsv(session);
-    return rpcExtendConvertRule(session, { baseline, isv, displayName });
+    const result = await rpcExtendConvertRule(session, { baseline, isv, displayName });
+    // Persist state so subsequent patch operations have a base XML to work with.
+    if (result.ok && this.projectId) {
+      const desc = await getConvertRule(session, result.newExtensionId);
+      await saveConvertRuleExtState(this.projectId, {
+        extId: result.newExtensionId,
+        originRuleId,
+        xml: result.extensionXml,
+        inheritPath: desc.InheritPath ?? null,
+        version: desc.Version ?? null,
+        mainVersion: desc.MainVersion ?? null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    return result;
+  }
+
+  /**
+   * Add a FieldMap entry to an existing convert-rule extension. Loads the
+   * extension's current DCXML from disk (written at creation time), patches
+   * it via the .NET bridge, persists the updated XML, and re-saves via
+   * SaveRulesV9. Only supports extensions created by OpenDeploy (requires
+   * the local state file from `extendConvertRule`).
+   *
+   * `targetEntryKey` selects which DefaultConvertPolicy to target; omit for
+   * the header-level policy, or pass `"FEntity"` for the line-entry policy
+   * (the typical case for SaleOrder-OutStock).
+   */
+  async addConvertFieldMapping(
+    extId: string,
+    targetFieldKey: string,
+    sourceFieldKey: string,
+    mode: string,
+    formula?: string,
+    targetEntryKey?: string,
+  ): Promise<SaveConvertRulesResult> {
+    if (!this.projectId) throw new Error('connector not created with a projectId — cannot access ext state');
+    const state = await loadConvertRuleExtState(this.projectId, extId);
+    const baseline = this.requireBaseline('addConvertFieldMapping', state.originRuleId);
+    const session = this.requireSession();
+    const isv = await this.getIsv(session);
+
+    const bridge = await getBridge();
+    const { xml: patchedXml } = await bridge.send<{ xml: string }>('add_convert_field_map', {
+      xml: state.xml,
+      target_field_key: targetFieldKey,
+      source_field_key: sourceFieldKey,
+      mode,
+      ...(formula != null ? { formula } : {}),
+      ...(targetEntryKey != null ? { target_entry_key: targetEntryKey } : {}),
+    });
+
+    const modifyEnvelope: ConvertRuleEnvelope = {
+      localeSlots: DEFAULT_LOCALE_SLOTS,
+      source: patchedXml,
+      paras: buildModifyExtensionParas({
+        extId,
+        isv,
+        inheritPath: state.inheritPath,
+        version: state.version,
+        mainVersion: state.mainVersion,
+      }),
+    };
+    const originEnv: ConvertRuleEnvelope = {
+      localeSlots: DEFAULT_LOCALE_SLOTS,
+      source: baseline.originXml,
+      paras: baseline.originParas,
+    };
+
+    const result = await saveConvertRules(session, {
+      rules: [originEnv, modifyEnvelope],
+      oldIds: [baseline.originParas.Id, extId],
+      isv,
+    });
+
+    if (result.ok) {
+      await saveConvertRuleExtState(this.projectId, {
+        ...state,
+        xml: patchedXml,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    return result;
   }
 
   async deleteConvertRuleExtension(

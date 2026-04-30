@@ -187,6 +187,53 @@ export function buildNewExtensionParas(args: {
 }
 
 /**
+ * Build paras for modifying an existing extension rule. `OldId = extId`
+ * (non-null) tells the server this is a modify rather than a create.
+ * `inheritPath`, `version`, `mainVersion` are the values saved from the
+ * server response at creation time (see `convert-rule-state.ts`).
+ */
+export function buildModifyExtensionParas(args: {
+  extId: string;
+  isv: IsvDescriptor;
+  inheritPath: string | null;
+  version: string | null;
+  mainVersion: string | null;
+  displayName?: string;
+}): ConvertRuleParas {
+  const name = args.displayName ?? '转换规则';
+  const localeNames: LocaleString[] = [
+    { Key: 1033, Value: '' },
+    { Key: 2052, Value: name },
+    { Key: 3076, Value: '' },
+  ];
+  return {
+    Id: args.extId,
+    OldId: args.extId,
+    ModelTypeId: CONVERT_RULE_MODEL_TYPE_ID,
+    BaseObjectId: '',
+    DevType: 0,
+    SubSystemId: null,
+    Version: args.version,
+    MainVersion: args.mainVersion,
+    PackageId: null,
+    HasExtends: false,
+    RunTime: false,
+    LayoutViewId: null,
+    OldLayoutViewId: null,
+    LayoutViewVersion: null,
+    DependencyObjectId: null,
+    FirstNonExtendObjectID: null,
+    ISV: args.isv,
+    UpdateIdToKey: false,
+    SourceFormId: null,
+    InheritPath: args.inheritPath,
+    IsInheritElement: false,
+    ModelTypeSubId: 0,
+    Name: JSON.stringify(localeNames),
+  };
+}
+
+/**
  * Save (create / modify / delete) one or more conversion rules in a single
  * server call. Throws when transport fails or BOS returns its plain-text
  * `response_error:` envelope (already surfaced by `callKdsvc` since Plan 5.13).

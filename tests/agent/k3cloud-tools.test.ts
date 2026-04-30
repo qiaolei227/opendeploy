@@ -66,9 +66,10 @@ function makeFake(
 }
 
 describe('buildK3CloudTools', () => {
-  it('returns 15 tools when a connector is present', () => {
+  it('returns 16 tools when a connector is present', () => {
     const tools = buildK3CloudTools(makeFake());
     expect(tools.map((t) => t.definition.name).sort()).toEqual([
+      'kingdee_add_convert_field_mapping',
       'kingdee_create_convert_rule_extension',
       'kingdee_delete_convert_rule_extension',
       'kingdee_describe_basedata',

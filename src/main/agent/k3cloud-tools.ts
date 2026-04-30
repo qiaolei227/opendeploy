@@ -30,7 +30,8 @@ export function buildK3CloudTools(connector?: K3CloudConnector): ToolHandler[] {
     listConvertRulesTool(c),
     describeConvertRuleTool(c),
     createConvertRuleExtensionTool(c),
-    deleteConvertRuleExtensionTool(c)
+    deleteConvertRuleExtensionTool(c),
+    addConvertFieldMappingTool(c)
   ];
 }
 
@@ -926,6 +927,80 @@ function deleteConvertRuleExtensionTool(c: K3CloudConnector): ToolHandler {
         }),
         { originRuleId: trimmedRule, extId: trimmedExt }
       );
+    }
+  };
+}
+
+function addConvertFieldMappingTool(c: K3CloudConnector): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_add_convert_field_mapping',
+      description:
+        '在已建的转换规则扩展上**增加一条字段映射**。支持直接字段取值(`sourceFieldKey + mode=Auto/Sum/...`)和 IronPython 公式映射(`formula + mode=Formula`)两种形式。' +
+        '\n\n前提:已通过 `kingdee_create_convert_rule_extension` 建立了扩展(v0.1 仅支持 SaleOrder-OutStock)。工具会读取 OpenDeploy 本地保存的扩展 XML 状态,通过 .NET 桥修改后重新保存到服务端。' +
+        '\n\n`targetEntryKey` 指定要操作的 DefaultConvertPolicy 层(SaleOrder-OutStock 典型值 `FEntity` = 行体层;不传则操作头体层)。' +
+        '\n\n`mode` 枚举:Auto / Sum / Average / Count / Max / Min / Formula / Join / SumFormula。常用:Auto(直接取值) / Sum(合并求和) / Formula(IronPython 公式)。' +
+        '\n\n**保存成功后**:请让用户关闭客户端整个重登才能看到新字段映射(BOS 客户端有缓存)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: {
+            type: 'string',
+            description: '扩展的 GUID(从 `kingdee_create_convert_rule_extension` 的 `newExtensionId` 取)。'
+          },
+          targetFieldKey: {
+            type: 'string',
+            description: '目标单据(下推目标)的字段 Key,如 "FOutQty"。'
+          },
+          sourceFieldKey: {
+            type: 'string',
+            description: '来源单据的字段 Key,如 "FQty"。mode=Formula 时可传空字符串或省略,公式里自己引用字段。'
+          },
+          mode: {
+            type: 'string',
+            description: '取值模式:Auto(直取) / Sum(求和) / Average / Count / Max / Min / Formula(公式) / Join / SumFormula。默认 Auto。'
+          },
+          formula: {
+            type: 'string',
+            description: '(可选)当 mode=Formula 时的 IronPython 表达式。'
+          },
+          targetEntryKey: {
+            type: 'string',
+            description: '(可选)目标层 DefaultConvertPolicy 的 TargetEntryKey。SaleOrder-OutStock 行体层传 "FEntity";头体层不传。'
+          }
+        },
+        required: ['extId', 'targetFieldKey', 'sourceFieldKey']
+      }
+    },
+    async execute(args) {
+      const extId = args.extId;
+      const targetFieldKey = args.targetFieldKey;
+      const sourceFieldKey = args.sourceFieldKey;
+      if (typeof extId !== 'string' || extId.trim() === '') {
+        throw new Error('kingdee_add_convert_field_mapping requires a non-empty `extId` string.');
+      }
+      if (typeof targetFieldKey !== 'string' || targetFieldKey.trim() === '') {
+        throw new Error('kingdee_add_convert_field_mapping requires a non-empty `targetFieldKey` string.');
+      }
+      const mode = typeof args.mode === 'string' && args.mode.trim() !== '' ? args.mode.trim() : 'Auto';
+      const formula = typeof args.formula === 'string' && args.formula.trim() !== '' ? args.formula.trim() : undefined;
+      const targetEntryKey = typeof args.targetEntryKey === 'string' && args.targetEntryKey.trim() !== '' ? args.targetEntryKey.trim() : undefined;
+      const result = await c.addConvertFieldMapping(
+        extId.trim(),
+        targetFieldKey.trim(),
+        typeof sourceFieldKey === 'string' ? sourceFieldKey.trim() : '',
+        mode,
+        formula,
+        targetEntryKey,
+      );
+      return JSON.stringify({
+        ok: result.ok,
+        extId: extId.trim(),
+        targetFieldKey: targetFieldKey.trim(),
+        message: result.ok
+          ? `字段映射 ${targetFieldKey.trim()} ← ${formula ?? sourceFieldKey} 已添加。请让用户关闭客户端重登以确认(BOS 客户端有缓存)。`
+          : `服务端返回非空响应,可能未成功:${result.raw.slice(0, 200)}`
+      });
     }
   };
 }

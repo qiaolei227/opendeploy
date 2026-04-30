@@ -25,6 +25,8 @@ export interface ExtendConvertRuleArgs {
 
 export interface ExtendConvertRuleResult extends SaveConvertRulesResult {
   newExtensionId: string;
+  /** The DCXML we sent as the extension's `__source__` in SaveRulesV9. */
+  extensionXml: string;
 }
 
 function originEnvelope(baseline: ConvertRuleBaseline): ConvertRuleEnvelope {
@@ -52,7 +54,7 @@ export async function extendConvertRule(
     oldIds: [baseline.originParas.Id],
     isv,
   });
-  return { ...result, newExtensionId };
+  return { ...result, newExtensionId, extensionXml: newExtEnv.source };
 }
 
 export interface DeleteConvertRuleExtensionArgs {
