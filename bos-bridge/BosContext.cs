@@ -6,6 +6,7 @@ using Kingdee.BOS.Core.Metadata.ConvertElement;
 using Kingdee.BOS.Orm.Metadata.DataEntity;
 using Kingdee.BOS.Orm.Metadata.DataEntity.CLR;
 using Kingdee.BOS.Serialization;
+using FormPlugIn = Kingdee.BOS.Core.Metadata.FormElement.PlugIn;
 
 namespace OpenDeploy.BosBridge
 {
@@ -159,6 +160,114 @@ namespace OpenDeploy.BosBridge
                 policy.GroupByField2 = field2 ?? string.Empty;
                 policy.GroupByField3 = field3 ?? string.Empty;
                 policy.GroupByFormula = formula ?? string.Empty;
+            });
+        }
+
+        /// <summary>
+        /// Set the alert message and/or IronPython filter expression on the
+        /// ConvertFilterPolicy. Pass null to leave a field unchanged.
+        /// </summary>
+        public string SetConvertFilter(
+            string xml,
+            string? alertMessage,
+            string? custFilter)
+        {
+            if (alertMessage == null && custFilter == null)
+                throw new ArgumentException("at least one of alert_message or cust_filter must be provided");
+
+            return PatchMeta(xml, meta =>
+            {
+                ConvertFilterPolicyElement? policy = null;
+                foreach (var p in meta.Rule.Policies)
+                {
+                    if (p is ConvertFilterPolicyElement fp) { policy = fp; break; }
+                }
+                if (policy == null) throw new InvalidOperationException("no ConvertFilterPolicy in rule");
+
+                if (alertMessage != null) policy.AlertMessageView = alertMessage;
+                if (custFilter != null) policy.CustFilter = custFilter;
+            });
+        }
+
+        /// <summary>
+        /// Append a service plugin class to the ConvertPlugInPolicy.
+        /// Idempotent — if the class is already registered, no-op.
+        /// </summary>
+        public string AddConvertPlugin(string xml, string className)
+        {
+            if (string.IsNullOrEmpty(className)) throw new ArgumentException("class_name is empty", nameof(className));
+
+            return PatchMeta(xml, meta =>
+            {
+                ConvertPlugInPolicyElement? policy = null;
+                foreach (var p in meta.Rule.Policies)
+                {
+                    if (p is ConvertPlugInPolicyElement pp) { policy = pp; break; }
+                }
+                if (policy == null) throw new InvalidOperationException("no ConvertPlugInPolicy in rule");
+
+                if (policy.Plugs == null) policy.Plugs = new List<FormPlugIn>();
+                if (policy.Plugs.Any(p => p.ClassName == className)) return;
+
+                policy.Plugs.Add(new FormPlugIn(className)
+                {
+                    ClassName = className,
+                    PlugInType = FormPlugIn.PlugInType_ServicePlugIn,
+                    IsEnabled = true,
+                });
+            });
+        }
+
+        /// <summary>
+        /// Remove a plugin class from the ConvertPlugInPolicy by ClassName.
+        /// No-op if the class is not present.
+        /// </summary>
+        public string RemoveConvertPlugin(string xml, string className)
+        {
+            if (string.IsNullOrEmpty(className)) throw new ArgumentException("class_name is empty", nameof(className));
+
+            return PatchMeta(xml, meta =>
+            {
+                ConvertPlugInPolicyElement? policy = null;
+                foreach (var p in meta.Rule.Policies)
+                {
+                    if (p is ConvertPlugInPolicyElement pp) { policy = pp; break; }
+                }
+                if (policy == null) throw new InvalidOperationException("no ConvertPlugInPolicy in rule");
+
+                policy.Plugs?.RemoveAll(p => p.ClassName == className);
+            });
+        }
+
+        /// <summary>
+        /// Append a source→target bill-type mapping to the BillTypeMapPolicy.
+        /// Idempotent — if an identical mapping already exists, no-op.
+        /// </summary>
+        public string AddConvertBillTypeMap(
+            string xml,
+            string sourceBillTypeId,
+            string targetBillTypeId)
+        {
+            return PatchMeta(xml, meta =>
+            {
+                BillTypeMapPolicyElement? policy = null;
+                foreach (var p in meta.Rule.Policies)
+                {
+                    if (p is BillTypeMapPolicyElement bp) { policy = bp; break; }
+                }
+                if (policy == null) throw new InvalidOperationException("no BillTypeMapPolicy in rule");
+
+                foreach (var m in policy.BillTypeMaps)
+                {
+                    if (m.SourceBillTypeId == sourceBillTypeId && m.TargetBillTypeId == targetBillTypeId) return;
+                }
+
+                var key = $"{sourceBillTypeId}_{targetBillTypeId}";
+                policy.BillTypeMaps.Add(new BillTypeMapElement(key)
+                {
+                    SourceBillTypeId = sourceBillTypeId,
+                    TargetBillTypeId = targetBillTypeId,
+                });
             });
         }
 

@@ -30,9 +30,16 @@ function makeFake(
       | 'describeConvertRule'
       | 'extendConvertRule'
       | 'deleteConvertRuleExtension'
+      | 'addConvertFieldMapping'
+      | 'setConvertGroupBy'
+      | 'setConvertFilter'
+      | 'addConvertPlugin'
+      | 'removeConvertPlugin'
+      | 'addConvertBillTypeMap'
     >
   > = {}
 ): K3CloudConnector {
+  const notConfigured = (name: string) => vi.fn(async () => { throw new Error(`${name} mock not configured`); });
   return {
     config: {
       server: 'localhost',
@@ -52,24 +59,26 @@ function makeFake(
     listFormPlugins: vi.fn(async () => [] as PluginMeta[]),
     getFormLayout: vi.fn(async () => null),
     listConvertRules: vi.fn(async () => []),
-    describeConvertRule: vi.fn(async () => {
-      throw new Error('describeConvertRule mock not configured');
-    }),
-    extendConvertRule: vi.fn(async () => {
-      throw new Error('extendConvertRule mock not configured');
-    }),
-    deleteConvertRuleExtension: vi.fn(async () => {
-      throw new Error('deleteConvertRuleExtension mock not configured');
-    }),
+    describeConvertRule: notConfigured('describeConvertRule'),
+    extendConvertRule: notConfigured('extendConvertRule'),
+    deleteConvertRuleExtension: notConfigured('deleteConvertRuleExtension'),
+    addConvertFieldMapping: notConfigured('addConvertFieldMapping'),
+    setConvertGroupBy: notConfigured('setConvertGroupBy'),
+    setConvertFilter: notConfigured('setConvertFilter'),
+    addConvertPlugin: notConfigured('addConvertPlugin'),
+    removeConvertPlugin: notConfigured('removeConvertPlugin'),
+    addConvertBillTypeMap: notConfigured('addConvertBillTypeMap'),
     ...overrides
   } as unknown as K3CloudConnector;
 }
 
 describe('buildK3CloudTools', () => {
-  it('returns 16 tools when a connector is present', () => {
+  it('returns 21 tools when a connector is present', () => {
     const tools = buildK3CloudTools(makeFake());
     expect(tools.map((t) => t.definition.name).sort()).toEqual([
+      'kingdee_add_convert_bill_type_map',
       'kingdee_add_convert_field_mapping',
+      'kingdee_add_convert_plugin',
       'kingdee_create_convert_rule_extension',
       'kingdee_delete_convert_rule_extension',
       'kingdee_describe_basedata',
@@ -84,7 +93,10 @@ describe('buildK3CloudTools', () => {
       'kingdee_list_form_plugins',
       'kingdee_list_objects',
       'kingdee_list_subsystems',
-      'kingdee_search_metadata'
+      'kingdee_remove_convert_plugin',
+      'kingdee_search_metadata',
+      'kingdee_set_convert_filter',
+      'kingdee_set_convert_groupby'
     ]);
   });
 

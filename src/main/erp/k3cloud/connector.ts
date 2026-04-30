@@ -492,16 +492,43 @@ export class K3CloudConnector implements ErpConnector {
   }
 
   /**
-   * Add a FieldMap entry to an existing convert-rule extension. Loads the
-   * extension's current DCXML from disk (written at creation time), patches
-   * it via the .NET bridge, persists the updated XML, and re-saves via
-   * SaveRulesV9. Only supports extensions created by OpenDeploy (requires
-   * the local state file from `extendConvertRule`).
-   *
-   * `targetEntryKey` selects which DefaultConvertPolicy to target; omit for
-   * the header-level policy, or pass `"FEntity"` for the line-entry policy
-   * (the typical case for SaleOrder-OutStock).
+   * Load extension state, call a bridge patch op on the XML, persist the result,
+   * and re-save via SaveRulesV9. All patch operations share this pattern.
    */
+  private async patchExtXml(
+    extId: string,
+    op: string,
+    bridgeArgs: Record<string, unknown>,
+  ): Promise<SaveConvertRulesResult> {
+    if (!this.projectId) throw new Error('connector not created with a projectId — cannot access ext state');
+    const state = await loadConvertRuleExtState(this.projectId, extId);
+    const baseline = this.requireBaseline(op, state.originRuleId);
+    const session = this.requireSession();
+    const isv = await this.getIsv(session);
+
+    const bridge = await getBridge();
+    const { xml: patchedXml } = await bridge.send<{ xml: string }>(op, { xml: state.xml, ...bridgeArgs });
+
+    const result = await saveConvertRules(session, {
+      rules: [
+        { localeSlots: DEFAULT_LOCALE_SLOTS, source: baseline.originXml, paras: baseline.originParas },
+        {
+          localeSlots: DEFAULT_LOCALE_SLOTS,
+          source: patchedXml,
+          paras: buildModifyExtensionParas({ extId, isv, inheritPath: state.inheritPath, version: state.version, mainVersion: state.mainVersion }),
+        },
+      ],
+      oldIds: [baseline.originParas.Id, extId],
+      isv,
+    });
+
+    if (result.ok) {
+      await saveConvertRuleExtState(this.projectId, { ...state, xml: patchedXml, updatedAt: new Date().toISOString() });
+    }
+    return result;
+  }
+
+  /** Add a FieldMap to an extension's DefaultConvertPolicy. */
   async addConvertFieldMapping(
     extId: string,
     targetFieldKey: string,
@@ -510,53 +537,65 @@ export class K3CloudConnector implements ErpConnector {
     formula?: string,
     targetEntryKey?: string,
   ): Promise<SaveConvertRulesResult> {
-    if (!this.projectId) throw new Error('connector not created with a projectId — cannot access ext state');
-    const state = await loadConvertRuleExtState(this.projectId, extId);
-    const baseline = this.requireBaseline('addConvertFieldMapping', state.originRuleId);
-    const session = this.requireSession();
-    const isv = await this.getIsv(session);
-
-    const bridge = await getBridge();
-    const { xml: patchedXml } = await bridge.send<{ xml: string }>('add_convert_field_map', {
-      xml: state.xml,
+    return this.patchExtXml(extId, 'add_convert_field_map', {
       target_field_key: targetFieldKey,
       source_field_key: sourceFieldKey,
       mode,
       ...(formula != null ? { formula } : {}),
       ...(targetEntryKey != null ? { target_entry_key: targetEntryKey } : {}),
     });
+  }
 
-    const modifyEnvelope: ConvertRuleEnvelope = {
-      localeSlots: DEFAULT_LOCALE_SLOTS,
-      source: patchedXml,
-      paras: buildModifyExtensionParas({
-        extId,
-        isv,
-        inheritPath: state.inheritPath,
-        version: state.version,
-        mainVersion: state.mainVersion,
-      }),
-    };
-    const originEnv: ConvertRuleEnvelope = {
-      localeSlots: DEFAULT_LOCALE_SLOTS,
-      source: baseline.originXml,
-      paras: baseline.originParas,
-    };
-
-    const result = await saveConvertRules(session, {
-      rules: [originEnv, modifyEnvelope],
-      oldIds: [baseline.originParas.Id, extId],
-      isv,
+  /** Replace the GroupBy strategy on an extension. */
+  async setConvertGroupBy(
+    extId: string,
+    mode: string,
+    field1?: string,
+    field2?: string,
+    field3?: string,
+    formula?: string,
+  ): Promise<SaveConvertRulesResult> {
+    return this.patchExtXml(extId, 'set_convert_group_by', {
+      mode,
+      ...(field1 != null ? { field1 } : {}),
+      ...(field2 != null ? { field2 } : {}),
+      ...(field3 != null ? { field3 } : {}),
+      ...(formula != null ? { formula } : {}),
     });
+  }
 
-    if (result.ok) {
-      await saveConvertRuleExtState(this.projectId, {
-        ...state,
-        xml: patchedXml,
-        updatedAt: new Date().toISOString(),
-      });
-    }
-    return result;
+  /** Set the filter policy's alert message and/or IronPython filter expression. */
+  async setConvertFilter(
+    extId: string,
+    alertMessage?: string,
+    custFilter?: string,
+  ): Promise<SaveConvertRulesResult> {
+    return this.patchExtXml(extId, 'set_convert_filter', {
+      ...(alertMessage != null ? { alert_message: alertMessage } : {}),
+      ...(custFilter != null ? { cust_filter: custFilter } : {}),
+    });
+  }
+
+  /** Add a DLL plugin class to the extension's plugin policy. */
+  async addConvertPlugin(extId: string, className: string): Promise<SaveConvertRulesResult> {
+    return this.patchExtXml(extId, 'add_convert_plugin', { class_name: className });
+  }
+
+  /** Remove a DLL plugin class from the extension's plugin policy. */
+  async removeConvertPlugin(extId: string, className: string): Promise<SaveConvertRulesResult> {
+    return this.patchExtXml(extId, 'remove_convert_plugin', { class_name: className });
+  }
+
+  /** Add or replace a BillTypeMap entry in the extension. */
+  async addConvertBillTypeMap(
+    extId: string,
+    sourceBillTypeId: string,
+    targetBillTypeId: string,
+  ): Promise<SaveConvertRulesResult> {
+    return this.patchExtXml(extId, 'add_convert_bill_type_map', {
+      source_bill_type_id: sourceBillTypeId,
+      target_bill_type_id: targetBillTypeId,
+    });
   }
 
   async deleteConvertRuleExtension(

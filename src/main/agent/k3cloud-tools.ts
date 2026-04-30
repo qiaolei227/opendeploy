@@ -31,7 +31,12 @@ export function buildK3CloudTools(connector?: K3CloudConnector): ToolHandler[] {
     describeConvertRuleTool(c),
     createConvertRuleExtensionTool(c),
     deleteConvertRuleExtensionTool(c),
-    addConvertFieldMappingTool(c)
+    addConvertFieldMappingTool(c),
+    setConvertGroupByTool(c),
+    setConvertFilterTool(c),
+    addConvertPluginTool(c),
+    removeConvertPluginTool(c),
+    addConvertBillTypeMapTool(c)
   ];
 }
 
@@ -931,6 +936,8 @@ function deleteConvertRuleExtensionTool(c: K3CloudConnector): ToolHandler {
   };
 }
 
+// ── Convert-rule write tools (Task 4) ────────────────────────────────────────
+
 function addConvertFieldMappingTool(c: K3CloudConnector): ToolHandler {
   return {
     definition: {
@@ -1000,6 +1007,198 @@ function addConvertFieldMappingTool(c: K3CloudConnector): ToolHandler {
         message: result.ok
           ? `字段映射 ${targetFieldKey.trim()} ← ${formula ?? sourceFieldKey} 已添加。请让用户关闭客户端重登以确认(BOS 客户端有缓存)。`
           : `服务端返回非空响应,可能未成功:${result.raw.slice(0, 200)}`
+      });
+    }
+  };
+}
+
+function setConvertGroupByTool(c: K3CloudConnector): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_set_convert_groupby',
+      description:
+        '设置转换规则扩展的**合并方案(GroupBy)**。控制下推时多条来源单据行如何合并为目标单据行。' +
+        '\n\n`mode` 枚举:None(一对一不合并) / OneToOne(一对一) / GroupByField(按字段分组) / GroupByFormula(按公式分组)。' +
+        '\n\nGroupByField 时传 `field1..field3`;GroupByFormula 时传 `formula`。' +
+        '\n\n**保存成功后**:请让用户关闭客户端整个重登以确认(BOS 客户端有缓存)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展的 GUID。' },
+          mode: {
+            type: 'string',
+            description: 'GroupBy 模式:None / OneToOne / GroupByField / GroupByFormula。'
+          },
+          field1: { type: 'string', description: '(GroupByField 时)第一个分组字段 Key。' },
+          field2: { type: 'string', description: '(GroupByField 时)第二个分组字段 Key。' },
+          field3: { type: 'string', description: '(GroupByField 时)第三个分组字段 Key。' },
+          formula: { type: 'string', description: '(GroupByFormula 时)IronPython 公式。' }
+        },
+        required: ['extId', 'mode']
+      }
+    },
+    async execute(args) {
+      const extId = args.extId as string;
+      const mode = args.mode as string;
+      if (!extId?.trim()) throw new Error('extId is required');
+      if (!mode?.trim()) throw new Error('mode is required');
+      const result = await c.setConvertGroupBy(
+        extId.trim(), mode.trim(),
+        typeof args.field1 === 'string' ? args.field1 : undefined,
+        typeof args.field2 === 'string' ? args.field2 : undefined,
+        typeof args.field3 === 'string' ? args.field3 : undefined,
+        typeof args.formula === 'string' ? args.formula : undefined,
+      );
+      return JSON.stringify({
+        ok: result.ok,
+        message: result.ok
+          ? `GroupBy 已设为 ${mode}。请让用户关闭客户端重登以确认。`
+          : `服务端返回非空响应:${result.raw.slice(0, 200)}`
+      });
+    }
+  };
+}
+
+function setConvertFilterTool(c: K3CloudConnector): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_set_convert_filter',
+      description:
+        '设置转换规则扩展的**过滤条件**——alert 提示文案 和/或 IronPython 过滤表达式。' +
+        '\n\n`alertMessage`:用户尝试下推时若不满足条件显示的提示文字。' +
+        '\n\n`custFilter`:IronPython 布尔表达式,返回 False 则阻止下推该行。' +
+        '\n\n两个参数至少传一个。**保存成功后**:请让用户关闭客户端整个重登以确认。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展的 GUID。' },
+          alertMessage: { type: 'string', description: '(可选)下推阻止时的提示文案。' },
+          custFilter: { type: 'string', description: '(可选)IronPython 布尔过滤表达式。' }
+        },
+        required: ['extId']
+      }
+    },
+    async execute(args) {
+      const extId = args.extId as string;
+      if (!extId?.trim()) throw new Error('extId is required');
+      const alertMessage = typeof args.alertMessage === 'string' ? args.alertMessage : undefined;
+      const custFilter = typeof args.custFilter === 'string' ? args.custFilter : undefined;
+      if (!alertMessage && !custFilter) throw new Error('at least one of alertMessage or custFilter is required');
+      const result = await c.setConvertFilter(extId.trim(), alertMessage, custFilter);
+      return JSON.stringify({
+        ok: result.ok,
+        message: result.ok
+          ? '过滤条件已设置。请让用户关闭客户端重登以确认。'
+          : `服务端返回非空响应:${result.raw.slice(0, 200)}`
+      });
+    }
+  };
+}
+
+function addConvertPluginTool(c: K3CloudConnector): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_add_convert_plugin',
+      description:
+        '向转换规则扩展的**插件策略**注册一个 DLL 服务插件类(PlugInType=2)。' +
+        '\n\n`className`:DLL 插件的完整类名(如 `MySolution.Convert.SaleOrderOutStockPlugin`)。' +
+        '\n\n幂等——类名已注册则跳过。**保存成功后**:请让用户关闭客户端整个重登以确认。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展的 GUID。' },
+          className: { type: 'string', description: 'DLL 插件完整类名。' }
+        },
+        required: ['extId', 'className']
+      }
+    },
+    async execute(args) {
+      const extId = args.extId as string;
+      const className = args.className as string;
+      if (!extId?.trim()) throw new Error('extId is required');
+      if (!className?.trim()) throw new Error('className is required');
+      const result = await c.addConvertPlugin(extId.trim(), className.trim());
+      return JSON.stringify({
+        ok: result.ok,
+        message: result.ok
+          ? `插件 ${className} 已注册。请让用户关闭客户端重登以确认。`
+          : `服务端返回非空响应:${result.raw.slice(0, 200)}`
+      });
+    }
+  };
+}
+
+function removeConvertPluginTool(c: K3CloudConnector): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_remove_convert_plugin',
+      description:
+        '从转换规则扩展的**插件策略**移除一个 DLL 服务插件类。幂等——不存在则跳过。' +
+        '\n\n**保存成功后**:请让用户关闭客户端整个重登以确认。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展的 GUID。' },
+          className: { type: 'string', description: '要移除的 DLL 插件完整类名。' }
+        },
+        required: ['extId', 'className']
+      }
+    },
+    async execute(args) {
+      const extId = args.extId as string;
+      const className = args.className as string;
+      if (!extId?.trim()) throw new Error('extId is required');
+      if (!className?.trim()) throw new Error('className is required');
+      const result = await c.removeConvertPlugin(extId.trim(), className.trim());
+      return JSON.stringify({
+        ok: result.ok,
+        message: result.ok
+          ? `插件 ${className} 已移除。请让用户关闭客户端重登以确认。`
+          : `服务端返回非空响应:${result.raw.slice(0, 200)}`
+      });
+    }
+  };
+}
+
+function addConvertBillTypeMapTool(c: K3CloudConnector): ToolHandler {
+  return {
+    definition: {
+      name: 'kingdee_add_convert_bill_type_map',
+      description:
+        '向转换规则扩展的**单据类型映射**添加一条来源→目标的单据类型配对。' +
+        '\n\n用于控制只有特定单据类型的来源单才能下推为特定类型的目标单。空字符串表示"任意类型"(`(All)`)。' +
+        '\n\n幂等——相同映射已存在则跳过。**保存成功后**:请让用户关闭客户端整个重登以确认。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extId: { type: 'string', description: '扩展的 GUID。' },
+          sourceBillTypeId: {
+            type: 'string',
+            description: '来源单据类型 ID(空字符串=任意)。'
+          },
+          targetBillTypeId: {
+            type: 'string',
+            description: '目标单据类型 ID(空字符串=任意)。'
+          }
+        },
+        required: ['extId', 'sourceBillTypeId', 'targetBillTypeId']
+      }
+    },
+    async execute(args) {
+      const extId = args.extId as string;
+      const src = args.sourceBillTypeId as string;
+      const tgt = args.targetBillTypeId as string;
+      if (!extId?.trim()) throw new Error('extId is required');
+      const result = await c.addConvertBillTypeMap(
+        extId.trim(),
+        typeof src === 'string' ? src : '',
+        typeof tgt === 'string' ? tgt : '',
+      );
+      return JSON.stringify({
+        ok: result.ok,
+        message: result.ok
+          ? `单据类型映射 ${src || '(All)'} → ${tgt || '(All)'} 已添加。请让用户关闭客户端重登以确认。`
+          : `服务端返回非空响应:${result.raw.slice(0, 200)}`
       });
     }
   };

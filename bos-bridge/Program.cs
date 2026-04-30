@@ -125,6 +125,24 @@ namespace OpenDeploy.BosBridge
                     var formula = (string?)req["formula"];
                     return new { xml = ctx.SetConvertGroupBy(xml, mode, field1, field2, field3, formula) };
                 }
+                case "set_convert_filter":
+                {
+                    var xml = RequireString(req, "xml");
+                    var alertMessage = (string?)req["alert_message"];
+                    var custFilter = (string?)req["cust_filter"];
+                    return new { xml = ctx.SetConvertFilter(xml, alertMessage, custFilter) };
+                }
+                case "add_convert_plugin":
+                    return new { xml = ctx.AddConvertPlugin(RequireString(req, "xml"), RequireString(req, "class_name")) };
+                case "remove_convert_plugin":
+                    return new { xml = ctx.RemoveConvertPlugin(RequireString(req, "xml"), RequireString(req, "class_name")) };
+                case "add_convert_bill_type_map":
+                {
+                    var xml = RequireString(req, "xml");
+                    var src = (string?)req["source_bill_type_id"] ?? string.Empty;
+                    var tgt = (string?)req["target_bill_type_id"] ?? string.Empty;
+                    return new { xml = ctx.AddConvertBillTypeMap(xml, src, tgt) };
+                }
                 default:
                     throw new InvalidOperationException($"unknown op: {op}");
             }
