@@ -52,9 +52,11 @@ describeIfBridge('bos-bridge integration', () => {
 
     expect(outputXml).toMatch(/^<\?xml/);
     expect(outputXml).toContain('<ConvertRuleMetaData>');
-    expect(outputXml).toContain('<DefaultConvertPolicy>');
-    expect(outputXml).toContain('<LinkEntityPolicy>');
-    expect(outputXml).toContain('<BillTypeMapPolicy>');
+    // Policy elements MUST carry ElementType="..." for the K/3 server's
+    // type-resolution; without them SaveRulesV9 fails with "未能找到XX对应的数据类型".
+    expect(outputXml).toMatch(/<DefaultConvertPolicy ElementType=/);
+    expect(outputXml).toMatch(/<LinkEntityPolicy ElementType=/);
+    expect(outputXml).toMatch(/<BillTypeMapPolicy ElementType=/);
 
     const countTag = (xml: string, tag: string) =>
       (xml.match(new RegExp(`<${tag}[ />]`, 'g')) || []).length;
