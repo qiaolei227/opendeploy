@@ -137,7 +137,8 @@ namespace OpenDeploy.BosBridge
                     var xml = RequireString(req, "xml");
                     var className = RequireString(req, "class_name");
                     var pyScript = (string?)req["py_script"] ?? string.Empty;
-                    return new { xml = ctx.AddConvertPlugin(xml, className, pyScript) };
+                    var description = (string?)req["description"] ?? string.Empty;
+                    return new { xml = ctx.AddConvertPlugin(xml, className, pyScript, description) };
                 }
                 case "remove_convert_plugin":
                     return new { xml = ctx.RemoveConvertPlugin(RequireString(req, "xml"), RequireString(req, "class_name")) };

@@ -190,10 +190,11 @@ namespace OpenDeploy.BosBridge
         /// <c>frmplugInPolicyEditor.RegPyScript</c> at line 162-174 does this
         /// shape exactly). Idempotent on ClassName.
         /// </summary>
-        public string AddConvertPlugin(string xml, string className, string pyScript)
+        public string AddConvertPlugin(string xml, string className, string pyScript, string description)
         {
             if (string.IsNullOrEmpty(className)) throw new ArgumentException("class_name is empty", nameof(className));
             pyScript = pyScript ?? string.Empty;
+            description = description ?? string.Empty;
 
             return PatchMeta(xml, meta =>
             {
@@ -205,6 +206,7 @@ namespace OpenDeploy.BosBridge
                 {
                     ClassName = className,
                     IsEnabled = true,
+                    Description = description,
                 };
                 if (pyScript.Length > 0)
                 {

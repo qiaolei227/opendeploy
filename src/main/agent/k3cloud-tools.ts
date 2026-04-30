@@ -1227,6 +1227,7 @@ function addConvertPluginTool(c: K3CloudConnector): ToolHandler {
         '向转换规则扩展的**插件策略**注册一个转换插件(DLL 或 Python)。' +
         '\n\n**DLL 模式**:只填 `className`(完整类名 + 程序集,如 `Kingdee.K3.SCM.App.ConvertPlugIn.MyConvertSrv, Kingdee.K3.SCM.App`)。wire 不写 `<PlugInType>`,服务端走 DLL 路径加载已部署的程序集。' +
         '\n\n**Python 模式**:同时填 `className`(短标识符即可,用户能识别即可)和 `pyScript`(IronPython 源码,定义 `OnAfterCreateLink` / `OnAfterFieldMapping` / `OnAfterConvert` 等 22 个虚方法的子集)。wire 加 `<PlugInType>1</PlugInType>` + `<PyScript>...</PyScript>`,服务端 `PythonConvertPlugIn` 通过 IronPython 引擎执行,**能力跟 DLL 等价**。Python 脚本里可以 `clr.AddReference("Kingdee.BOS")` 后 import `BusinessDataServiceHelper` / `QueryServiceHelper` / `BusinessFlowServiceHelper` 等服务端 API,`self.Context` 等实例属性已绑入 scope。' +
+        '\n\n**建议传 description**:它会显示在 BOS Designer 转换规则插件列表的"描述"列,让用户在 Designer 里能识别这条插件做什么(如"销售订单到出库单的多单据体携带 Python 插件")。不传的话列表那一列空白,用户难以维护。' +
         '\n\n幂等——className 已注册则跳过。**保存成功后**:请让用户关闭客户端整个重登以确认。',
       parameters: {
         type: 'object',
@@ -1236,6 +1237,10 @@ function addConvertPluginTool(c: K3CloudConnector): ToolHandler {
           pyScript: {
             type: 'string',
             description: '可选,IronPython 源码。给则注册为 Python 转换插件(PlugInType=1),不给则注册为 DLL 转换插件(PlugInType 缺省 0)。'
+          },
+          description: {
+            type: 'string',
+            description: '可选,插件用途描述,显示在 BOS Designer 转换规则插件列表的"描述"列。建议传中文说明(如"销售订单到出库单的多单据体携带 Python 插件"),让用户在 BOS Designer 里能识别这条插件做什么。'
           }
         },
         required: ['extId', 'className']
@@ -1246,9 +1251,11 @@ function addConvertPluginTool(c: K3CloudConnector): ToolHandler {
       const className = args.className as string;
       const rawPyScript = typeof args.pyScript === 'string' ? args.pyScript : undefined;
       const pyScript = rawPyScript && rawPyScript.length > 0 ? rawPyScript : undefined;
+      const rawDescription = typeof args.description === 'string' ? args.description.trim() : '';
+      const description = rawDescription.length > 0 ? rawDescription : undefined;
       if (!extId?.trim()) throw new Error('extId is required');
       if (!className?.trim()) throw new Error('className is required');
-      const result = await c.addConvertPlugin(extId.trim(), className.trim(), pyScript);
+      const result = await c.addConvertPlugin(extId.trim(), className.trim(), pyScript, description);
       const mode = pyScript ? 'Python 转换插件' : 'DLL 转换插件';
       return JSON.stringify({
         ok: result.ok,

@@ -667,10 +667,12 @@ export class K3CloudConnector implements ErpConnector {
     extId: string,
     className: string,
     pyScript?: string,
+    description?: string,
   ): Promise<SaveConvertRulesResult> {
     return this.patchExtXml(extId, 'add_convert_plugin', {
       class_name: className,
       ...(pyScript && pyScript.length > 0 ? { py_script: pyScript } : {}),
+      ...(description && description.length > 0 ? { description } : {}),
     });
   }
 

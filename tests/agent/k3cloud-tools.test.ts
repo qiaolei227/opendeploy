@@ -942,6 +942,7 @@ describe('kingdee_add_convert_plugin tool', () => {
     expect(addConvertPlugin).toHaveBeenCalledWith(
       'fe6154fe-7144-4633-97e9-601f65135ae9',
       'Kingdee.K3.SCM.App.ConvertPlugIn.MyConvertSrv, Kingdee.K3.SCM.App',
+      undefined,
       undefined
     );
     expect(parsed.ok).toBe(true);
@@ -965,7 +966,8 @@ describe('kingdee_add_convert_plugin tool', () => {
     expect(addConvertPlugin).toHaveBeenCalledWith(
       'fe6154fe-7144-4633-97e9-601f65135ae9',
       'MultiEntryCarry',
-      py
+      py,
+      undefined
     );
     expect(parsed.ok).toBe(true);
     expect(parsed.message).toContain('Python 转换插件');
@@ -984,6 +986,7 @@ describe('kingdee_add_convert_plugin tool', () => {
     expect(addConvertPlugin).toHaveBeenCalledWith(
       'fe6154fe-7144-4633-97e9-601f65135ae9',
       'X.Y.Z, X',
+      undefined,
       undefined
     );
   });
@@ -1002,7 +1005,8 @@ describe('kingdee_add_convert_plugin tool', () => {
     expect(addConvertPlugin).toHaveBeenCalledWith(
       'fe6154fe-7144-4633-97e9-601f65135ae9',
       'MetaCharProbe',
-      py
+      py,
+      undefined
     );
   });
 
@@ -1019,7 +1023,8 @@ describe('kingdee_add_convert_plugin tool', () => {
     expect(addConvertPlugin).toHaveBeenCalledWith(
       'fe6154fe-7144-4633-97e9-601f65135ae9',
       '多单据体携带插件',
-      'def OnAfterCreateLink(e):\n    pass'
+      'def OnAfterCreateLink(e):\n    pass',
+      undefined
     );
   });
 
@@ -1029,6 +1034,99 @@ describe('kingdee_add_convert_plugin tool', () => {
     await expect(tool.execute({ extId: 'X' })).rejects.toThrow(/className/);
     await expect(tool.execute({ extId: '   ', className: 'X' })).rejects.toThrow(/extId/);
     await expect(tool.execute({ extId: 'X', className: '   ' })).rejects.toThrow(/className/);
+  });
+
+  it('forwards description verbatim when provided', async () => {
+    const addConvertPlugin = vi.fn(async () => ({ ok: true, raw: '' }));
+    const tool = findTool(makeFake({ addConvertPlugin }));
+
+    await tool.execute({
+      extId: 'fe6154fe-7144-4633-97e9-601f65135ae9',
+      className: 'X.Y.Z, X',
+      description: '销售订单到出库单的多单据体携带 Python 插件'
+    });
+
+    expect(addConvertPlugin).toHaveBeenCalledWith(
+      'fe6154fe-7144-4633-97e9-601f65135ae9',
+      'X.Y.Z, X',
+      undefined,
+      '销售订单到出库单的多单据体携带 Python 插件'
+    );
+  });
+
+  it('forwards both pyScript and description in Python mode', async () => {
+    const addConvertPlugin = vi.fn(async () => ({ ok: true, raw: '' }));
+    const tool = findTool(makeFake({ addConvertPlugin }));
+    const py = 'def OnAfterCreateLink(e):\n    pass';
+
+    await tool.execute({
+      extId: 'fe6154fe-7144-4633-97e9-601f65135ae9',
+      className: 'MultiEntryCarry',
+      pyScript: py,
+      description: '多单据体携带'
+    });
+
+    expect(addConvertPlugin).toHaveBeenCalledWith(
+      'fe6154fe-7144-4633-97e9-601f65135ae9',
+      'MultiEntryCarry',
+      py,
+      '多单据体携带'
+    );
+  });
+
+  it('treats whitespace-only description as undefined (trim then check empty)', async () => {
+    const addConvertPlugin = vi.fn(async () => ({ ok: true, raw: '' }));
+    const tool = findTool(makeFake({ addConvertPlugin }));
+
+    await tool.execute({
+      extId: 'fe6154fe-7144-4633-97e9-601f65135ae9',
+      className: 'X.Y.Z, X',
+      description: '   '
+    });
+
+    expect(addConvertPlugin).toHaveBeenCalledWith(
+      'fe6154fe-7144-4633-97e9-601f65135ae9',
+      'X.Y.Z, X',
+      undefined,
+      undefined
+    );
+  });
+
+  it('preserves XML metacharacters in description (escape is bridge concern)', async () => {
+    const addConvertPlugin = vi.fn(async () => ({ ok: true, raw: '' }));
+    const tool = findTool(makeFake({ addConvertPlugin }));
+    const desc = '<bad> & "quote" — 测试';
+
+    await tool.execute({
+      extId: 'fe6154fe-7144-4633-97e9-601f65135ae9',
+      className: 'X.Y.Z, X',
+      description: desc
+    });
+
+    expect(addConvertPlugin).toHaveBeenCalledWith(
+      'fe6154fe-7144-4633-97e9-601f65135ae9',
+      'X.Y.Z, X',
+      undefined,
+      desc
+    );
+  });
+
+  it('trims surrounding whitespace from description', async () => {
+    const addConvertPlugin = vi.fn(async () => ({ ok: true, raw: '' }));
+    const tool = findTool(makeFake({ addConvertPlugin }));
+
+    await tool.execute({
+      extId: 'fe6154fe-7144-4633-97e9-601f65135ae9',
+      className: 'X.Y.Z, X',
+      description: '  正常说明  '
+    });
+
+    expect(addConvertPlugin).toHaveBeenCalledWith(
+      'fe6154fe-7144-4633-97e9-601f65135ae9',
+      'X.Y.Z, X',
+      undefined,
+      '正常说明'
+    );
   });
 
   it('omits parallelSafe (write tool — must serialize)', () => {
