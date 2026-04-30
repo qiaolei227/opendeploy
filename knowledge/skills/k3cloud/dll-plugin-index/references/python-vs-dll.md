@@ -1,6 +1,6 @@
 <!--
-来源:open.kingdee.com 二开规范 + help.open.kingdee.com dokuwiki + 2026-04-30 反编译 K/3 Cloud 客户端 DLL 实证
-实证状态:转换插件相关 🟢 实证(PythonConvertPlugIn 反编译确认);其他场景 🔴 未反编译验证
+来源:open.kingdee.com 二开规范 + help.open.kingdee.com dokuwiki + 2026-04-30 反编译 K/3 Cloud 服务端 DLL 全谱实证
+实证状态:🟢 全实证(K/3 现有 10 个 Python<X>PlugIn 派生类,本表覆盖其中 5 个核心场景)
 -->
 
 # Python 表单插件 vs DLL 插件 决策指南
@@ -9,17 +9,19 @@
 
 ---
 
-> **⚠ 2026-04-30 实证修正(必读)**
+> **2026-04-30 反编译全谱实证(必读)**
 >
-> 本文件 Plan 5.8 初版未做反编译实证,直接照搬"Python 表单插件不能做服务端"这条普遍误解。**实际反编译发现 K/3 服务端为多个插件基类提供了 Python 衍生类**:
+> 本文件 Plan 5.8 初版直接照搬"Python 插件不能做服务端"这条普遍误解,导致大半行错。两轮反编译 `Kingdee.BOS.Core.dll` 后,**K/3 服务端 Python 插件能力远比初版以为的广**:
 >
-> - **`PythonConvertPlugIn : AbstractConvertPlugIn`** — 转换插件 Python 路径已实证存在,22 个虚方法全部支持(`OnAfterCreateLink` / `OnAfterFieldMapping` / `OnAfterConvert` / 等)。**下文表中"下推 ❌ Python"的行已修正为 ✅**
-> - **操作插件 / 打印插件 / 列表插件 / 报表插件** 是否有 Python 衍生(`PythonOperationServicePlugIn` 等)— **暂未反编译验证**。Designer 里 `AvalonOperationPluginPythonEditor` 类的存在是强信号,可能这些场景实际也支持 Python,只是本文件还是按"❌ Python"写
+> - **`PythonConvertPlugIn : AbstractConvertPlugIn`** — 转换插件,22 个虚方法转发 IronPython
+> - **`PythonOperationServicePlugIn : AbstractOperationServicePlugIn`** — 操作插件(审核/反审核/删除/提交全部覆盖)
+> - **`PythonListPlugIn : AbstractListPlugIn`** — 列表插件
+> - **`PythonReportPlugIn : AbstractSysReportPlugIn`** — 报表插件(注:基类是 `AbstractSysReportPlugIn`,不是 Plan 5.8 写的 `SysReportBaseService`)
+> - 顺手发现的另外 5 个:`PythonBillPlugIn` / `PythonCommonFilterPlugIn` / `PythonFormBuilderPlugIn` / `PythonBusinessFlowServicePlugIn` / `PythonMetadataBosCheckPlugIn` — 未在本表展开
 >
-> **使用本文件的纪律**:
-> - 标 🟢 的行(转换插件相关)可信
-> - 标 🔴 的行(其他 ❌ Python 行)使用前应反编译相应基类(`Kingdee.BOS.Core.Metadata.*.PlugIn` 命名空间)确认是否真有 Python 路径
-> - 当用户问"X 操作能不能用 Python",优先反编译验证而非照搬本表
+> **唯一例外**:**打印插件**。K/3 套打用 `Kingdee.BOS.NotePrinting.dll` 的 `AbstractPrintWidget` + `AbstractPrintDataProvider` widget 框架,**不是 PlugIn 体系**,Python 不可注册。打印动态化的 Python 路径是挂在表单的 `BeforePrint` 事件(`PythonBillPlugIn`),不挂打印 widget 本身。
+>
+> **使用纪律**:本表所有 🟢 行经反编译验证。**性能 / .NET 类库依赖 / 多线程**等 Python 限制(IronPython 引擎特性)依然真实,选 Python 还是 DLL 看这些维度,不是看"能不能挂上去"。
 
 ---
 
@@ -33,14 +35,14 @@
 | 默认值 / UI 控制(隐藏按钮等) | ✅ | 不必 | AfterBindData 事件 |
 | 自定义按钮点击逻辑 | ✅(轻逻辑) | ✅(重逻辑) | 涉及多表更新走 DLL |
 | 弹窗交互 | ✅ | ✅ | 客户端事件 |
-| **审核 / 反审核拦截** | 🔴 ❌(未验证) | ✅ | 操作插件 Python 衍生未反编译验证,可能实际支持 |
-| **删除拦截** | 🔴 ❌(未验证) | ✅ | 同上 |
-| **提交 / 撤销提交拦截** | 🔴 ❌(未验证) | ✅ | 同上 |
+| **审核 / 反审核拦截** | 🟢 ✅ | ✅ | `PythonOperationServicePlugIn`(2026-04-30 反编译实证) |
+| **删除拦截** | 🟢 ✅ | ✅ | 同上 |
+| **提交 / 撤销提交拦截** | 🟢 ✅ | ✅ | 同上 |
 | **下推前服务端校验** | 🟢 ✅ | ✅ | `PythonConvertPlugIn.OnBeforeFieldMapping` / `OnGetSourceData` 等;反编译实证 2026-04-30 |
 | **下推时字段复杂映射** | 🟢 ✅ | ✅ | `PythonConvertPlugIn.OnFieldMapping` / `OnAfterFieldMapping`;反编译实证 |
-| **打印时动态条码 / 动态选模板** | 🔴 ❌(未验证) | ✅ | PrintControl Python 衍生未验证 |
-| **列表自定义过滤 / 行格式** | 🔴 ❌(未验证) | ✅ | List Python 衍生未验证 |
-| **报表自定义取数逻辑** | 🔴 ❌(未验证) | ✅ | SysReport Python 衍生未验证 |
+| **打印时动态条码 / 动态选模板** | ⚠️ 间接可 | ✅ | K/3 套打用 widget 框架不走 PlugIn,Python 不可挂 widget;但 `PythonBillPlugIn.BeforePrint` 事件可干预数据 / 选模板 |
+| **列表自定义过滤 / 行格式** | 🟢 ✅ | ✅ | `PythonListPlugIn`(2026-04-30 反编译实证) |
+| **报表自定义取数逻辑** | 🟢 ✅ | ✅ | `PythonReportPlugIn : AbstractSysReportPlugIn`(实证;**纠正基类**:不是 `SysReportBaseService`) |
 | **保存事务内的多表更新**(原子性) | ❌(BeforeSave 不在事务内) | ✅ AbstractOperationServicePlugIn 在事务内 | 数据一致性要求高时必须 DLL |
 | **高频循环 + 大数据量**(批量审核 1000 单) | ❌(IronPython 慢 5-20 倍) | ✅(原生 .NET) | 性能 |
 | **调外部 HTTP API** | ⚠️(IronPython 限制 + 客户端发起,网络) | ✅(服务端,可控) | 调外部用 DLL |
@@ -63,18 +65,22 @@
   │     → ✅ Python 表单插件(BeforeSave)
   │
   ├── 是审核 / 反审核 / 删除 / 提交拦截?
-  │     → ❌ Python 做不到 → DLL 操作插件(AbstractOperationServicePlugIn)
+  │     → ✅ **Python 优先**(`PythonOperationServicePlugIn`,无需编译部署)
+  │     → DLL 备选(团队已有 .NET 工程 / 性能极致 / 需 NuGet 包)
   │
   ├── 是下推时字段映射 / 跨单据校验?
-  │     → ✅ **Python 优先**(`PythonConvertPlugIn`,无需编译部署)
-  │     → 也可 DLL(团队已有 .NET 工程 / 性能极致 / 需 NuGet 包时)
+  │     → ✅ **Python 优先**(`PythonConvertPlugIn`)
+  │     → DLL 备选(同上)
   │
   ├── 是打印模板动态化(条码 / 大写 / 选模板)?
-  │     → ❌ 默认 Python 做不到 → DLL 打印插件
-  │     → 但先看能不能用模板设计器的公式字段搞定
+  │     → ⚠️ K/3 套打用 widget 框架,不是 PlugIn 体系,Python 不可注册 widget
+  │     → 优先尝试模板设计器的公式字段
+  │     → 间接路径:`PythonBillPlugIn.BeforePrint` 事件干预数据 / 选模板
+  │     → 复杂 widget 定制 → DLL widget(`AbstractPrintWidget` / `AbstractPrintDataProvider`)
   │
   ├── 是列表 / 报表的高级定制?
-  │     → ❌ Python 做不到 → DLL 列表 / 报表插件
+  │     → ✅ **Python 优先**(`PythonListPlugIn` / `PythonReportPlugIn`)
+  │     → DLL 备选
   │
   ├── 是大数据量循环 / 高频操作?
   │     → ❌ Python 性能不够 → DLL 操作插件
@@ -89,15 +95,13 @@
 
 ### 场景 A:用户描述"销售订单审核时检查信用额度"
 
-**判定**:审核 = 服务端操作 → DLL
+**判定**:审核 = 服务端操作 → **Python 优先**(`PythonOperationServicePlugIn`,2026-04-30 反编译实证),DLL 也可
 
-> 你这个需求是**审核拦截**——必须用 DLL 操作插件,Python 表单插件搞不定。
+> 你这个需求是**审核拦截**——可以用 Python 操作插件(`PythonOperationServicePlugIn`),也可以走 DLL(`AbstractOperationServicePlugIn`),能力等价。
 >
-> 原因:Python 插件挂在客户端表单上,审核操作在服务端事务里跑,Python 触不到。
+> 实现方向:挂在销售订单的 `Audit` 操作上,在 `OnAddValidators` 里注册一个校验器,校验器内查信用额度表 + 当前已用额度,超限 `validateContext.AddError(...)` 阻断。
 >
-> 实现方向:写一个 `AbstractOperationServicePlugIn` 子类,挂在销售订单的 `Audit` 操作上,在 `OnAddValidators` 里注册一个校验器,校验器内查信用额度表 + 当前已用额度,超限 `validateContext.AddError(...)` 阻断。
->
-> OpenDeploy v0.1 不代写 DLL 代码,我可以给你工程命名 / 引用 DLL / 样例代码骨架,你拿去用 VS 实现并部署。
+> **推荐 Python**:OpenDeploy 一键写入 + 无需编译 + 无需重启 K3 服务。除非团队已有 .NET 工程要复用 / 单次审核要循环上千分录(IronPython 5-20 倍慢),否则走 Python。
 
 ### 场景 B:用户描述"销售订单上选了客户后,自动填默认收货地址"
 
@@ -121,16 +125,15 @@
 
 ### 场景 D:用户描述"批量审核 1000 个订单时,要给每个订单的客户加积分"
 
-**判定**:审核拦截 + 大数据量 → DLL(双重理由)
+**判定**:审核拦截 + 大数据量 → **DLL 优先(性能)**
 
-> 这个需求**两个理由**都指向 DLL 操作插件:
->
-> 1. 审核操作 — Python 触不到
-> 2. 1000 单批处理 — Python(IronPython)在循环 + 写表上比 .NET 慢 5-20 倍,会拖慢用户体验
+> Python 路径(`PythonOperationServicePlugIn`)能挂上去,但**性能不够**:1000 单批处理时 IronPython 比原生 .NET 慢 5-20 倍,会拖慢用户体验。
 >
 > 实现:`AbstractOperationServicePlugIn` 挂 Audit,在 `EndOperationTransaction`(事务内、核心审核已完成)里**批量**(不是循环单个)给每个客户加积分——SQL 直接 `UPDATE T_BD_CUSTOMER SET F_ABC_Points = F_ABC_Points + ... WHERE FID IN (...)`。
 >
-> v0.1 不代写 DLL 代码。
+> v0.1 不代写 DLL 代码 / 不编译 / 不部署 — 给骨架,客户拿去 VS 实现。
+>
+> **如果数据量其实不大(<100 单)**,Python 路径也能跑,优先 Python(一键写入)。
 
 ---
 
