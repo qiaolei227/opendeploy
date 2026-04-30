@@ -60,12 +60,12 @@ import {
   deleteConvertRuleExtension as rpcDeleteConvertRuleExtension,
   type ExtendConvertRuleResult,
 } from './rpc/extend-convert-rule';
-import { getCurrentIsv } from './rpc/get-current-isv';
 import {
   UnsupportedConvertRuleError,
   type ConvertRuleBaseline,
   DEFAULT_LOCALE_SLOTS,
 } from './rpc/convert-rule-baselines';
+import { getCurrentIsv } from './rpc/get-current-isv';
 import {
   buildModifyExtensionParas,
   type IsvDescriptor,
@@ -462,8 +462,34 @@ export class K3CloudConnector implements ErpConnector {
     return baseline;
   }
 
+  /**
+   * Build the ISV descriptor for SaveRulesV9.
+   *
+   * `Id` is the BOS Designer activation key — the server requires it for
+   * ISV lineage and rejects null with a NullReferenceException, so we
+   * fetch it from `GetCurrentISV` (memoized per session).
+   *
+   * `Name` and `DevCode` use the project's `devCode` so OpenDeploy-built
+   * extensions group with the customer's other work in BOS Designer
+   * rather than under whatever default ISV the data center returns.
+   *
+   * `ISVSignal` is forced to "Kingdee" — real BOS Designer captures
+   * always show this value, but `GetCurrentISV` on some data centers
+   * returns it empty. The mismatch can confuse server-side lineage
+   * checks and cause extensions to appear as siblings of their origin
+   * rule rather than children.
+   */
   private async getIsv(session: KdSession): Promise<IsvDescriptor> {
-    return (this.cachedIsv ??= await getCurrentIsv(session));
+    if (this.cachedIsv) return this.cachedIsv;
+    const remote = await getCurrentIsv(session);
+    this.cachedIsv = {
+      Id: remote.Id,
+      Name: this.config.devCode,
+      ISVSignal: 'Kingdee',
+      PackageSignal: remote.PackageSignal ?? '',
+      DevCode: this.config.devCode,
+    };
+    return this.cachedIsv;
   }
 
   async extendConvertRule(

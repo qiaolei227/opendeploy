@@ -150,6 +150,14 @@ export function envelopeToJsonString(env: ConvertRuleEnvelope): string {
  */
 export function buildNewExtensionParas(args: {
   newRuleId: string;
+  /**
+   * Parent rule id (e.g. "SaleOrder-OutStock"). Server uses this to
+   * register the new rule as an extension of that parent — without it,
+   * the server creates a sibling rule and BOS Designer renders it
+   * as a top-level "(stopped) rule" instead of a child of the standard
+   * rule. Verified against capture #0081 (real BOS Designer extend op).
+   */
+  baseObjectId: string;
   isv: IsvDescriptor;
   displayName?: string;
 }): ConvertRuleParas {
@@ -163,7 +171,7 @@ export function buildNewExtensionParas(args: {
     Id: args.newRuleId,
     OldId: null,
     ModelTypeId: CONVERT_RULE_MODEL_TYPE_ID,
-    BaseObjectId: '',
+    BaseObjectId: args.baseObjectId,
     DevType: 0,
     SubSystemId: null,
     Version: null,
@@ -250,6 +258,17 @@ export async function saveConvertRules(
     __oldIds__: JSON.stringify(payload.oldIds),
     __isv__: JSON.stringify(payload.isv),
   };
+
+  // TEMP DEBUG — dump ap0 to disk for wire-format diff vs real BOS Designer captures
+  if (process.env.OD_DUMP_SAVE_RULES) {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const dir = '.scratch/saveconvertrules-dumps';
+    fs.mkdirSync(dir, { recursive: true });
+    const stamp = Date.now();
+    fs.writeFileSync(path.join(dir, `${stamp}-ap0.json`), JSON.stringify(ap0Payload, null, 2), 'utf-8');
+    console.log(`[debug] saveConvertRules ap0 dumped → ${dir}/${stamp}-ap0.json`);
+  }
 
   const res = await callKdsvc(session, CONVERT_SERVICE, 'SaveRulesV9', {
     apFields: { ap0: encodeApField(ap0Payload) },

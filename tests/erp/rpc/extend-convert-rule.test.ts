@@ -27,6 +27,12 @@ const UNW_ISV: IsvDescriptor = {
   DevCode: 'UNW',
 };
 
+// Server-side live Version values (`getConvertRule` returns these in the
+// rule wrapper, the new code threads them into rule[0] paras to avoid
+// MainVersion-mismatch creating duplicate origin rules).
+const LIVE_VERSION = '634703641059182961';
+const LIVE_MAIN_VERSION = '639131611327136100';
+
 const ORIGIN_XML =
   '<?xml version="1.0" encoding="utf-16"?><ConvertRuleMetaData><Rule>' +
   '<ConvertRule ElementType="6000"><Id>aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee</Id></ConvertRule>' +
@@ -35,9 +41,6 @@ const EXT_TEMPLATE_XML =
   '<?xml version="1.0" encoding="utf-16"?><ConvertRuleMetaData><Rule>' +
   '<ConvertRule ElementType="6000"><Policies>' +
   '<LinkEntityPolicy ElementType="7008"><Id>11111111-2222-3333-4444-555555555555</Id></LinkEntityPolicy>' +
-  '<DefaultConvertPolicy ElementType="7002"><FieldMaps>' +
-  '<FieldMap ElementType="60002"><Id>aabbccddeeff00112233445566778899</Id></FieldMap>' +
-  '</FieldMaps></DefaultConvertPolicy>' +
   '</Policies></ConvertRule></Rule></ConvertRuleMetaData>';
 
 const SAMPLE_BASELINE: ConvertRuleBaseline = buildSaleOrderOutStockBaseline({
@@ -45,12 +48,32 @@ const SAMPLE_BASELINE: ConvertRuleBaseline = buildSaleOrderOutStockBaseline({
   extensionTemplateXml: EXT_TEMPLATE_XML,
 });
 
+/**
+ * The new `extendConvertRule` issues two RPC calls per save:
+ *   1. `GetConvertRule(originRuleId)` to read live `Version` / `MainVersion`
+ *   2. `SaveRulesV9` with the assembled envelope
+ *
+ * The mock returns canned `Version` / `MainVersion` for #1 and captures
+ * the ap0 payload sent to #2.
+ */
 function captureSavePayload(): {
   capturedAp0: { value: string };
   fetchSpy: typeof fetch;
 } {
   const capturedAp0 = { value: '' };
-  const fetchSpy = (async (_url: string, init?: RequestInit) => {
+  const fetchSpy = (async (url: string, init?: RequestInit) => {
+    if (url.includes('GetConvertRule')) {
+      return new Response(
+        encodeAppLayer(
+          JSON.stringify({
+            Id: 'SaleOrder-OutStock',
+            Version: LIVE_VERSION,
+            MainVersion: LIVE_MAIN_VERSION,
+            Rule: { Policies: [] },
+          }),
+        ),
+      );
+    }
     const params = new URLSearchParams(String(init?.body ?? ''));
     capturedAp0.value = params.get('ap0') ?? '';
     return new Response(encodeAppLayer(''));
@@ -90,7 +113,12 @@ describe('extendConvertRule', () => {
     expect(paras1.OldId).toBeNull();
   });
 
-  it('passes origin XML verbatim in rule[0]', async () => {
+  it('rule[0] sends a minimal origin envelope (Status reset, Id/Key only) — not the full origin XML', async () => {
+    // Sending the full baseline.originXml triggers a server-side modify of
+    // the standard rule against stale baseline content and was observed to
+    // flip <IsDefault> / <Status> on it. The minimal shape leaves the
+    // standard rule untouched while still anchoring the new extension's
+    // lineage via oldIds.
     const { capturedAp0, fetchSpy } = captureSavePayload();
     globalThis.fetch = fetchSpy;
 
@@ -98,21 +126,57 @@ describe('extendConvertRule', () => {
 
     const outer = JSON.parse(decodeAppLayerString(capturedAp0.value));
     const rule0 = JSON.parse(outer.__rules__[0]);
-    expect(rule0.__source__).toBe(ORIGIN_XML);
+    expect(rule0.__source__).not.toBe(ORIGIN_XML);
+    expect(rule0.__source__).toContain('<Status action="reset" />');
+    expect(rule0.__source__).toContain('<Id>SaleOrder-OutStock</Id>');
+    expect(rule0.__source__).toContain('<Key>SaleOrder-OutStock</Key>');
+    expect(rule0.__source__).not.toContain('LinkEntityPolicy');
   });
 
-  it('regenerates every GUID in the new extension XML (no template GUID survives)', async () => {
+  it('rule[0] paras carry live Version + MainVersion (not the baseline snapshot)', async () => {
+    // MainVersion ticks up on every save of the standard rule. If we send the
+    // baseline-frozen value, the server treats the modify as stale and creates
+    // an independent duplicate of the rule. Live values come from getConvertRule.
     const { capturedAp0, fetchSpy } = captureSavePayload();
     globalThis.fetch = fetchSpy;
 
     await extendConvertRule(session, { baseline: SAMPLE_BASELINE, isv: UNW_ISV });
 
     const outer = JSON.parse(decodeAppLayerString(capturedAp0.value));
-    const rule1 = JSON.parse(outer.__rules__[1]);
-    expect(rule1.__source__).not.toContain('11111111-2222-3333-4444-555555555555');
-    expect(rule1.__source__).not.toContain('aabbccddeeff00112233445566778899');
-    expect(rule1.__source__).toMatch(/<LinkEntityPolicy ElementType="7008">/);
-    expect(rule1.__source__).toMatch(/<FieldMap ElementType="60002">/);
+    const paras0 = JSON.parse(JSON.parse(outer.__rules__[0]).__paras__);
+    expect(paras0.Version).toBe(LIVE_VERSION);
+    expect(paras0.MainVersion).toBe(LIVE_MAIN_VERSION);
+  });
+
+  it('rule[1] sends a minimal extension XML (Status reset + Name + Id/Key) — not a full template clone', async () => {
+    const { capturedAp0, fetchSpy } = captureSavePayload();
+    globalThis.fetch = fetchSpy;
+
+    const result = await extendConvertRule(session, {
+      baseline: SAMPLE_BASELINE, isv: UNW_ISV, displayName: '我的扩展',
+    });
+
+    const outer = JSON.parse(decodeAppLayerString(capturedAp0.value));
+    const rule1Source = JSON.parse(outer.__rules__[1]).__source__;
+    expect(rule1Source).toContain('<Status action="reset" />');
+    expect(rule1Source).toContain(`<Id>${result.newExtensionId}</Id>`);
+    expect(rule1Source).toContain(`<Key>${result.newExtensionId}</Key>`);
+    expect(rule1Source).toContain('<Name>我的扩展</Name>');
+    // Server inherits Policies from BaseObjectId; we don't ship them
+    expect(rule1Source).not.toContain('LinkEntityPolicy');
+  });
+
+  it('rule[1] paras.BaseObjectId points at the origin rule id (server lineage anchor)', async () => {
+    // Without BaseObjectId, the server creates the rule as a top-level
+    // sibling instead of an extension child of SaleOrder-OutStock.
+    const { capturedAp0, fetchSpy } = captureSavePayload();
+    globalThis.fetch = fetchSpy;
+
+    await extendConvertRule(session, { baseline: SAMPLE_BASELINE, isv: UNW_ISV });
+
+    const outer = JSON.parse(decodeAppLayerString(capturedAp0.value));
+    const paras1 = JSON.parse(JSON.parse(outer.__rules__[1]).__paras__);
+    expect(paras1.BaseObjectId).toBe('SaleOrder-OutStock');
   });
 
   it('uses caller-supplied ISV for top-level __isv__ and new-ext paras.ISV', async () => {
@@ -184,7 +248,7 @@ describe('deleteConvertRuleExtension', () => {
     expect(oldIds).toEqual(['SaleOrder-OutStock', 'fe6154fe-7144-4633-97e9-601f65135ae9']);
   });
 
-  it('passes origin XML and origin paras unchanged', async () => {
+  it('rule[0] sends the same minimal origin envelope on delete (no full XML body)', async () => {
     const { capturedAp0, fetchSpy } = captureSavePayload();
     globalThis.fetch = fetchSpy;
 
@@ -196,23 +260,11 @@ describe('deleteConvertRuleExtension', () => {
 
     const outer = JSON.parse(decodeAppLayerString(capturedAp0.value));
     const rule0 = JSON.parse(outer.__rules__[0]);
-    expect(rule0.__source__).toBe(ORIGIN_XML);
+    expect(rule0.__source__).toContain('<Status action="reset" />');
+    expect(rule0.__source__).toContain('<Id>SaleOrder-OutStock</Id>');
+    expect(rule0.__source__).not.toContain('LinkEntityPolicy');
     const paras0 = JSON.parse(rule0.__paras__);
-    expect(paras0.Id).toBe('SaleOrder-OutStock');
-  });
-
-  it('uses the caller ISV in top-level __isv__', async () => {
-    const { capturedAp0, fetchSpy } = captureSavePayload();
-    globalThis.fetch = fetchSpy;
-
-    await deleteConvertRuleExtension(session, {
-      baseline: SAMPLE_BASELINE,
-      extId: 'some-ext',
-      isv: UNW_ISV,
-    });
-
-    const outer = JSON.parse(decodeAppLayerString(capturedAp0.value));
-    const topIsv = JSON.parse(outer.__isv__);
-    expect(topIsv.Name).toBe('UNW');
+    expect(paras0.Version).toBe(LIVE_VERSION);
+    expect(paras0.MainVersion).toBe(LIVE_MAIN_VERSION);
   });
 });
