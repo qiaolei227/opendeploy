@@ -919,3 +919,117 @@ describe('kingdee_delete_convert_rule_extension tool', () => {
     expect(findTool(makeFake()).parallelSafe).toBeUndefined();
   });
 });
+
+describe('kingdee_add_convert_plugin tool', () => {
+  const findTool = (fake: K3CloudConnector) =>
+    buildK3CloudTools(fake).find(
+      (t) => t.definition.name === 'kingdee_add_convert_plugin'
+    )!;
+
+  it('forwards DLL mode (no pyScript) — connector receives undefined for pyScript', async () => {
+    const addConvertPlugin = vi.fn(async () => ({ ok: true, raw: '' }));
+    const tool = findTool(makeFake({ addConvertPlugin }));
+
+    const parsed = JSON.parse(
+      await tool.execute({
+        extId: 'fe6154fe-7144-4633-97e9-601f65135ae9',
+        className: 'Kingdee.K3.SCM.App.ConvertPlugIn.MyConvertSrv, Kingdee.K3.SCM.App'
+      })
+    );
+
+    expect(addConvertPlugin).toHaveBeenCalledWith(
+      'fe6154fe-7144-4633-97e9-601f65135ae9',
+      'Kingdee.K3.SCM.App.ConvertPlugIn.MyConvertSrv, Kingdee.K3.SCM.App',
+      undefined
+    );
+    expect(parsed.ok).toBe(true);
+    expect(parsed.message).toContain('DLL 转换插件');
+    expect(parsed.message).not.toContain('Python');
+  });
+
+  it('forwards Python mode — connector receives pyScript verbatim, message says Python', async () => {
+    const addConvertPlugin = vi.fn(async () => ({ ok: true, raw: '' }));
+    const tool = findTool(makeFake({ addConvertPlugin }));
+    const py = 'def OnAfterCreateLink(e):\n    print("hello")';
+
+    const parsed = JSON.parse(
+      await tool.execute({
+        extId: 'fe6154fe-7144-4633-97e9-601f65135ae9',
+        className: 'MultiEntryCarry',
+        pyScript: py
+      })
+    );
+
+    expect(addConvertPlugin).toHaveBeenCalledWith(
+      'fe6154fe-7144-4633-97e9-601f65135ae9',
+      'MultiEntryCarry',
+      py
+    );
+    expect(parsed.ok).toBe(true);
+    expect(parsed.message).toContain('Python 转换插件');
+  });
+
+  it('treats empty-string pyScript as DLL mode (not Python with empty script)', async () => {
+    const addConvertPlugin = vi.fn(async () => ({ ok: true, raw: '' }));
+    const tool = findTool(makeFake({ addConvertPlugin }));
+
+    await tool.execute({
+      extId: 'fe6154fe-7144-4633-97e9-601f65135ae9',
+      className: 'X.Y.Z, X',
+      pyScript: ''
+    });
+
+    expect(addConvertPlugin).toHaveBeenCalledWith(
+      'fe6154fe-7144-4633-97e9-601f65135ae9',
+      'X.Y.Z, X',
+      undefined
+    );
+  });
+
+  it('preserves PyScript content with XML metacharacters (escape is bridge/server concern)', async () => {
+    const addConvertPlugin = vi.fn(async () => ({ ok: true, raw: '' }));
+    const tool = findTool(makeFake({ addConvertPlugin }));
+    const py = 'if e.X < 1 and e.Y > 2:\n    e.Set("k", "<v>&amp;")';
+
+    await tool.execute({
+      extId: 'fe6154fe-7144-4633-97e9-601f65135ae9',
+      className: 'MetaCharProbe',
+      pyScript: py
+    });
+
+    expect(addConvertPlugin).toHaveBeenCalledWith(
+      'fe6154fe-7144-4633-97e9-601f65135ae9',
+      'MetaCharProbe',
+      py
+    );
+  });
+
+  it('accepts Chinese className (Designer Python registrations frequently use Chinese identifiers)', async () => {
+    const addConvertPlugin = vi.fn(async () => ({ ok: true, raw: '' }));
+    const tool = findTool(makeFake({ addConvertPlugin }));
+
+    await tool.execute({
+      extId: 'fe6154fe-7144-4633-97e9-601f65135ae9',
+      className: '多单据体携带插件',
+      pyScript: 'def OnAfterCreateLink(e):\n    pass'
+    });
+
+    expect(addConvertPlugin).toHaveBeenCalledWith(
+      'fe6154fe-7144-4633-97e9-601f65135ae9',
+      '多单据体携带插件',
+      'def OnAfterCreateLink(e):\n    pass'
+    );
+  });
+
+  it('throws when extId or className is missing or whitespace', async () => {
+    const tool = findTool(makeFake());
+    await expect(tool.execute({ className: 'X' })).rejects.toThrow(/extId/);
+    await expect(tool.execute({ extId: 'X' })).rejects.toThrow(/className/);
+    await expect(tool.execute({ extId: '   ', className: 'X' })).rejects.toThrow(/extId/);
+    await expect(tool.execute({ extId: 'X', className: '   ' })).rejects.toThrow(/className/);
+  });
+
+  it('omits parallelSafe (write tool — must serialize)', () => {
+    expect(findTool(makeFake()).parallelSafe).toBeUndefined();
+  });
+});

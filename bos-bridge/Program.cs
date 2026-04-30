@@ -133,7 +133,12 @@ namespace OpenDeploy.BosBridge
                     return new { xml = ctx.SetConvertFilter(xml, alertMessage, custFilter) };
                 }
                 case "add_convert_plugin":
-                    return new { xml = ctx.AddConvertPlugin(RequireString(req, "xml"), RequireString(req, "class_name")) };
+                {
+                    var xml = RequireString(req, "xml");
+                    var className = RequireString(req, "class_name");
+                    var pyScript = (string?)req["py_script"] ?? string.Empty;
+                    return new { xml = ctx.AddConvertPlugin(xml, className, pyScript) };
+                }
                 case "remove_convert_plugin":
                     return new { xml = ctx.RemoveConvertPlugin(RequireString(req, "xml"), RequireString(req, "class_name")) };
                 case "add_convert_bill_type_map":

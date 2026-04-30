@@ -614,12 +614,34 @@ export class K3CloudConnector implements ErpConnector {
     });
   }
 
-  /** Add a DLL plugin class to the extension's plugin policy. */
-  async addConvertPlugin(extId: string, className: string): Promise<SaveConvertRulesResult> {
-    return this.patchExtXml(extId, 'add_convert_plugin', { class_name: className });
+  /**
+   * Add a plugin to the extension's plugin policy.
+   *
+   * `pyScript` blank/undefined → DLL plugin (className must be the fully-
+   * qualified type, like `Kingdee.K3.SCM.App.ConvertPlugIn.MyConvertSrv`).
+   * Wire emits `<ClassName>` only; PlugInType stays at the default 0 so the
+   * server takes the DLL path.
+   *
+   * `pyScript` given → Python convert plugin (className may be a short
+   * developer-chosen identifier). Wire emits `<PlugInType>1</PlugInType>` +
+   * `<PyScript>...</PyScript>`; the server's `PythonConvertPlugIn` runs the
+   * script through IronPython, with full access to the same 22 virtual
+   * methods (`OnAfterCreateLink`, `OnAfterFieldMapping`, etc.) as DLL.
+   * Verified against `frmplugInPolicyEditor.RegPyScript` (Designer's "注册
+   * Python 脚本" handler) and `Kingdee.BOS.Core.Metadata.ConvertElement.PlugIn.PythonConvertPlugIn`.
+   */
+  async addConvertPlugin(
+    extId: string,
+    className: string,
+    pyScript?: string,
+  ): Promise<SaveConvertRulesResult> {
+    return this.patchExtXml(extId, 'add_convert_plugin', {
+      class_name: className,
+      ...(pyScript && pyScript.length > 0 ? { py_script: pyScript } : {}),
+    });
   }
 
-  /** Remove a DLL plugin class from the extension's plugin policy. */
+  /** Remove a plugin (DLL or Python) from the extension's plugin policy by ClassName. */
   async removeConvertPlugin(extId: string, className: string): Promise<SaveConvertRulesResult> {
     return this.patchExtXml(extId, 'remove_convert_plugin', { class_name: className });
   }

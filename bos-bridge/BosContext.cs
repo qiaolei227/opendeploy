@@ -180,12 +180,20 @@ namespace OpenDeploy.BosBridge
         }
 
         /// <summary>
-        /// Append a service plugin class to the ConvertPlugInPolicy.
-        /// Idempotent — if the class is already registered, no-op.
+        /// Append a plugin class to the ConvertPlugInPolicy. When
+        /// <paramref name="pyScript"/> is empty, registers a DLL plugin (default
+        /// PlugInType=0, no <c>&lt;PlugInType&gt;</c> serialized — verified
+        /// against 6 standard SaleOrder→OutStock plugins in
+        /// <c>.scratch/decompile/convert-python-plugin/saleorder-outstock-convertrule.xml</c>).
+        /// When non-empty, registers a Python convert plugin (PlugInType=1 +
+        /// <c>&lt;PyScript&gt;</c> body — Designer's RegPyScript handler in
+        /// <c>frmplugInPolicyEditor.RegPyScript</c> at line 162-174 does this
+        /// shape exactly). Idempotent on ClassName.
         /// </summary>
-        public string AddConvertPlugin(string xml, string className)
+        public string AddConvertPlugin(string xml, string className, string pyScript)
         {
             if (string.IsNullOrEmpty(className)) throw new ArgumentException("class_name is empty", nameof(className));
+            pyScript = pyScript ?? string.Empty;
 
             return PatchMeta(xml, meta =>
             {
@@ -193,12 +201,25 @@ namespace OpenDeploy.BosBridge
                 if (policy.Plugs == null) policy.Plugs = new List<FormPlugIn>();
                 if (policy.Plugs.Any(p => p.ClassName == className)) return;
 
-                policy.Plugs.Add(new FormPlugIn(className)
+                var plug = new FormPlugIn(className)
                 {
                     ClassName = className,
-                    PlugInType = FormPlugIn.PlugInType_ServicePlugIn,
                     IsEnabled = true,
-                });
+                };
+                if (pyScript.Length > 0)
+                {
+                    plug.PlugInType = 1; // 1 = Python; default 0 = DLL
+                    // PyScript is typed Kingdee.BOS.Orm.DataEntity.ScriptString
+                    // (a wrapper around string). Reflect to avoid a direct
+                    // compile-time reference on Kingdee.BOS.Orm — the bridge
+                    // only references Core/DataEntity, but the type is
+                    // resolvable at runtime via PlugIn.PyScript's PropertyType.
+                    var pyProp = typeof(FormPlugIn).GetProperty("PyScript");
+                    if (pyProp == null) throw new InvalidOperationException("FormPlugIn.PyScript property not found");
+                    var scriptString = Activator.CreateInstance(pyProp.PropertyType, pyScript);
+                    pyProp.SetValue(plug, scriptString);
+                }
+                policy.Plugs.Add(plug);
             });
         }
 
