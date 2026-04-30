@@ -125,13 +125,26 @@ describe('buildModifyExtensionParas', () => {
       extId: 'abc12345-1234-5678-90ab-cdef01234567',
       baseObjectId: 'SaleOrder-OutStock',
       isv: UNW_ISV,
-      inheritPath: ',SaleOrder-OutStock,',
-      version: '634553997696460779',
-      mainVersion: '634553997696460779',
     });
     expect(p.BaseObjectId).toBe('SaleOrder-OutStock');
     expect(p.Id).toBe('abc12345-1234-5678-90ab-cdef01234567');
     expect(p.OldId).toBe('abc12345-1234-5678-90ab-cdef01234567');
+  });
+
+  it('matches BOS Designer modify-wire paras (DevType=2, version/inheritPath/mainVersion all null)', () => {
+    // Empirical reference: capture #1354 (BOS Designer's own extension
+    // modify save). Stale local values risk optimistic-concurrency
+    // mismatches; the server fills these from its own state.
+    const p = buildModifyExtensionParas({
+      extId: 'abc12345-1234-5678-90ab-cdef01234567',
+      baseObjectId: 'SaleOrder-OutStock',
+      isv: UNW_ISV,
+    });
+    expect(p.DevType).toBe(2);
+    expect(p.Version).toBeNull();
+    expect(p.MainVersion).toBeNull();
+    expect(p.InheritPath).toBeNull();
+    expect(p.SourceFormId).toBeNull();
   });
 });
 

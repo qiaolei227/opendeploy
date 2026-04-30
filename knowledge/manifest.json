@@ -15,12 +15,12 @@
     {
       "id": "k3cloud/bos-features-index",
       "version": "1.0.0",
-      "sha256": "ec68992b869dd300be47d011d1ea768b1afeaa580994c36638d7e9ff4135946a"
+      "sha256": "dc85b2621df9d6bf250b330c3d6476df6563184d539fceaeef70483d1cdc1d12"
     },
     {
       "id": "k3cloud/dll-plugin-index",
       "version": "1.0.0",
-      "sha256": "8ba39b0ca629dab7a544433e9a5b35ec3ec3635fa08d18ac16845ef16286db0c"
+      "sha256": "209e4bef373d4c684f2a916a431ba7a1b9b4acc5fa9c30c2b7761c500fcc3b8d"
     },
     {
       "id": "k3cloud/product-features-index",
@@ -35,7 +35,7 @@
     {
       "id": "k3cloud/solution-decision-framework",
       "version": "2.0.0",
-      "sha256": "25835e7692092525209e9d60fd098edbc31ec684d22efd45f12d1ff4c9a12ca4"
+      "sha256": "89f004fd1997c0e19afafbf743abec431143307f79823067ef48c0267b8d363a"
     },
     {
       "id": "k3cloud/troubleshooting-index",

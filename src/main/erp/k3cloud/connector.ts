@@ -78,6 +78,7 @@ import {
   loadConvertRuleExtState,
 } from './rpc/convert-rule-state';
 import { buildPatchBaseXml } from './rpc/build-patch-base-xml';
+import { transformPatchedToExtensionWire } from './rpc/transform-extension-wire';
 import { getBridge } from './bridge';
 import type { KdSession } from './rpc/http-client';
 import type {
@@ -547,13 +548,25 @@ export class K3CloudConnector implements ErpConnector {
     const [isv, bridge] = await Promise.all([this.getIsv(session), getBridge()]);
     const { xml: patchedXml } = await bridge.send<{ xml: string }>(op, { xml: state.xml, ...bridgeArgs });
 
+    // Convert the bridge's full-skeleton output into the wire shape BOS
+    // Designer itself emits — strips bare-skeleton Policy nodes and adds
+    // action="edit" + parent Policy oid to surviving ones. Without this,
+    // the server records every Policy as "extension declared empty" and
+    // BOS Designer renders duplicate Policy entries (capture #1354 vs
+    // commit-9838030 patch base). See transform-extension-wire.ts for the
+    // 2026-05-01 empirical reference.
+    const wireXml = transformPatchedToExtensionWire({
+      patchedXml,
+      originXml: baseline.originXml,
+    });
+
     const result = await saveConvertRules(session, {
       rules: [
         { localeSlots: DEFAULT_LOCALE_SLOTS, source: baseline.originXml, paras: baseline.originParas },
         {
           localeSlots: DEFAULT_LOCALE_SLOTS,
-          source: patchedXml,
-          paras: buildModifyExtensionParas({ extId, baseObjectId: state.originRuleId, isv, inheritPath: state.inheritPath, version: state.version, mainVersion: state.mainVersion }),
+          source: wireXml,
+          paras: buildModifyExtensionParas({ extId, baseObjectId: state.originRuleId, isv }),
         },
       ],
       oldIds: [baseline.originParas.Id, extId],
