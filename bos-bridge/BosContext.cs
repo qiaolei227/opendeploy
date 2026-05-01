@@ -99,6 +99,12 @@ namespace OpenDeploy.BosBridge
 
                 var fm = new FieldMapElement(BuildFieldMapKey(targetFieldKey, sourceFieldKey, formula))
                 {
+                    // 60002 is the K/3 ElementType for FieldMap (verified 2026-05-01
+                    // — capture #1354 + UAT). AbstractElement.ElementType defaults
+                    // to 0; leaving it makes BOS Push engine fail to dispatch to
+                    // the FieldMap mapping handler and throw NRE inside
+                    // MappingHelper.MappingField.MappingValue() at push time.
+                    ElementType = 60002,
                     TargetFieldKey = targetFieldKey,
                     SourceFieldKey = sourceFieldKey ?? string.Empty,
                     ValueConvertMode = parsedMode,
