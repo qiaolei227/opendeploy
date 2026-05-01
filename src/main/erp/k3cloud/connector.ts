@@ -548,13 +548,6 @@ export class K3CloudConnector implements ErpConnector {
     const [isv, bridge] = await Promise.all([this.getIsv(session), getBridge()]);
     const { xml: patchedXml } = await bridge.send<{ xml: string }>(op, { xml: state.xml, ...bridgeArgs });
 
-    // Convert the bridge's full-skeleton output into the wire shape BOS
-    // Designer itself emits — strips bare-skeleton Policy nodes and adds
-    // action="edit" + parent Policy oid to surviving ones. Without this,
-    // the server records every Policy as "extension declared empty" and
-    // BOS Designer renders duplicate Policy entries (capture #1354 vs
-    // commit-9838030 patch base). See transform-extension-wire.ts for the
-    // 2026-05-01 empirical reference.
     const wireXml = transformPatchedToExtensionWire({
       patchedXml,
       originXml: baseline.originXml,

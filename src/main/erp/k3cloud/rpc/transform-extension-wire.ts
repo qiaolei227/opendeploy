@@ -67,29 +67,28 @@ const TOP_LEVEL_POLICY_NAMES: ReadonlyArray<string> = [
 ];
 
 /**
- * Substring markers that indicate a Policy contains real instance content
- * (vs. just a structural skeleton with empty self-closing collections like
- * `<FieldMaps />`). Any of these appearing inside a Policy's inner XML
- * keeps the Policy in the wire.
+ * Element names whose presence inside a Policy's inner XML indicates real
+ * instance content (vs. just a structural skeleton with empty self-closing
+ * collections like `<FieldMaps />`). Matches both `<Name ` and `<Name>` forms.
  */
-const POLICY_CONTENT_MARKERS: ReadonlyArray<string> = [
-  '<FieldMap ',
-  '<FieldMap>',
-  '<PlugIn ',
-  '<PlugIn>',
-  '<LinkEntity ',
-  '<LinkEntity>',
-  '<BillTypeMap ',
-  '<BillTypeMap>',
-  '<Filter ',
-  '<Filter>',
-  '<GroupColumnInfo ',
-  '<GroupColumnInfo>',
-  '<FormBusinessService ',
-  '<FormBusinessService>',
-  '<TailDiff ',
-  '<TailDiff>',
+const POLICY_CONTENT_ELEMENTS: ReadonlyArray<string> = [
+  'FieldMap',
+  'PlugIn',
+  'LinkEntity',
+  'BillTypeMap',
+  'Filter',
+  'GroupColumnInfo',
+  'FormBusinessService',
+  'TailDiff',
 ];
+
+/** Single regex compiled from POLICY_CONTENT_ELEMENTS — `<(Name1|Name2|…)[ >]`. */
+const POLICY_CONTENT_RE = new RegExp(
+  `<(?:${POLICY_CONTENT_ELEMENTS.join('|')})[ >]`,
+);
+
+/** Match one top-level Policy node and capture its name, attrs, inner XML. */
+const POLICY_NODE_RE = /<(\w+Policy)\s+([^>]*?)>([\s\S]*?)<\/\1>/g;
 
 export interface TransformExtensionWireArgs {
   /** XML returned by the .NET bridge after applying patch ops. */
@@ -106,16 +105,14 @@ export interface TransformExtensionWireArgs {
  */
 export function parsePolicyOidMap(originXml: string): Map<string, string> {
   const map = new Map<string, string>();
-  const re = /<(\w+Policy)\s+([^>]*?)>([\s\S]*?)<\/\1>/g;
+  const re = new RegExp(POLICY_NODE_RE.source, 'g');
   let m: RegExpExecArray | null;
   while ((m = re.exec(originXml))) {
     const name = m[1];
     if (!TOP_LEVEL_POLICY_NAMES.includes(name)) continue;
-    const attrs = m[2];
-    const inner = m[3];
-    const etMatch = /ElementType="(\d+)"/.exec(attrs);
+    const etMatch = /ElementType="(\d+)"/.exec(m[2]);
     if (!etMatch) continue;
-    const ids = [...inner.matchAll(/<Id>([^<]+)<\/Id>/g)];
+    const ids = [...m[3].matchAll(/<Id>([^<]+)<\/Id>/g)];
     if (ids.length === 0) continue;
     map.set(etMatch[1], ids[ids.length - 1][1]);
   }
@@ -148,12 +145,10 @@ export function transformPatchedToExtensionWire(
   // (2)+(3) Process each top-level Policy node. Strip those whose inner XML
   // carries no instance content; for the rest, inject action="edit" + oid.
   xml = xml.replace(
-    /<(\w+Policy)\s+([^>]*?)>([\s\S]*?)<\/\1>/g,
+    new RegExp(POLICY_NODE_RE.source, 'g'),
     (full, name: string, attrs: string, inner: string) => {
       if (!TOP_LEVEL_POLICY_NAMES.includes(name)) return full;
-
-      const hasContent = POLICY_CONTENT_MARKERS.some((mk) => inner.includes(mk));
-      if (!hasContent) return ''; // strip
+      if (!POLICY_CONTENT_RE.test(inner)) return ''; // strip empty skeleton
 
       const etMatch = /ElementType="(\d+)"/.exec(attrs);
       const oid = etMatch ? oidByElementType.get(etMatch[1]) : undefined;
