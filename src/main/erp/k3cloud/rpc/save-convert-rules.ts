@@ -172,7 +172,13 @@ export function buildNewExtensionParas(args: {
     OldId: null,
     ModelTypeId: CONVERT_RULE_MODEL_TYPE_ID,
     BaseObjectId: args.baseObjectId,
-    DevType: 0,
+    // DevType=2 = ISV extension. DevType=0 makes the server treat the new
+    // rule as a standalone "standard rule" — DB lands FDEVTYPE=0 + FISDEFAULT=1
+    // and BOS Designer renders it both as a top-level sibling AND a child
+    // of parent. 2026-05-02 实证 vs capture #81 (real native extend op)
+    // confirms 2 is what BOS Designer uses for create. `buildModifyExtensionParas`
+    // already uses 2 — keep create / modify consistent.
+    DevType: 2,
     SubSystemId: null,
     Version: null,
     MainVersion: null,
