@@ -245,6 +245,13 @@ export interface BosEntryAppearance {
   /** Default 65. */
   height?: number;
   id?: string;
+  /**
+   * Whether to emit default toolbar items (新增行 / 删除行) inside the entry's
+   * BarItems. Default true — matches BOS Designer's create-entry behavior so
+   * end-users can add/delete rows out of the box. Set false only if the
+   * caller wants a toolbar-less entry (rare).
+   */
+  includeDefaultBarItems?: boolean;
 }
 
 /** TabControl is the parent UI container that holds N TabPages. */

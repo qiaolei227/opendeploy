@@ -311,10 +311,79 @@ function renderEntryEntity(out: XmlWriter, e: BosEntryElement): void {
 }
 
 /**
+ * Default BarItems for a freshly-created entry: 新增行 + 删除行 wrapped in a
+ * ToolBar container. Mirrors what BOS Designer produces by default for any
+ * new entry; without these elements the entry shows no toolbar in the
+ * runtime client and end-users can't add/remove rows. 2026-05-02 实证: our
+ * tool was emitting bare appearance with no <BarItems> at all.
+ *
+ * Action wire shape comes from the standard SAL_OUTSTOCKENTRY (parent rule
+ * baseline). Each button's Id is freshly generated; the action ClickActions
+ * Id is also fresh. Key/ImageKey/Description/Caption are stable identifiers
+ * that the K/3 runtime expects to recognize the action.
+ */
+function renderDefaultEntryBarItems(out: XmlWriter): void {
+  out.push('<BarItems>');
+  // ToolBar container
+  out.push('<ToolBar ElementType="2001" ElementStyle="1">');
+  child(out, 'Shortcut', '');
+  child(out, 'Seq', 1);
+  child(out, 'Description', '工具栏');
+  child(out, 'Caption', '工具栏');
+  child(out, 'Id', newCompactGuid());
+  child(out, 'Key', 'ToolBar');
+  child(out, 'ElementType', 2001);
+  out.push('</ToolBar>');
+  // 新增行 (NewEntry). Parameters value is a JSON literal — emit raw so the
+  // double quotes don't become &quot; (BOS's own wire keeps them raw).
+  out.push('<BarSplitButtonItem ElementType="2018" ElementStyle="1">');
+  child(out, 'CanInvokeOperation', 'True');
+  child(out, 'ImageKey', 'imgTbtn_addline');
+  child(out, 'Shortcut', 'Shift + Insert');
+  child(out, 'Enabled', 6);
+  child(out, 'Seq', 1);
+  child(out, 'Description', '新增行');
+  child(out, 'IsShowTitle', 'True');
+  out.push('<ClickActions>');
+  out.push('<FormBusinessService>');
+  out.push('<Parameters>["NewEntry"]</Parameters>');
+  child(out, 'ActionId', 23);
+  child(out, 'Description', '调用表单服务--新增记录');
+  child(out, 'Id', newCompactGuid());
+  out.push('</FormBusinessService>');
+  out.push('</ClickActions>');
+  child(out, 'Caption', '新增行');
+  child(out, 'Id', newCompactGuid());
+  child(out, 'Key', 'tbSplitNewEntry');
+  out.push('</BarSplitButtonItem>');
+  // 删除行 (DeleteEntry)
+  out.push('<BarButtonItem ElementType="2005" ElementStyle="1">');
+  child(out, 'ImageKey', 'imgTbtn_deleteline');
+  child(out, 'Shortcut', '');
+  child(out, 'Enabled', 6);
+  child(out, 'Seq', 2);
+  child(out, 'Description', '删除行');
+  child(out, 'IsShowTitle', 'True');
+  out.push('<ClickActions>');
+  out.push('<FormBusinessService>');
+  out.push('<Parameters>["DeleteEntry"]</Parameters>');
+  child(out, 'ActionId', 23);
+  child(out, 'Description', '调用表单服务--删除记录');
+  child(out, 'Id', newCompactGuid());
+  out.push('</FormBusinessService>');
+  out.push('</ClickActions>');
+  child(out, 'Caption', '删除行');
+  child(out, 'Id', newCompactGuid());
+  child(out, 'Key', 'tbDeleteLine');
+  out.push('</BarButtonItem>');
+  out.push('</BarItems>');
+}
+
+/**
  * Render an EntryEntityAppearance. Goes inside `<Appearances>`.
  *
  * Defaults (BOS Designer's first-save shape): PageRows=100, Dock=5 (Fill),
- * Width=300, Height=65.
+ * Width=300, Height=65, BarItems=[新增行, 删除行].
  */
 function renderEntryEntityAppearance(out: XmlWriter, a: BosEntryAppearance): void {
   const id = a.id ?? newCompactGuid();
@@ -329,6 +398,9 @@ function renderEntryEntityAppearance(out: XmlWriter, a: BosEntryAppearance): voi
   child(out, 'Width', a.width ?? 300);
   child(out, 'Caption', a.caption);
   child(out, 'Id', id);
+  if (a.includeDefaultBarItems !== false) {
+    renderDefaultEntryBarItems(out);
+  }
   out.push(`</EntryEntityAppearance>`);
 }
 

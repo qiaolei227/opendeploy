@@ -364,6 +364,43 @@ describe('rpc/dcxml emitter', () => {
     expect(xml).toContain('<Key>F_PAIJ_Entity_abc</Key>');
   });
 
+  it('emits default 新增行 / 删除行 BarItems on new entries by default', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addEntryAppearances: [
+        { key: 'F_PAIJ_Entity_abc', caption: '测试体', container: 'FTab1_PAIJ_P_xyz' },
+      ],
+    });
+    expect(xml).toContain('<BarItems>');
+    expect(xml).toContain('<Key>tbSplitNewEntry</Key>');
+    expect(xml).toContain('<Key>tbDeleteLine</Key>');
+    expect(xml).toContain('<Parameters>["NewEntry"]</Parameters>');
+    expect(xml).toContain('<Parameters>["DeleteEntry"]</Parameters>');
+    expect(xml).toContain('<ImageKey>imgTbtn_addline</ImageKey>');
+    expect(xml).toContain('<ImageKey>imgTbtn_deleteline</ImageKey>');
+    expect(xml).toContain('</BarItems>');
+  });
+
+  it('omits BarItems when includeDefaultBarItems=false', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addEntryAppearances: [
+        {
+          key: 'F_PAIJ_Entity_abc',
+          caption: '测试体',
+          container: 'FTab1_PAIJ_P_xyz',
+          includeDefaultBarItems: false,
+        },
+      ],
+    });
+    expect(xml).not.toContain('<BarItems>');
+    expect(xml).not.toContain('tbSplitNewEntry');
+  });
+
   it('emits TabControlAppearance for self-built TabControls', () => {
     const xml = buildDcxmlSource({
       extension: baselineExt,
