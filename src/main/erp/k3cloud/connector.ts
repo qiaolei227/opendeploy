@@ -512,7 +512,22 @@ export class K3CloudConnector implements ErpConnector {
     // bundled extension template (full Policy shells) with cleared FieldMaps.
     // See `build-patch-base-xml.ts` for the full rationale.
     if (result.ok && this.projectId) {
-      const desc = await getConvertRule(session, result.newExtensionId);
+      // ConvertService.GetConvertRule rejects freshly-created DevType=2 +
+      // FSTATUS=0 extensions with "在运行时不允许加载". Tolerate that — the
+      // rule is in DB and version metadata can be fetched lazily on first
+      // patch. 2026-05-02 实证: native Designer also doesn't load via the
+      // runtime path right after create.
+      let inheritPath: string | null = null;
+      let version: string | null = null;
+      let mainVersion: string | null = null;
+      try {
+        const desc = await getConvertRule(session, result.newExtensionId);
+        inheritPath = desc.InheritPath ?? null;
+        version = desc.Version ?? null;
+        mainVersion = desc.MainVersion ?? null;
+      } catch {
+        // version metadata stays null; future patch ops will refetch
+      }
       const patchBaseXml = buildPatchBaseXml({
         templateXml: baseline.extensionTemplateXml,
         newExtensionId: result.newExtensionId,
@@ -522,9 +537,9 @@ export class K3CloudConnector implements ErpConnector {
         extId: result.newExtensionId,
         originRuleId,
         xml: patchBaseXml,
-        inheritPath: desc.InheritPath ?? null,
-        version: desc.Version ?? null,
-        mainVersion: desc.MainVersion ?? null,
+        inheritPath,
+        version,
+        mainVersion,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
