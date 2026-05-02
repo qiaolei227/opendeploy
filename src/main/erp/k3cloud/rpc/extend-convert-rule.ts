@@ -92,24 +92,28 @@ function escapeXml(s: string): string {
 }
 
 /**
- * Minimal extension source XML — the BOS Designer pattern (capture #0081).
- * Server inherits all Policies / FieldMaps from the parent rule (paras
- * `BaseObjectId`); the extension only declares its own Id/Key plus a
- * `<Status action="reset"/>` marker telling the server to take Status from
- * the parent. Sending a full deep copy of the parent XML (our previous
- * approach) makes the server treat the rule as standalone, and BOS
- * Designer renders it at the top level instead of under the parent.
+ * Minimal extension source XML — based on BOS Designer pattern (capture #81)
+ * with two OpenDeploy-specific deviations:
  *
- * `<Name>` is included in the extension body so BOS Designer's tree shows
- * the developer's chosen label (otherwise it falls back to the parent's
- * name and every OpenDeploy-built extension renders as
- * "销售订单至销售出库单" — indistinguishable in a long list).
+ *   1. `<Name>` is set explicitly. paras.Name only drives the tree node
+ *      label on first render; the "规则名称" textbox in Designer reads from
+ *      the source XML's `<Name>` element. Without it, the textbox shows the
+ *      default ("转换规则") and on next Designer load the tree re-reads
+ *      from that, silently renaming the user's displayName away. Native
+ *      didn't hit this because its paras.Name was the parent's name —
+ *      already matched the default.
+ *
+ *   2. `<Status>True</Status>` instead of `<Status action="reset" />`.
+ *      Native creates extensions disabled (action="reset" → default false)
+ *      because BOS Designer expects the human to review before enabling.
+ *      OpenDeploy is agent-driven — creating an extension IS an act of
+ *      review, so auto-enable; user can disable later if not happy.
  */
 function buildMinimalExtensionXml(newExtensionId: string, displayName: string): string {
   return (
     '<?xml version="1.0" encoding="utf-16"?>' +
     '<ConvertRuleMetaData><Rule><ConvertRule ElementType="6000" ElementStyle="0">' +
-    '<Status action="reset" />' +
+    '<Status>True</Status>' +
     `<Name>${escapeXml(displayName)}</Name>` +
     `<Id>${newExtensionId}</Id>` +
     `<Key>${newExtensionId}</Key>` +
