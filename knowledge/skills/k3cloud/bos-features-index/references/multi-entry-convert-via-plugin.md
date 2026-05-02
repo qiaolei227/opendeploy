@@ -58,6 +58,8 @@ import clr
 clr.AddReference("Kingdee.BOS")
 clr.AddReference("Kingdee.BOS.Core")
 clr.AddReference("Kingdee.BOS.App")
+# DynamicObject / DynamicObjectCollection 在独立的 Kingdee.BOS.DataEntity.dll 里,不带这条 import 直接 "No module named Orm"(2026-05-02 实证)
+clr.AddReference("Kingdee.BOS.DataEntity")
 
 from Kingdee.BOS.Core.Const import BOSConst
 from Kingdee.BOS.Orm.DataEntity import DynamicObject, DynamicObjectCollection
@@ -107,6 +109,83 @@ def OnAfterCreateLink(e):
 ```
 
 **完整 Python 翻译版(含 _query_entity2 helper)**:本文件不展开,推荐参照 eris 原文 + 项目交付时让 agent 现场生成。Python 写到这一步主要为了证明可行性,生产代码请 agent 按当前需求精确生成。
+
+## ⚠️ 必踩坑:Entity.Key vs Entity.EntryName
+
+Convert rule field mapping(`<TargetEntryKey>` 等)用的是 **Entity.Key**(`FEntity` / `F_PAIJ_Entity_jo3`),但 runtime 在 DynamicObject 上访问 entry 数据时**必须用 Entity.EntryName**(`SAL_OUTSTOCKENTRY` / `PAIJ_Cust_Entry100018`)—— 两个 identifier 不同场合。直接 `target_obj["F_PAIJ_Entity_jo3"]` 会报 "实体类型 SAL_OUTSTOCK 中不存在名为 F_PAIJ_Entity_jo3 的属性"(2026-05-02 实证)。
+
+正确写法:
+
+```python
+entity = e.TargetBusinessInfo.GetEntity("F_PAIJ_Entity_jo3")  # by Key
+collection = target_obj[entity.EntryName]                      # use EntryName
+```
+
+## ⚠️ 必踩坑:用 LoadSingle 接口取源单数据,不要 SQL
+
+**eris 文章说"`ex_data[BOSConst.ConvSourceExtKey]` 拿源单数据" 错** —— 客户实战代码没人这么用,2026-05-02 实证 `ex_data["ConvertSource"]` 返回的是 `tempObject` 临时容器,不含完整源 entry 数据。
+
+**正确路径**(参照客户 sarcah/JSJXCloud2025 + 天宇药业 HTypePlugin 模式):
+
+1. 通过目标单标准 entry 的 `FEntity_Link[0]["SBillId"]` 拿源单 FID
+2. **`BusinessDataServiceHelper.LoadSingle(ctx, sbillId, sourceBusinessInfoType)`** 读完整源单
+3. 源单 DynamicObject 用 `source_bill[srcEntity.EntryName]` 拿到 entry 的 DynamicObjectCollection,字段访问全走 DynamicObject 属性名(没列名猜测)
+
+```python
+import clr
+clr.AddReference("Kingdee.BOS")
+clr.AddReference("Kingdee.BOS.Core")
+clr.AddReference("Kingdee.BOS.DataEntity")        # DynamicObject 在这
+clr.AddReference("Kingdee.BOS.ServiceHelper")     # BusinessDataServiceHelper 在这,不是 Kingdee.BOS.App
+
+from Kingdee.BOS.Orm.DataEntity import DynamicObject, DynamicObjectCollection
+from Kingdee.BOS.ServiceHelper import BusinessDataServiceHelper
+
+def AfterConvert(e):
+    target_entity = e.TargetBusinessInfo.GetEntity("<目标custom entry Key>")
+    source_entity = e.SourceBusinessInfo.GetEntity("<源 custom entry Key>")
+    if target_entity is None or source_entity is None:
+        return
+    src_type = e.SourceBusinessInfo.GetDynamicObjectType()  # 不用再 GetFormMetaData
+
+    cache = {}
+    for ex_data in e.Result.FindByEntityKey("FBillHead"):
+        target_obj = ex_data.DataEntity
+        std_rows = target_obj["<目标标准entry的EntryName>"]  # 例如 SAL_OUTSTOCKENTRY
+        if std_rows is None or std_rows.Count == 0:
+            continue
+        # 拿任一行的 FEntity_Link 都行,同一个目标单源 FID 一致
+        sbill_id = None
+        for r in std_rows:
+            links = r["FEntity_Link"]
+            if links is not None and links.Count > 0:
+                sbill_id = links[0]["SBillId"]
+                break
+        if not sbill_id:
+            continue
+
+        # API 缓存避免 N 个目标 entry 行查 N 次源单
+        cache_key = str(sbill_id)
+        source_bill = cache.get(cache_key)
+        if source_bill is None:
+            source_bill = BusinessDataServiceHelper.LoadSingle(e.Context, sbill_id, src_type)
+            cache[cache_key] = source_bill
+        if source_bill is None:
+            continue
+
+        src_rows = source_bill[source_entity.EntryName]
+        if src_rows is None: continue
+        target_collection = target_obj[target_entity.EntryName]
+        for src_row in src_rows:
+            new_row = DynamicObject(target_entity.DynamicObjectType)
+            # primitive 字段直接 indexer 拷贝
+            new_row["FFooQty"] = src_row["FFooQty"]
+            # BaseDataField 用 _Id 后缀(简单引用)或整 DynamicObject 赋值(完整引用)
+            new_row["FUnitId_Id"] = src_row["FUnitId_Id"]
+            target_collection.Add(new_row)
+```
+
+**别学**:`DBServiceHelper.ExecuteDynamicObject(ctx, "SELECT ... FROM <源表>")` —— 列名猜测 / 无权限校验 / 跳过 ORM cache。客户代码里有用 SQL 是因为做跨表 JOIN 接口给不出来,**简单"拿源单数据"一律走 LoadSingle**。
 
 ---
 
