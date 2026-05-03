@@ -11,6 +11,7 @@ describe('extractExistingExtensionElements', () => {
       entryAppearances: [],
       tabPages: [],
       tabControls: [],
+      formOperations: [],
     });
   });
 
@@ -24,6 +25,7 @@ describe('extractExistingExtensionElements', () => {
       entryAppearances: [],
       tabPages: [],
       tabControls: [],
+      formOperations: [],
     });
   });
 

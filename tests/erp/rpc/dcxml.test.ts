@@ -344,8 +344,6 @@ describe('rpc/dcxml emitter', () => {
           key: 'F_PAIJ_Entity_abc',
           caption: '测试体',
           container: 'FTab1_PAIJ_P_xyz',
-          left: 336,
-          top: 90,
           width: 300,
           height: 65,
           id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -357,14 +355,12 @@ describe('rpc/dcxml emitter', () => {
     expect(xml).toContain('<PageRows>100</PageRows>');
     expect(xml).toContain('<Dock>5</Dock>');
     expect(xml).toContain('<Container>FTab1_PAIJ_P_xyz</Container>');
-    expect(xml).toContain('<Left>336</Left>');
-    expect(xml).toContain('<Top>90</Top>');
     expect(xml).toContain('<Height>65</Height>');
     expect(xml).toContain('<Width>300</Width>');
     expect(xml).toContain('<Key>F_PAIJ_Entity_abc</Key>');
   });
 
-  it('emits default 新增行 / 删除行 BarItems on new entries by default', () => {
+  it('emits default 新增行 / 删除行 toolbar on new entries by default', () => {
     const xml = buildDcxmlSource({
       extension: baselineExt,
       isNew: false,
@@ -373,17 +369,26 @@ describe('rpc/dcxml emitter', () => {
         { key: 'F_PAIJ_Entity_abc', caption: '测试体', container: 'FTab1_PAIJ_P_xyz' },
       ],
     });
+    // BOS Designer schema: <Menu><BarDataManager><BarItems>...</BarItems>
+    // <BarItemLinks>...</BarItemLinks></BarDataManager></Menu>
+    expect(xml).toContain('<Menu><BarDataManager>');
     expect(xml).toContain('<BarItems>');
-    expect(xml).toContain('<Key>tbSplitNewEntry</Key>');
-    expect(xml).toContain('<Key>tbDeleteLine</Key>');
-    expect(xml).toContain('<Parameters>["NewEntry"]</Parameters>');
-    expect(xml).toContain('<Parameters>["DeleteEntry"]</Parameters>');
-    expect(xml).toContain('<ImageKey>imgTbtn_addline</ImageKey>');
-    expect(xml).toContain('<ImageKey>imgTbtn_deleteline</ImageKey>');
-    expect(xml).toContain('</BarItems>');
+    expect(xml).toContain('<ToolBar ElementType="2001" ElementStyle="1">');
+    expect(xml).toContain('<Key>F_PAIJ_Entity_abc_TB</Key>');
+    expect(xml).toContain('<Key>F_PAIJ_Entity_abc_NEW</Key>');
+    expect(xml).toContain('<Key>F_PAIJ_Entity_abc_DEL</Key>');
+    expect(xml).toContain('<Caption>新增行</Caption>');
+    expect(xml).toContain('<Caption>删除行</Caption>');
+    expect(xml).toContain('<Parameters>["Insert_F_PAIJ_Entity_abc"]</Parameters>');
+    expect(xml).toContain('<Parameters>["Delete_F_PAIJ_Entity_abc"]</Parameters>');
+    // BarItemLinks must attach each button to the ToolBar via ParentKey.
+    expect(xml).toContain('<BarItemLinks>');
+    expect(xml).toContain('<BarItemKey>F_PAIJ_Entity_abc_NEW</BarItemKey><ParentKey>F_PAIJ_Entity_abc_TB</ParentKey>');
+    expect(xml).toContain('<BarItemKey>F_PAIJ_Entity_abc_DEL</BarItemKey><ParentKey>F_PAIJ_Entity_abc_TB</ParentKey>');
+    expect(xml).toContain('</BarDataManager></Menu>');
   });
 
-  it('omits BarItems when includeDefaultBarItems=false', () => {
+  it('omits Menu/BarDataManager when includeDefaultBarItems=false', () => {
     const xml = buildDcxmlSource({
       extension: baselineExt,
       isNew: false,
@@ -397,8 +402,34 @@ describe('rpc/dcxml emitter', () => {
         },
       ],
     });
+    expect(xml).not.toContain('<Menu>');
+    expect(xml).not.toContain('<BarDataManager>');
     expect(xml).not.toContain('<BarItems>');
-    expect(xml).not.toContain('tbSplitNewEntry');
+  });
+
+  it('emits FormOperations registering Insert/Delete services for entry buttons', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addFormOperations: [
+        { service: 'Insert_F_X_Entity_abc', operationId: 19, operationName: '新增记录', entryKey: 'F_X_Entity_abc' },
+        { service: 'Delete_F_X_Entity_abc', operationId: 4, operationName: '删除记录', entryKey: 'F_X_Entity_abc' },
+      ],
+    });
+    expect(xml).toContain('<FormOperations>');
+    expect(xml).toContain('<FormOperation>');
+    expect(xml).toContain('<Id>Insert_F_X_Entity_abc</Id>');
+    expect(xml).toContain('<Operation>Insert_F_X_Entity_abc</Operation>');
+    expect(xml).toContain('<OperationId>19</OperationId>');
+    expect(xml).toContain('<OperationName>新增记录</OperationName>');
+    expect(xml).toContain('<OperationObjectKey>F_X_Entity_abc</OperationObjectKey>');
+    expect(xml).toContain('<OperEleIds>35</OperEleIds>');
+    expect(xml).toContain('<LoadKeys>[]</LoadKeys>');
+    expect(xml).toContain('<AfterOpFailedInfo action="setnull"/>');
+    // Both Insert + Delete services present
+    expect(xml).toContain('<Id>Delete_F_X_Entity_abc</Id>');
+    expect(xml).toContain('<OperationId>4</OperationId>');
   });
 
   it('emits TabControlAppearance for self-built TabControls', () => {

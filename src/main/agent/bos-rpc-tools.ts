@@ -26,7 +26,7 @@ import { bosSessionManager } from '../erp/k3cloud/rpc/session-manager';
 import { deleteExtension as deleteExtensionRpc } from '../erp/k3cloud/rpc/delete-extension';
 import { saveExtension as saveExtensionRpc } from '../erp/k3cloud/rpc/save-for-ide';
 import { extractLayoutInfoOid } from '../erp/k3cloud/rpc/layout-discovery';
-import { newCompactGuid, xmlEscape } from '../erp/k3cloud/rpc/dcxml';
+import { newCompactGuid, xmlEscape, defaultEntryServiceNames } from '../erp/k3cloud/rpc/dcxml';
 import { BosResponseError } from '../erp/k3cloud/rpc/http-client';
 import { extractExistingExtensionElements } from '../erp/k3cloud/rpc/existing-elements';
 import {
@@ -46,6 +46,7 @@ import type {
   BosEntryAppearance,
   BosTabControlAppearance,
   BosTabPageAppearance,
+  BosFormOperationElement,
   SaveExtensionRequest,
 } from '../erp/k3cloud/rpc/types';
 import { SEQUENCE_CATEGORY_CUST_ENTRY } from '../erp/k3cloud/rpc/sequence';
@@ -232,6 +233,7 @@ async function loadExtensionForSave(
         entryAppearances: [],
         tabPages: [],
         tabControls: [],
+        formOperations: [],
       };
 
   return {
@@ -360,6 +362,7 @@ function buildSaveRequest(
     | 'addEntryAppearances'
     | 'addTabPages'
     | 'addTabControls'
+    | 'addFormOperations'
   > = {},
 ): SaveExtensionRequest {
   return {
@@ -380,6 +383,7 @@ function buildSaveRequest(
     existingEntryAppearancesRaw: existing.entryAppearances,
     existingTabPagesRaw: existing.tabPages,
     existingTabControlsRaw: existing.tabControls,
+    existingFormOperationsRaw: existing.formOperations,
     ...deltas,
   };
 }
@@ -1920,9 +1924,21 @@ function createEntryTool(
       const addEntryAppearances: BosEntryAppearance[] = [
         { key: entryKey, caption: name, container: parentTabPageKey },
       ];
+      // The default toolbar BarButtons (新增行 / 删除行) reference service
+      // names that must be registered as FormOperations on the Form root —
+      // without these the buttons render but clicks don't fire any row
+      // operation. OperationId 19 = 新增记录 / 4 = 删除记录 (BOS built-in
+      // row ops). 2026-05-04 实证: BOS Designer adds these alongside the
+      // BarItems whenever you add an entry-level button.
+      const svc = defaultEntryServiceNames(entryKey);
+      const addFormOperations: BosFormOperationElement[] = [
+        { service: svc.insert, operationId: 19, operationName: '新增记录', entryKey },
+        { service: svc.delete, operationId: 4, operationName: '删除记录', entryKey },
+      ];
       const req = buildSaveRequest(ext, project, layoutInfoOid, existing, {
         addEntries,
         addEntryAppearances,
+        addFormOperations,
       });
 
       const session = await sessionMgr.getOrLogin(projectId);
@@ -2029,6 +2045,10 @@ function deleteEntryTool(
         ),
         appearances: existing.appearances.filter(
           (raw) => readChildText(raw, 'EntityKey') !== entryKey,
+        ),
+        // Cascade: drop FormOperations registered for this entry's row buttons.
+        formOperations: existing.formOperations.filter(
+          (raw) => readChildText(raw, 'OperationObjectKey') !== entryKey,
         ),
       };
 

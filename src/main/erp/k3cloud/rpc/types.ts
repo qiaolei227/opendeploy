@@ -323,6 +323,46 @@ export interface BosPluginElement {
   pyScript: string;
 }
 
+/**
+ * Form-level operation registration. Required to wire entry toolbar buttons
+ * (新增行 / 删除行) to the runtime row operations. Each `<FormOperation>`
+ * declares a service name (`id` + `operation`) the toolbar button references
+ * via `<Parameters>["{service}"]</Parameters>`, plus an OperationId selecting
+ * which built-in row action runs (19 = 新增记录, 4 = 删除记录).
+ *
+ * Wire shape (captured from BOS Designer 2026-05-04 manual save):
+ *
+ *   <FormOperation>
+ *     <Id>{service}</Id>
+ *     <Operation>{service}</Operation>
+ *     <BeforeOpAlterInfo/>
+ *     <AfterOpAlterInfo/>
+ *     <AfterOpFailedInfo action="setnull"/>
+ *     <OperationId>{19|4|...}</OperationId>
+ *     <OperationName>{中文描述}</OperationName>
+ *     <Parmeter>                       (BOS typo — keep)
+ *       <OperationParameter>
+ *         <Id>{dashed-guid}</Id>
+ *         <OperationObjectKey>{entryKey}</OperationObjectKey>
+ *       </OperationParameter>
+ *     </Parmeter>
+ *     <OperEleIds>35</OperEleIds>      (35 = EntryEntity ElementType)
+ *     <LoadKeys>[]</LoadKeys>
+ *   </FormOperation>
+ */
+export interface BosFormOperationElement {
+  /** Service name. Same string used as Parameters[0] in the BarButton ClickActions. */
+  service: string;
+  /** Built-in OperationId — 19 for 新增记录, 4 for 删除记录. */
+  operationId: number;
+  /** Human-readable name shown in BOS Designer (中文). */
+  operationName: string;
+  /** Entry key the operation acts on (lands in OperationParameter.OperationObjectKey). */
+  entryKey: string;
+  /** Element type id — 35 for EntryEntity. */
+  operEleIds?: number;
+}
+
 /** Top-level shape of one SaveForIDEV9 invocation. */
 export interface SaveExtensionRequest {
   extension: BosExtensionMeta;
@@ -333,6 +373,15 @@ export interface SaveExtensionRequest {
   addAppearances?: BosFieldAppearance[];
   /** Plugins to register on this Form. Rendered inside `<Form><FormPlugins>...`. */
   addPlugins?: BosPluginElement[];
+  /**
+   * FormOperations to register on this Form. Rendered inside
+   * `<Form><FormOperations>...`. Required for any toolbar button that
+   * triggers a built-in row operation (新增行 / 删除行); the BarButton's
+   * service name must match a FormOperation's `service` field.
+   */
+  addFormOperations?: BosFormOperationElement[];
+  /** Same baseline-diff requirement, for FormOperation entries. */
+  existingFormOperationsRaw?: string[];
   /** New EntryEntity elements (单据体). Rendered inside `<Elements>`. */
   addEntries?: BosEntryElement[];
   /** EntryEntity placements. Rendered inside `<Appearances>`. */

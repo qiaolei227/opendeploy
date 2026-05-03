@@ -48,6 +48,12 @@ export interface ExistingExtensionElements {
   tabPages: string[];
   /** Raw `<TabControlAppearance>...</TabControlAppearance>` chunks. */
   tabControls: string[];
+  /**
+   * Raw `<FormOperation>...</FormOperation>` chunks under `<Form><FormOperations>`.
+   * Required so future saves preserve previously-registered service handlers
+   * for entry toolbar buttons (新增行 / 删除行 etc.). Same baseline-diff rule.
+   */
+  formOperations: string[];
 }
 
 /**
@@ -141,6 +147,7 @@ export function extractExistingExtensionElements(
     entryAppearances: [],
     tabPages: [],
     tabControls: [],
+    formOperations: [],
   };
   if (!kernelXml) return empty;
 
@@ -153,6 +160,7 @@ export function extractExistingExtensionElements(
   const entryAppearances: string[] = [];
   const tabPages: string[] = [];
   const tabControls: string[] = [];
+  const formOperations: string[] = [];
 
   // Fields + plugins + entries live under <Elements>.
   const elementsBody = findFirstBlockBody(stripped, 'Elements', 'Elements');
@@ -164,6 +172,14 @@ export function extractExistingExtensionElements(
           for (const plug of iterateDepth1Children(formPluginsBody)) {
             if (plug.tag === 'PlugIn') {
               plugins.push(restoreCdataInChunk(plug.raw, values));
+            }
+          }
+        }
+        const formOpsBody = findFirstBlockBody(child.raw, 'FormOperations', 'FormOperations');
+        if (formOpsBody) {
+          for (const op of iterateDepth1Children(formOpsBody)) {
+            if (op.tag === 'FormOperation' && !op.raw.endsWith('/>')) {
+              formOperations.push(op.raw);
             }
           }
         }
@@ -204,5 +220,14 @@ export function extractExistingExtensionElements(
     }
   }
 
-  return { fields, appearances, plugins, entries, entryAppearances, tabPages, tabControls };
+  return {
+    fields,
+    appearances,
+    plugins,
+    entries,
+    entryAppearances,
+    tabPages,
+    tabControls,
+    formOperations,
+  };
 }

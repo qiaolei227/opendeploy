@@ -37,6 +37,7 @@ import {
   BosEntryAppearance,
   BosTabPageAppearance,
   BosTabControlAppearance,
+  BosFormOperationElement,
   SaveExtensionRequest,
   FIELD_ELEMENT_TYPE,
 } from './types';
@@ -77,9 +78,19 @@ function renderFormRoot(
   formId: string,
   plugins: BosPluginElement[] | undefined,
   existingPluginsRaw: string[] | undefined,
+  formOperations: BosFormOperationElement[] | undefined,
+  existingFormOperationsRaw: string[] | undefined,
 ): void {
   out.push(`<Form action="edit" oid="BOS_BillModel" ElementType="100" ElementStyle="0">`);
   out.push(`<Id>${formId}</Id>`);
+  const hasExistingOps = existingFormOperationsRaw && existingFormOperationsRaw.length > 0;
+  const hasNewOps = formOperations && formOperations.length > 0;
+  if (hasExistingOps || hasNewOps) {
+    out.push(`<FormOperations>`);
+    if (hasExistingOps) for (const raw of existingFormOperationsRaw!) out.push(raw);
+    if (hasNewOps) for (const op of formOperations!) renderFormOperation(out, op);
+    out.push(`</FormOperations>`);
+  }
   const hasExisting = existingPluginsRaw && existingPluginsRaw.length > 0;
   const hasNew = plugins && plugins.length > 0;
   if (hasExisting || hasNew) {
@@ -89,6 +100,33 @@ function renderFormRoot(
     out.push(`</FormPlugins>`);
   }
   out.push(`</Form>`);
+}
+
+/**
+ * Render one `<FormOperation>` registering a service name → built-in row
+ * operation. Required for entry toolbar buttons (新增行 / 删除行) — the
+ * BarButton's `<Parameters>["{service}"]</Parameters>` must match a
+ * FormOperation's `<Operation>{service}</Operation>` for the runtime to
+ * resolve the click into a row operation. Schema captured 2026-05-04.
+ */
+function renderFormOperation(out: XmlWriter, op: BosFormOperationElement): void {
+  out.push(`<FormOperation>`);
+  child(out, 'Id', op.service);
+  child(out, 'Operation', op.service);
+  out.push(`<BeforeOpAlterInfo/>`);
+  out.push(`<AfterOpAlterInfo/>`);
+  out.push(`<AfterOpFailedInfo action="setnull"/>`);
+  child(out, 'OperationId', op.operationId);
+  child(out, 'OperationName', op.operationName);
+  out.push(`<Parmeter>`);
+  out.push(`<OperationParameter>`);
+  child(out, 'Id', newDashedGuid());
+  child(out, 'OperationObjectKey', op.entryKey);
+  out.push(`</OperationParameter>`);
+  out.push(`</Parmeter>`);
+  child(out, 'OperEleIds', op.operEleIds ?? 35);
+  child(out, 'LoadKeys', '[]');
+  out.push(`</FormOperation>`);
 }
 
 /**
@@ -311,72 +349,115 @@ function renderEntryEntity(out: XmlWriter, e: BosEntryElement): void {
 }
 
 /**
- * Default BarItems for a freshly-created entry: 新增行 + 删除行 wrapped in a
- * ToolBar container. Mirrors what BOS Designer produces by default for any
- * new entry; without these elements the entry shows no toolbar in the
- * runtime client and end-users can't add/remove rows. 2026-05-02 实证: our
- * tool was emitting bare appearance with no <BarItems> at all.
- *
- * Action wire shape comes from the standard SAL_OUTSTOCKENTRY (parent rule
- * baseline). Each button's Id is freshly generated; the action ClickActions
- * Id is also fresh. Key/ImageKey/Description/Caption are stable identifiers
- * that the K/3 runtime expects to recognize the action.
+ * Default service-name conventions for a freshly-created entry's row buttons.
+ * Service names must be unique within a Form (BOS resolves clicks by service
+ * name → FormOperation lookup), so we derive them from the entry key.
+ * Returns the pair the BarButtons + FormOperations both need.
  */
-function renderDefaultEntryBarItems(out: XmlWriter): void {
+export function defaultEntryServiceNames(entryKey: string): {
+  insert: string;
+  delete: string;
+  toolbarKey: string;
+  newButtonKey: string;
+  delButtonKey: string;
+} {
+  return {
+    insert: `Insert_${entryKey}`,
+    delete: `Delete_${entryKey}`,
+    toolbarKey: `${entryKey}_TB`,
+    newButtonKey: `${entryKey}_NEW`,
+    delButtonKey: `${entryKey}_DEL`,
+  };
+}
+
+/**
+ * Render the entry's `<Menu><BarDataManager>...</BarDataManager></Menu>`
+ * block holding default 新增行 + 删除行 buttons + their BarItemLinks tying
+ * each button to the ToolBar container.
+ *
+ * Schema captured from BOS Designer (2026-05-04 manual save vs ours):
+ * - Direct `<BarItems>` under `<EntryEntityAppearance>` is **not** how BOS
+ *   serializes — the Menu/BarDataManager wrapper is required so the
+ *   reflection deserializer hits `EntryEntityAppearance.Menu`
+ *   (ComplexProperty of type BarDataManager).
+ * - `<BarItemLinks>` is what physically attaches buttons to the ToolBar;
+ *   without it the buttons exist in metadata but render nowhere.
+ * - Each BarButton's `<Parameters>["{service}"]</Parameters>` must match a
+ *   `<FormOperation>` registered on the Form root — the toolbar wiring
+ *   alone is inert without the FormOperation registration.
+ */
+function renderDefaultEntryMenu(out: XmlWriter, entryKey: string): void {
+  const names = defaultEntryServiceNames(entryKey);
+  out.push('<Menu>');
+  out.push('<BarDataManager>');
+  child(out, 'Id', newDashedGuid());
   out.push('<BarItems>');
-  // ToolBar container
+  // ToolBar container. Description/Caption "工具栏" matches BOS Designer.
   out.push('<ToolBar ElementType="2001" ElementStyle="1">');
-  child(out, 'Shortcut', '');
+  child(out, 'Name', names.toolbarKey);
+  out.push('<Shortcut/>');
   child(out, 'Seq', 1);
   child(out, 'Description', '工具栏');
   child(out, 'Caption', '工具栏');
   child(out, 'Id', newCompactGuid());
-  child(out, 'Key', 'ToolBar');
+  child(out, 'Key', names.toolbarKey);
   child(out, 'ElementType', 2001);
   out.push('</ToolBar>');
-  // 新增行 (NewEntry). Parameters value is a JSON literal — emit raw so the
-  // double quotes don't become &quot; (BOS's own wire keeps them raw).
-  out.push('<BarSplitButtonItem ElementType="2018" ElementStyle="1">');
-  child(out, 'CanInvokeOperation', 'True');
-  child(out, 'ImageKey', 'imgTbtn_addline');
-  child(out, 'Shortcut', 'Shift + Insert');
-  child(out, 'Enabled', 6);
+  // 新增行 button
+  out.push('<BarButtonItem ElementType="2005" ElementStyle="1">');
+  out.push('<Shortcut/>');
   child(out, 'Seq', 1);
-  child(out, 'Description', '新增行');
+  child(out, 'Description', '按钮');
   child(out, 'IsShowTitle', 'True');
   out.push('<ClickActions>');
   out.push('<FormBusinessService>');
-  out.push('<Parameters>["NewEntry"]</Parameters>');
+  out.push('<ConfirmInfo/>');
+  // Parameters is a literal JSON array — emit raw so double quotes survive.
+  out.push(`<Parameters>["${xmlEscape(names.insert)}"]</Parameters>`);
   child(out, 'ActionId', 23);
-  child(out, 'Description', '调用表单服务--新增记录');
-  child(out, 'Id', newCompactGuid());
+  child(out, 'Description', '调用表格服务--新增记录');
+  child(out, 'Id', newDashedGuid());
   out.push('</FormBusinessService>');
   out.push('</ClickActions>');
   child(out, 'Caption', '新增行');
   child(out, 'Id', newCompactGuid());
-  child(out, 'Key', 'tbSplitNewEntry');
-  out.push('</BarSplitButtonItem>');
-  // 删除行 (DeleteEntry)
+  child(out, 'Key', names.newButtonKey);
+  out.push('</BarButtonItem>');
+  // 删除行 button
   out.push('<BarButtonItem ElementType="2005" ElementStyle="1">');
-  child(out, 'ImageKey', 'imgTbtn_deleteline');
-  child(out, 'Shortcut', '');
-  child(out, 'Enabled', 6);
+  out.push('<Shortcut/>');
   child(out, 'Seq', 2);
-  child(out, 'Description', '删除行');
+  child(out, 'Description', '按钮');
   child(out, 'IsShowTitle', 'True');
   out.push('<ClickActions>');
   out.push('<FormBusinessService>');
-  out.push('<Parameters>["DeleteEntry"]</Parameters>');
+  out.push('<ConfirmInfo/>');
+  out.push(`<Parameters>["${xmlEscape(names.delete)}"]</Parameters>`);
   child(out, 'ActionId', 23);
-  child(out, 'Description', '调用表单服务--删除记录');
-  child(out, 'Id', newCompactGuid());
+  child(out, 'Description', '调用表格服务--删除记录');
+  child(out, 'Id', newDashedGuid());
   out.push('</FormBusinessService>');
   out.push('</ClickActions>');
   child(out, 'Caption', '删除行');
   child(out, 'Id', newCompactGuid());
-  child(out, 'Key', 'tbDeleteLine');
+  child(out, 'Key', names.delButtonKey);
   out.push('</BarButtonItem>');
   out.push('</BarItems>');
+  // BarItemLinks: attach each button to the ToolBar via ParentKey.
+  out.push('<BarItemLinks>');
+  out.push('<BarItemLink>');
+  child(out, 'Id', newDashedGuid());
+  child(out, 'BarItemKey', names.newButtonKey);
+  child(out, 'ParentKey', names.toolbarKey);
+  out.push('</BarItemLink>');
+  out.push('<BarItemLink>');
+  child(out, 'Id', newDashedGuid());
+  child(out, 'BarItemKey', names.delButtonKey);
+  child(out, 'ParentKey', names.toolbarKey);
+  out.push('</BarItemLink>');
+  out.push('</BarItemLinks>');
+  out.push('</BarDataManager>');
+  out.push('</Menu>');
 }
 
 /**
@@ -388,19 +469,21 @@ function renderDefaultEntryBarItems(out: XmlWriter): void {
 function renderEntryEntityAppearance(out: XmlWriter, a: BosEntryAppearance): void {
   const id = a.id ?? newCompactGuid();
   out.push(`<EntryEntityAppearance ElementType="35" ElementStyle="1">`);
-  child(out, 'Key', a.key);
+  // Child order matches BOS Designer (2026-05-04 capture): Menu first, then
+  // Caption / PageRows / Dock / Container / Height / Width / Id / Key.
+  // Left/Top intentionally omitted — Dock=5 (Fill) makes them irrelevant and
+  // BOS Designer drops them.
+  if (a.includeDefaultBarItems !== false) {
+    renderDefaultEntryMenu(out, a.key);
+  }
+  child(out, 'Caption', a.caption);
   child(out, 'PageRows', a.pageRows ?? 100);
   child(out, 'Dock', a.dock ?? 5);
   child(out, 'Container', a.container);
-  child(out, 'Left', a.left);
-  child(out, 'Top', a.top);
   child(out, 'Height', a.height ?? 65);
   child(out, 'Width', a.width ?? 300);
-  child(out, 'Caption', a.caption);
   child(out, 'Id', id);
-  if (a.includeDefaultBarItems !== false) {
-    renderDefaultEntryBarItems(out);
-  }
+  child(out, 'Key', a.key);
   out.push(`</EntryEntityAppearance>`);
 }
 
@@ -441,7 +524,14 @@ export function buildDcxmlSource(req: SaveExtensionRequest): string {
   out.push(`<?xml version="1.0" encoding="utf-16"?>`);
   out.push(`<FormMetadata>`);
   out.push(`<BusinessInfo><BusinessInfo><Elements>`);
-  renderFormRoot(out, req.extension.formId, req.addPlugins, req.existingPluginsRaw);
+  renderFormRoot(
+    out,
+    req.extension.formId,
+    req.addPlugins,
+    req.existingPluginsRaw,
+    req.addFormOperations,
+    req.existingFormOperationsRaw,
+  );
   for (const raw of req.existingFieldsRaw ?? []) out.push(raw);
   for (const f of req.addFields ?? []) renderFieldElement(out, f);
   for (const raw of req.existingEntriesRaw ?? []) out.push(raw);
