@@ -944,7 +944,7 @@ function addConvertFieldMappingTool(c: K3CloudConnector): ToolHandler {
       name: 'kingdee_add_convert_field_mapping',
       description:
         '在已建的转换规则扩展上**增加一条字段映射**。支持直接字段取值(`sourceFieldKey + mode=Auto/Sum/...`)和 IronPython 公式映射(`formula + mode=Formula`)两种形式。' +
-        '\n\n**能力边界**:本工具只在父规则的 DefaultConvertPolicy 层(头→头 / 标准 sourceEntry→targetEntry)做映射,K/3 标准转换规则只支持 1 主关联实体。跨 entry 携带(自建 entry 之间 / 子单据体↔单据体)不在范围内 — **工具内部对 entry 一致性做了校验,不一致的调用返回 `entry_mismatch` 并 hint 转向 `kingdee_add_convert_plugin`**(注册 PythonConvertPlugIn,在 `OnAfterCreateLink` 事件里手动塞数据 + 创建关联)。' +
+        '\n\n**能力边界**:本工具只在父规则的 DefaultConvertPolicy 层(头→头 / 标准 sourceEntry→targetEntry)做映射,K/3 标准转换规则只支持 1 主关联实体。跨 entry 携带(自建 entry 之间 / 子单据体↔单据体)是 BOS 平台限制不在范围内 — **工具内部对 entry 一致性做了校验,不一致的调用返回 `entry_mismatch` 并 hint 转向 `kingdee_add_convert_plugin`**(注册 PythonConvertPlugIn,在 `AfterConvert(e)` 事件里通过 `BusinessDataServiceHelper.LoadSingle` 取源单完整 DynamicObject 后写入目标单据体)。' +
         '\n\n前提:已通过 `kingdee_create_convert_rule_extension` 建立了扩展(v0.1 仅支持 SaleOrder-OutStock)。工具会读取 OpenDeploy 本地保存的扩展 XML 状态,通过 .NET 桥修改后重新保存到服务端。' +
         '\n\n`targetEntryKey` 指定要操作的 DefaultConvertPolicy 层(SaleOrder-OutStock 典型值 `FEntity` = 行体层;不传则操作头体层)。' +
         '\n\n`mode` 枚举:Auto / Sum / Average / Count / Max / Min / Formula / Join / SumFormula。常用:Auto(直接取值) / Sum(合并求和) / Formula(IronPython 公式)。' +
@@ -1011,7 +1011,17 @@ function addConvertFieldMappingTool(c: K3CloudConnector): ToolHandler {
             ok: false,
             reason: 'entry_mismatch',
             message: validation.message,
-            hint: '使用 kingdee_add_convert_plugin 注册 PythonConvertPlugIn,在 OnAfterCreateLink 事件里手动塞数据 + 创建关联数据包(FlowId / FlowLineId / RuleId / STableName / SBillId / SId 6 个字段)。骨架代码与决策依据见 load_skill_file("k3cloud/bos-features-index", "references/multi-entry-convert-via-plugin")。',
+            hint:
+              '这是 BOS 平台限制(只允许主单据体做映射),不是产品 bug — 自定义/其他单据体的字段携带必须写转换插件。' +
+              '\n\n步骤:' +
+              '\n1. 用 `kingdee_add_convert_plugin` 注册一个 PythonConvertPlugIn(pyScript 参数填 IronPython 源码,className 填短标识符如 "PAIJEntryCarrier")。' +
+              '\n2. 插件实现 `def AfterConvert(e):` 函数(不是 OnAfterCreateLink),里面通过 `BusinessDataServiceHelper.LoadSingle(e.Context, sBillId, e.SourceBusinessInfo.GetDynamicObjectType())` 取源单完整 DynamicObject。' +
+              '\n3. 源单 ID 来自目标主单据体行的 `FEntity_Link[0]["SBillId"]`(或目标单据 EntryName 对应的 link 列)。' +
+              '\n4. 用 `Entity.EntryName`(不是 metadata Key)作为属性名访问 entry 的 DynamicObjectCollection,逐行写入。' +
+              '\n\n**关键注意**:' +
+              '\n- 必须 `clr.AddReference("Kingdee.BOS.DataEntity")` 和 `clr.AddReference("Kingdee.BOS.ServiceHelper")` —— 这两个类不在 Kingdee.BOS.dll 里。' +
+              '\n- 不要用 SQL `DBServiceHelper.ExecuteDynamicObject` 查源表 —— 列名易猜错,走 LoadSingle 接口。' +
+              '\n\n完整骨架(已客户环境实证)与基类反编译细节:`load_skill_file("k3cloud/bos-features-index", "references/multi-entry-convert-via-plugin")`。',
             detected: validation.detected,
           });
         }
