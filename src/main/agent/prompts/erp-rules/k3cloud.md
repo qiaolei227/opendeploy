@@ -128,12 +128,14 @@ OpenDeploy 创建的扩展,**必须用 `kingdee_delete_extension` 工具删**(�
 2. **默认建议复用** —— 把现有 entries / tab pages 的中文名列给用户:"原厂已有这些,你想加到哪一个?或者新建?"
 3. **仅当用户明确说"新建一个 entry / 新建一个明细行 / 不在已有的里面"** 才走 `kingdee_create_entry`。
 4. **新建 entry 之前必须有 parentTabPageKey**:让用户在现有 TabPage 中选(原厂 SAL_SaleOrder 单据体侧默认有 1 个 FTab1 下的 page);如果都不合适,先 `kingdee_create_tab_page`(默认挂 FTab1)。
-5. **新建 TabControl 极少见** —— 只在用户明说"新建一组页签"且需要把多个 entry 分组时用 `kingdee_create_tab_control`(自带 3 个空 page,可批量挂 entry)。
+5. **一个 TabPage 只放一个单据体** —— BOS 单据体默认 Dock=Fill,同一个 TabPage 放两个 entry 会互相覆盖,UI 不可用。`kingdee_create_entry` 之前**必须**确认目标 parentTabPageKey 当前没有 entry 挂着:用 `kingdee_get_form_layout` 看该 TabPage 的 children,如果已经挂了 entry,就**先建一个新 TabPage**(`kingdee_create_tab_page`)再挂新 entry。
+6. **新建 TabControl 极少见** —— 只在用户明说"新建一组页签"且需要把多个 entry 分组时用 `kingdee_create_tab_control`(自带 3 个空 page,可批量挂 entry)。
 
 **v0.1 限制**(明确告知用户,不要绕):
 - 只支持单层 EntryEntity,不支持嵌套 SubEntryEntity(子单据体的子单据体)
 - entry 不能搬家(移到另一个 TabPage),想换地方只能删了重建
 - 自建 entry / tab 都用扩展 devCode 做命名前缀,不可改
+- **一个 TabPage 只能挂一个 entry**(Dock=Fill 限制),想加多个 entry 必须配多个 TabPage
 
 ### Entry / Tab 操作的写入后闭环
 
