@@ -110,7 +110,48 @@ export interface BosFieldCommon {
    * grid columns positioned by EntryEntityAppearance, not free-form).
    */
   entityKey?: string;
+  /**
+   * Plan 5.12.7 — 必录. When true emits `<MustInput>1</MustInput>` after
+   * `<FieldName>` (BOS default = 0; absent = not required, so we only emit
+   * when explicitly required). BasePropertyField does not support MustInput
+   * — emitter silently ignores when set on that variant.
+   */
+  mustInput?: boolean;
+  /**
+   * Plan 5.12.7 — 缺省值. Polymorphic per-field-type (see `BosDefValue`).
+   * Wraps in `<DefValue>...</DefValue>`. Position varies by field type but is
+   * always before `<PropertyName>`. BasePropertyField does not support
+   * DefValue.
+   */
+  defValue?: BosDefValue;
 }
+
+/**
+ * BOS `[ComplexProperty] DefaultValue` — polymorphic on whether the value is
+ * a literal (TextField / CheckBoxField / ComboField) or a server-evaluated
+ * function call (numeric / DateField / BaseDataField).
+ *
+ * Wire shape (verified 2026-05-04 capture req-103):
+ *   literal  → `<DefValue><DefaultValue><Value>X</Value></DefaultValue></DefValue>`
+ *   function → `<DefValue><FunctionDefaultValue><FunctionId>N</FunctionId>
+ *                <FunctionName>X</FunctionName>
+ *                [<Value>...</Value>] [<Parameter>...</Parameter>]
+ *              </FunctionDefaultValue></DefValue>`
+ *
+ * FunctionId / FunctionName pairs verified empirically:
+ *   1  GetDate     — Parameter="<format>,<expr>" (e.g. "yyyy-MM-dd,@CurrentDate")
+ *   14 GetNumeric  — Value="<numeric literal>" (e.g. "66.66")
+ *   15 GetBaseData — Value="<FNumber lookup key>" (e.g. "01")
+ */
+export type BosDefValue =
+  | { kind: 'literal'; value: string }
+  | {
+      kind: 'function';
+      functionId: number;
+      functionName: string;
+      value?: string;
+      parameter?: string;
+    };
 
 export type BosFieldElement =
   | (BosFieldCommon & { type: 'TextField' })
@@ -136,6 +177,13 @@ export type BosFieldElement =
       lookUpObjectId: string; // BD_xxx referenced object's GUID (NOT the friendly key)
       srcFindFieldName?: string; // default "FNUMBER"
       srcDisplayFieldName?: string; // default "FNAME"
+      /**
+       * Plan 5.12.7 — 使用组织 (multi-org enterprise edition only).
+       * When set, emits `<OrgFieldKey>{value}</OrgFieldKey>` after
+       * `<SrcDisplayFieldName>`, before `<PropertyName>` (capture req-77/103).
+       * Standard / single-org installs leave this undefined.
+       */
+      orgFieldKey?: string;
     })
   | (BosFieldCommon & {
       type: 'BasePropertyField';
@@ -225,6 +273,12 @@ export interface BosEntryElement {
   groupColumnInfoId?: string;
   /** Default "FEntryID" — BOS convention. */
   entryPkFieldName?: string;
+  /**
+   * Plan 5.12.7 — 单据体必录(至少一行). When true emits
+   * `<MustInput>1</MustInput>` after `<GroupColumnInfo>`, before `<Name>`.
+   * Default (undefined) = not required.
+   */
+  mustInput?: boolean;
 }
 
 /** Visual placement for an EntryEntity. Goes inside `<Appearances>`. */
@@ -252,6 +306,14 @@ export interface BosEntryAppearance {
    * caller wants a toolbar-less entry (rare).
    */
   includeDefaultBarItems?: boolean;
+  /**
+   * Plan 5.12.7 — 显示序号. When defined emits
+   * `<IsShowSeq>True|False</IsShowSeq>` (capitalized!) after `<Caption>`,
+   * before `<PageRows>`. Tool layer defaults this to `true` (matches BOS
+   * Designer's first-save behavior) but undefined here means "let the server
+   * use its default" — the emitter writes nothing.
+   */
+  isShowSeq?: boolean;
 }
 
 /** TabControl is the parent UI container that holds N TabPages. */

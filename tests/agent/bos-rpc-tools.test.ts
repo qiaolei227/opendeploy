@@ -1166,6 +1166,206 @@ describe('kingdee_add_fields', () => {
     expect(req.addAppearances![1].container).toBeUndefined();
     expect(req.addAppearances![1].left).toBeUndefined();
   });
+
+  // ─── Plan 5.12.7 — property grid additions ─────────────────────────────
+
+  it('forwards mustInput=true through to the BosFieldElement', async () => {
+    const { tool } = await findAddFields();
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [{ type: 'text', key: 'F_PAIJ_Required', caption: '必录', mustInput: true }],
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addFields![0].mustInput).toBe(true);
+  });
+
+  it('omits mustInput from BosFieldElement when not passed (BOS default = 0)', async () => {
+    const { tool } = await findAddFields();
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [{ type: 'text', key: 'F_PAIJ_Optional', caption: '可空' }],
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addFields![0].mustInput).toBeUndefined();
+  });
+
+  it('forwards orgFieldKey on a base_data field for multi-org enterprise edition', async () => {
+    const { tool } = await findAddFields();
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [
+        {
+          type: 'base_data',
+          key: 'F_PAIJ_OrgCust',
+          caption: '组织客户',
+          refBaseDataObjectKey: 'BD_Customer',
+          orgFieldKey: 'FSaleOrgId',
+        },
+      ],
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    const base = req.addFields![0] as Extract<typeof req.addFields[number], { type: 'BaseDataField' }>;
+    expect(base.type).toBe('BaseDataField');
+    expect(base.orgFieldKey).toBe('FSaleOrgId');
+  });
+
+  it('rejects orgFieldKey on non-base_data field types', async () => {
+    const { tool } = await findAddFields();
+    await expect(
+      tool.execute({
+        extId: EXT_ID,
+        fields: [
+          { type: 'text', key: 'F_PAIJ_Bad', caption: 'X', orgFieldKey: 'FSaleOrgId' },
+        ],
+      }),
+    ).rejects.toThrow(/orgFieldKey/);
+  });
+
+  it('translates string defaultValue into literal DefValue for TextField', async () => {
+    const { tool } = await findAddFields();
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [{ type: 'text', key: 'F_PAIJ_Memo', caption: '备注', defaultValue: 'TEST' }],
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addFields![0].defValue).toEqual({ kind: 'literal', value: 'TEST' });
+  });
+
+  it('translates string defaultValue into literal DefValue for ComboField', async () => {
+    const { tool } = await findAddFields();
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [
+        {
+          type: 'combo',
+          key: 'F_PAIJ_Status',
+          caption: '状态',
+          enumTypeName: '审核状态',
+          defaultValue: 'A',
+        },
+      ],
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addFields![0].defValue).toEqual({ kind: 'literal', value: 'A' });
+  });
+
+  it('translates boolean defaultValue into capitalized True/False literal for CheckBoxField', async () => {
+    const { tool } = await findAddFields();
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [
+        { type: 'checkbox', key: 'F_PAIJ_FlagOn', caption: '启用', defaultValue: true },
+        { type: 'checkbox', key: 'F_PAIJ_FlagOff', caption: '禁用', defaultValue: false },
+      ],
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addFields![0].defValue).toEqual({ kind: 'literal', value: 'True' });
+    expect(req.addFields![1].defValue).toEqual({ kind: 'literal', value: 'False' });
+  });
+
+  it('translates numeric defaultValue into GetNumeric function for DecimalField', async () => {
+    const { tool } = await findAddFields();
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [
+        { type: 'decimal', key: 'F_PAIJ_Limit', caption: '上限', defaultValue: 66.66 },
+      ],
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addFields![0].defValue).toEqual({
+      kind: 'function',
+      functionId: 14,
+      functionName: 'GetNumeric',
+      value: '66.66',
+    });
+  });
+
+  it('translates "today" defaultValue into GetDate with @CurrentDate Parameter for DateField', async () => {
+    const { tool } = await findAddFields();
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [
+        { type: 'date', key: 'F_PAIJ_When', caption: '日期', defaultValue: 'today' },
+      ],
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addFields![0].defValue).toEqual({
+      kind: 'function',
+      functionId: 1,
+      functionName: 'GetDate',
+      parameter: 'yyyy-MM-dd,@CurrentDate',
+    });
+  });
+
+  it('translates fixed-date defaultValue into GetDate with literal Parameter for DateField', async () => {
+    const { tool } = await findAddFields();
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [
+        { type: 'date', key: 'F_PAIJ_When', caption: '日期', defaultValue: '2026-01-01' },
+      ],
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addFields![0].defValue).toEqual({
+      kind: 'function',
+      functionId: 1,
+      functionName: 'GetDate',
+      parameter: 'yyyy-MM-dd,2026-01-01',
+    });
+  });
+
+  it('translates FNumber defaultValue into GetBaseData function for BaseDataField', async () => {
+    const { tool } = await findAddFields();
+    await tool.execute({
+      extId: EXT_ID,
+      fields: [
+        {
+          type: 'base_data',
+          key: 'F_PAIJ_DefCust',
+          caption: '默认客户',
+          refBaseDataObjectKey: 'BD_Customer',
+          defaultValue: '01',
+        },
+      ],
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addFields![0].defValue).toEqual({
+      kind: 'function',
+      functionId: 15,
+      functionName: 'GetBaseData',
+      value: '01',
+    });
+  });
+
+  it('rejects defaultValue on a base_property field type', async () => {
+    const { tool } = await findAddFields();
+    await expect(
+      tool.execute({
+        extId: EXT_ID,
+        fields: [
+          {
+            type: 'base_property',
+            key: 'F_PAIJ_PropX',
+            caption: 'X',
+            sourceField: 'FCustId',
+            defaultValue: 'whatever',
+          },
+        ],
+      }),
+    ).rejects.toThrow(/defaultValue/);
+  });
+
+  it('rejects non-numeric defaultValue on a numeric field', async () => {
+    const { tool } = await findAddFields();
+    await expect(
+      tool.execute({
+        extId: EXT_ID,
+        fields: [
+          { type: 'decimal', key: 'F_PAIJ_Bad', caption: 'X', defaultValue: 'not-a-number' },
+        ],
+      }),
+    ).rejects.toThrow(/defaultValue/);
+  });
 });
 
 describe('kingdee_register_python_plugins', () => {
@@ -1930,6 +2130,54 @@ describe('kingdee_create_entry', () => {
     await expect(
       tool.execute({ extId: EXT_ID, name: 'X' }),
     ).rejects.toThrow(/parentTabPageKey/);
+  });
+
+  // ─── Plan 5.12.7 — property grid additions ─────────────────────────────
+
+  it('defaults isShowSeq=true on the appearance when not specified', async () => {
+    const { tool } = await findCreateEntry();
+    await tool.execute({
+      extId: EXT_ID,
+      name: 'X',
+      parentTabPageKey: 'FTab1_PAIJ_P_xyz',
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addEntryAppearances![0].isShowSeq).toBe(true);
+  });
+
+  it('honors explicit isShowSeq=false', async () => {
+    const { tool } = await findCreateEntry();
+    await tool.execute({
+      extId: EXT_ID,
+      name: 'X',
+      parentTabPageKey: 'FTab1_PAIJ_P_xyz',
+      isShowSeq: false,
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addEntryAppearances![0].isShowSeq).toBe(false);
+  });
+
+  it('forwards mustInput=true onto the EntryEntity element', async () => {
+    const { tool } = await findCreateEntry();
+    await tool.execute({
+      extId: EXT_ID,
+      name: 'X',
+      parentTabPageKey: 'FTab1_PAIJ_P_xyz',
+      mustInput: true,
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addEntries![0].mustInput).toBe(true);
+  });
+
+  it('omits mustInput on EntryEntity when not specified', async () => {
+    const { tool } = await findCreateEntry();
+    await tool.execute({
+      extId: EXT_ID,
+      name: 'X',
+      parentTabPageKey: 'FTab1_PAIJ_P_xyz',
+    });
+    const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
+    expect(req.addEntries![0].mustInput).toBeUndefined();
   });
 });
 

@@ -47,6 +47,7 @@ import type {
   BosTabControlAppearance,
   BosTabPageAppearance,
   BosFormOperationElement,
+  BosDefValue,
   SaveExtensionRequest,
 } from '../erp/k3cloud/rpc/types';
 import { SEQUENCE_CATEGORY_CUST_ENTRY } from '../erp/k3cloud/rpc/sequence';
@@ -738,6 +739,12 @@ interface AddFieldArgs {
   refBaseDataObjectKey?: string;
   srcFindFieldName?: string;
   srcDisplayFieldName?: string;
+  /**
+   * Plan 5.12.7 — multi-org enterprise edition only. Names the head-level
+   * 使用组织 field that scopes this base_data lookup (e.g. `FSaleOrgId`).
+   * Standard / single-org installs leave this undefined.
+   */
+  orgFieldKey?: string;
   // BasePropertyField extras (sourceField = parent base data field key)
   sourceField?: string;
   // UnitField extras
@@ -765,18 +772,118 @@ interface AddFieldArgs {
    * agent input.
    */
   entityKey?: string;
+  /** Plan 5.12.7 — 必录. */
+  mustInput?: boolean;
+  /**
+   * Plan 5.12.7 — 缺省值. Friendly form (string / number / boolean) coerced
+   * by `defaultValueForType` into the typed `BosDefValue` based on field type.
+   * Pre-coercion shape is whatever JSON the agent passed.
+   */
+  defaultValueRaw?: unknown;
+}
+
+/**
+ * Translate the agent's friendly `defaultValue` (string / number / boolean)
+ * into the typed `BosDefValue` AST per field type, based on captures
+ * req-77/req-103 (memory `bos_property_grid_inventory.md` §DefValue 多态 schema).
+ *
+ * - text / combo / checkbox: `kind: 'literal'` with stringified value (combo
+ *   accepts the enum's literal value, checkbox normalizes truthy → "True"
+ *   per BOS's capitalized boolean wire format)
+ * - int / decimal / price / amount / qty: `kind: 'function'` GetNumeric(14)
+ *   with stringified numeric value
+ * - date: `kind: 'function'` GetDate(1) with Parameter "yyyy-MM-dd,<expr>".
+ *   The expr is `@CurrentDate` for the keyword "today" / "now" / `@CurrentDate`
+ *   itself; otherwise a literal date string the user passed (e.g.
+ *   "2026-01-01"). Format-string portion fixed to "yyyy-MM-dd" — date-only
+ *   semantics, no time component.
+ * - base_data: `kind: 'function'` GetBaseData(15) with the FNumber lookup key
+ *   in Value (NOT the GUID — server resolves at form-load time).
+ * - base_property / unit: defaultValue is meaningless / unsupported by BOS;
+ *   the tool throws.
+ */
+function defaultValueForType(
+  type: FriendlyFieldType,
+  raw: unknown,
+  fieldKey: string,
+): BosDefValue {
+  const stringify = (v: unknown): string => (typeof v === 'string' ? v : String(v));
+  switch (type) {
+    case 'text':
+    case 'combo':
+      return { kind: 'literal', value: stringify(raw) };
+    case 'checkbox': {
+      const truthy =
+        raw === true ||
+        raw === 1 ||
+        (typeof raw === 'string' && ['true', '1', 'yes'].includes(raw.trim().toLowerCase()));
+      return { kind: 'literal', value: truthy ? 'True' : 'False' };
+    }
+    case 'int':
+    case 'decimal':
+    case 'price':
+    case 'amount':
+    case 'qty': {
+      const num = Number(raw);
+      if (!Number.isFinite(num)) {
+        throw new Error(
+          `字段 ${fieldKey}: defaultValue 必须能转成数字, 收到 "${stringify(raw)}"。`,
+        );
+      }
+      return {
+        kind: 'function',
+        functionId: 14,
+        functionName: 'GetNumeric',
+        value: String(num),
+      };
+    }
+    case 'date': {
+      const s = stringify(raw).trim();
+      const lower = s.toLowerCase();
+      const expr =
+        lower === 'today' || lower === 'now' || lower === '@currentdate' ? '@CurrentDate' : s;
+      return {
+        kind: 'function',
+        functionId: 1,
+        functionName: 'GetDate',
+        parameter: `yyyy-MM-dd,${expr}`,
+      };
+    }
+    case 'base_data':
+      // FNumber lookup key (not GUID). Stringified so numeric-looking codes
+      // like "01" survive intact.
+      return {
+        kind: 'function',
+        functionId: 15,
+        functionName: 'GetBaseData',
+        value: stringify(raw),
+      };
+    case 'base_property':
+    case 'unit':
+      throw new Error(`字段 ${fieldKey}: ${type} 类型不支持 defaultValue。`);
+  }
 }
 
 function buildFieldElement(args: AddFieldArgs): BosFieldElement {
-  const { type, key, caption, listTabIndex, entityKey } = args;
+  const { type, key, caption, listTabIndex, entityKey, mustInput } = args;
   const lti = listTabIndex ?? DEFAULT_LIST_TAB_INDEX_BASE;
+  // Plan 5.12.7 — orgFieldKey only valid on base_data; tool layer rejected
+  // earlier in coerceFieldArgs, but enforce here too as a defense in depth.
+  if (args.orgFieldKey && type !== 'base_data') {
+    throw new Error(`字段 ${key}: orgFieldKey 只对 base_data 字段有效。`);
+  }
+  // Translate friendly defaultValue → typed BosDefValue per field type.
+  const defValue =
+    args.defaultValueRaw !== undefined
+      ? defaultValueForType(type, args.defaultValueRaw, key)
+      : undefined;
   switch (type) {
     case 'text':
-      return { type: 'TextField', key, caption, listTabIndex: lti, entityKey };
+      return { type: 'TextField', key, caption, listTabIndex: lti, entityKey, mustInput, defValue };
     case 'int':
-      return { type: 'IntegerField', key, caption, listTabIndex: lti, entityKey };
+      return { type: 'IntegerField', key, caption, listTabIndex: lti, entityKey, mustInput, defValue };
     case 'date':
-      return { type: 'DateField', key, caption, listTabIndex: lti, entityKey };
+      return { type: 'DateField', key, caption, listTabIndex: lti, entityKey, mustInput, defValue };
     case 'decimal':
       return {
         type: 'DecimalField',
@@ -784,6 +891,8 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
         caption,
         listTabIndex: lti,
         entityKey,
+        mustInput,
+        defValue,
         fieldScale: args.fieldScale ?? 2,
         fieldPrecision: args.fieldPrecision ?? 23,
       };
@@ -794,6 +903,8 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
         caption,
         listTabIndex: lti,
         entityKey,
+        mustInput,
+        defValue,
         fieldScale: args.fieldScale ?? 4,
         fieldPrecision: args.fieldPrecision ?? 23,
       };
@@ -804,6 +915,8 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
         caption,
         listTabIndex: lti,
         entityKey,
+        mustInput,
+        defValue,
         fieldScale: args.fieldScale ?? 2,
         fieldPrecision: args.fieldPrecision ?? 23,
       };
@@ -817,12 +930,14 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
         caption,
         listTabIndex: lti,
         entityKey,
+        mustInput,
+        defValue,
         fieldScale: args.fieldScale ?? 6,
         fieldPrecision: args.fieldPrecision ?? 23,
         controlFieldKey: args.controlFieldKey,
       };
     case 'checkbox':
-      return { type: 'CheckBoxField', key, caption, listTabIndex: lti, entityKey };
+      return { type: 'CheckBoxField', key, caption, listTabIndex: lti, entityKey, mustInput, defValue };
     case 'combo':
       // enumTypeId is the resolved GUID by this point (translated upstream
       // by addFieldsTool from args.enumTypeName via the connector cache).
@@ -837,6 +952,8 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
         caption,
         listTabIndex: lti,
         entityKey,
+        mustInput,
+        defValue,
         enumTypeId: args.enumTypeId,
         defaultCondition: args.defaultCondition,
       };
@@ -850,9 +967,12 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
         caption,
         listTabIndex: lti,
         entityKey,
+        mustInput,
+        defValue,
         lookUpObjectId: args.refBaseDataObjectKey,
         srcFindFieldName: args.srcFindFieldName,
         srcDisplayFieldName: args.srcDisplayFieldName,
+        orgFieldKey: args.orgFieldKey,
       };
     case 'base_property':
       if (!args.sourceField) {
@@ -864,6 +984,7 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
         caption,
         listTabIndex: lti,
         entityKey,
+        mustInput,
         controlFieldKey: args.sourceField,
         srcDisplayFieldName: args.srcDisplayFieldName,
       };
@@ -880,6 +1001,7 @@ function buildFieldElement(args: AddFieldArgs): BosFieldElement {
         caption,
         listTabIndex: lti,
         entityKey,
+        mustInput,
         unitTypeKey: args.unitTypeKey ?? '1',
         lookUpObjectId: args.refBaseDataObjectKey,
       };
@@ -932,6 +1054,13 @@ function coerceFieldArgs(raw: Record<string, unknown>, idx: number): AddFieldArg
   }
   if (!key) throw new Error(`fields[${idx}]: 缺少 key 参数。`);
   if (!caption) throw new Error(`fields[${idx}]: 缺少 caption 参数。`);
+  // Plan 5.12.7 — reject orgFieldKey on non-base_data so the agent gets a
+  // clear error at coerce time rather than a confusing wire-level mismatch.
+  if (raw.orgFieldKey != null && type !== 'base_data') {
+    throw new Error(
+      `fields[${idx}] (key=${key}): orgFieldKey 只对 base_data 字段有效(${type} 字段不接受 orgFieldKey)。`,
+    );
+  }
   return {
     extId: '', // not used by buildFieldElement / buildAppearance
     type,
@@ -946,6 +1075,7 @@ function coerceFieldArgs(raw: Record<string, unknown>, idx: number): AddFieldArg
       raw.srcFindFieldName != null ? String(raw.srcFindFieldName) : undefined,
     srcDisplayFieldName:
       raw.srcDisplayFieldName != null ? String(raw.srcDisplayFieldName) : undefined,
+    orgFieldKey: raw.orgFieldKey != null ? String(raw.orgFieldKey) : undefined,
     sourceField: raw.sourceField != null ? String(raw.sourceField) : undefined,
     unitTypeKey: raw.unitTypeKey != null ? String(raw.unitTypeKey) : undefined,
     enumTypeName: raw.enumTypeName != null ? String(raw.enumTypeName) : undefined,
@@ -958,6 +1088,8 @@ function coerceFieldArgs(raw: Record<string, unknown>, idx: number): AddFieldArg
     zOrderIndex: raw.zOrderIndex != null ? Number(raw.zOrderIndex) : undefined,
     tabindex: raw.tabindex != null ? Number(raw.tabindex) : undefined,
     listTabIndex: raw.listTabIndex != null ? Number(raw.listTabIndex) : undefined,
+    mustInput: raw.mustInput === true ? true : undefined,
+    defaultValueRaw: raw.defaultValue,
   };
 }
 
@@ -1062,6 +1194,32 @@ function addFieldsTool(
                 zOrderIndex: { type: 'number', description: '(可选)容器内排序,默认 99。' },
                 tabindex: { type: 'number', description: '(可选)tab 顺序,默认 9000。' },
                 listTabIndex: { type: 'number', description: '(可选)列表序号,默认 9000。' },
+                mustInput: {
+                  type: 'boolean',
+                  description:
+                    '(可选)字段是否必录。`true` 时 BOS 表单上该字段会强制要求填写,留空提交会被拦下。默认 false(不强制)。',
+                },
+                defaultValue: {
+                  // Polymorphic: workflow accepts string | number | boolean.
+                  // Most LLM tool-call schemas expect a single `type` string —
+                  // declare "string" + clarify allowed forms in the description.
+                  // Runtime coercion in `defaultValueForType` accepts unknown.
+                  type: 'string',
+                  description:
+                    '(可选)字段缺省值。允许 string / number / boolean,工具按字段类型路由:' +
+                    '\n- text/combo: 字符串字面值(combo 传枚举的 Value,如 "A")' +
+                    '\n- checkbox: true/false(自动转 BOS 大写 "True"/"False")' +
+                    '\n- int/decimal/price/amount/qty: 数字字面值(如 66.66)' +
+                    '\n- date: "today" 关键字(取系统当前日期)或固定日期 "YYYY-MM-DD"(如 "2026-01-01")' +
+                    '\n- base_data: 基础资料的 FNumber lookup key(如客户编码 "01",**不要传 GUID**;运行时由服务端按 FNumber 反查)' +
+                    '\n- base_property/unit: **不支持** defaultValue,工具会报错。',
+                },
+                orgFieldKey: {
+                  type: 'string',
+                  description:
+                    '(仅 base_data,**仅多组织企业版**)使用组织字段 key,如 "FSaleOrgId"。' +
+                    '标准版/单组织环境**不传**。多组织时基础资料按组织过滤,常见值是单据头上的销售组织字段 key。',
+                },
               },
               required: ['type', 'key', 'caption'],
             },
@@ -1867,6 +2025,16 @@ function createEntryTool(
             description:
               '父 TabPage 的 Key。先调 kingdee_create_tab_page(可挂到 FTab1)或 kingdee_get_form_layout 找现有 TabPage。',
           },
+          mustInput: {
+            type: 'boolean',
+            description:
+              '(可选)单据体必录(至少一行)。`true` 时单据保存前 BOS 会校验该 entry 至少有一行数据,空提交被拦下。默认 false。',
+          },
+          isShowSeq: {
+            type: 'boolean',
+            description:
+              '(可选)是否显示行序号列,**默认 true**(BOS Designer 新建 entry 的默认行为)。极少需要传 false。',
+          },
         },
         required: ['extId', 'name', 'parentTabPageKey'],
       },
@@ -1880,6 +2048,9 @@ function createEntryTool(
       if (!parentTabPageKey) {
         throw new Error('kingdee_create_entry 需要 parentTabPageKey 参数。');
       }
+      // Plan 5.12.7 — entity-level required + show-seq (default true).
+      const mustInput = args.mustInput === true ? true : undefined;
+      const isShowSeq = args.isShowSeq === false ? false : true;
 
       const { ext, project, layoutInfoOid, existing, parentKernelXml } =
         await loadExtensionForSave(connector, projectId, extId, 'kingdee_create_entry');
@@ -1919,10 +2090,10 @@ function createEntryTool(
       const seq = parentEntryCount + extEntryCount + 1;
 
       const addEntries: BosEntryElement[] = [
-        { key: entryKey, name, entryName, tableName, seq },
+        { key: entryKey, name, entryName, tableName, seq, mustInput },
       ];
       const addEntryAppearances: BosEntryAppearance[] = [
-        { key: entryKey, caption: name, container: parentTabPageKey },
+        { key: entryKey, caption: name, container: parentTabPageKey, isShowSeq },
       ];
       // The default toolbar BarButtons (新增行 / 删除行) reference service
       // names that must be registered as FormOperations on the Form root —

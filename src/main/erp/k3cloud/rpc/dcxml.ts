@@ -38,6 +38,7 @@ import {
   BosTabPageAppearance,
   BosTabControlAppearance,
   BosFormOperationElement,
+  BosDefValue,
   SaveExtensionRequest,
   FIELD_ELEMENT_TYPE,
 } from './types';
@@ -171,6 +172,21 @@ function renderFieldElement(out: XmlWriter, f: BosFieldElement): void {
   const inner: string[] = [];
   const innerOut: XmlWriter = { push: (s) => inner.push(s) };
 
+  // Plan 5.12.7 — `<MustInput>1</MustInput>` emitted by switch cases right
+  // after `<FieldName>` (capture req-103). BasePropertyField has no
+  // FieldName and no MustInput in the wire format, so it skips this.
+  const renderMustInput = () => {
+    if (f.mustInput) child(innerOut, 'MustInput', 1);
+  };
+  // Plan 5.12.7 — DefValue position is type-specific but always BEFORE
+  // `<PropertyName>`. Each switch case calls this where capture data shows
+  // it should land. BasePropertyField doesn't support DefValue.
+  const renderDefValueIfSet = () => {
+    if (f.type !== 'BasePropertyField' && (f as { defValue?: BosDefValue }).defValue) {
+      renderDefValue(innerOut, (f as { defValue?: BosDefValue }).defValue!);
+    }
+  };
+
   // Render order: type-specific prefix → common prefix → name/id/key suffix.
   // Captured samples follow this rough shape, e.g. BaseDataField puts
   // LookUpObjectID before PropertyName; ComboField puts EnumType first.
@@ -179,8 +195,10 @@ function renderFieldElement(out: XmlWriter, f: BosFieldElement): void {
     case 'IntegerField':
     case 'DateField': {
       child(innerOut, 'ConditionType', 0);
+      renderDefValueIfSet();
       child(innerOut, 'PropertyName', f.key);
       child(innerOut, 'FieldName', f.key.toUpperCase());
+      renderMustInput();
       break;
     }
     case 'DecimalField':
@@ -189,23 +207,29 @@ function renderFieldElement(out: XmlWriter, f: BosFieldElement): void {
       child(innerOut, 'ConditionType', 0);
       child(innerOut, 'FieldScale', f.fieldScale);
       child(innerOut, 'FieldPrecision', f.fieldPrecision);
+      renderDefValueIfSet();
       child(innerOut, 'PropertyName', f.key);
       child(innerOut, 'FieldName', f.key.toUpperCase());
+      renderMustInput();
       break;
     }
     case 'QtyField': {
       child(innerOut, 'ConditionType', 0);
       child(innerOut, 'FieldScale', f.fieldScale);
       child(innerOut, 'FieldPrecision', f.fieldPrecision);
+      renderDefValueIfSet();
       child(innerOut, 'PropertyName', f.key);
       child(innerOut, 'ControlFieldKey', f.controlFieldKey);
       child(innerOut, 'FieldName', f.key.toUpperCase());
+      renderMustInput();
       break;
     }
     case 'CheckBoxField': {
       child(innerOut, 'Editlen', 20);
+      renderDefValueIfSet();
       child(innerOut, 'PropertyName', f.key);
       child(innerOut, 'FieldName', f.key.toUpperCase());
+      renderMustInput();
       child(innerOut, 'ConditionType', 0);
       child(innerOut, 'DefaultCondition', f.defaultCondition ?? 0);
       break;
@@ -213,8 +237,10 @@ function renderFieldElement(out: XmlWriter, f: BosFieldElement): void {
     case 'ComboField': {
       child(innerOut, 'EnumType', f.enumTypeId);
       child(innerOut, 'Editlen', 20);
+      renderDefValueIfSet();
       child(innerOut, 'PropertyName', f.key);
       child(innerOut, 'FieldName', f.key.toUpperCase());
+      renderMustInput();
       child(innerOut, 'FieldType', 167);
       child(innerOut, 'ConditionType', 5);
       child(innerOut, 'DefaultCondition', f.defaultCondition ?? 0);
@@ -226,13 +252,22 @@ function renderFieldElement(out: XmlWriter, f: BosFieldElement): void {
       child(innerOut, 'LookUpObjectID', f.lookUpObjectId);
       child(innerOut, 'SrcFindFieldName', f.srcFindFieldName ?? 'FNUMBER');
       child(innerOut, 'SrcDisplayFieldName', f.srcDisplayFieldName ?? 'FNAME');
+      // OrgFieldKey + DefValue both land between SrcDisplayFieldName and
+      // PropertyName per capture req-77/103. Order: OrgFieldKey first, then
+      // DefValue (matches `<OrgFieldKey>...</OrgFieldKey><DefValue>...` in
+      // capture).
+      if (f.orgFieldKey) child(innerOut, 'OrgFieldKey', f.orgFieldKey);
+      renderDefValueIfSet();
       child(innerOut, 'PropertyName', f.key);
       child(innerOut, 'FieldName', f.key.toUpperCase());
+      renderMustInput();
       child(innerOut, 'FieldType', 56);
       break;
     }
     case 'BasePropertyField': {
-      // BasePropertyField is unique: NO FieldName, NO FieldType.
+      // BasePropertyField is unique: NO FieldName, NO FieldType, no MustInput,
+      // no DefValue support per captures. mustInput / defValue silently
+      // ignored here even if set on the typed AST.
       child(innerOut, 'SrcDisplayFieldName', f.srcDisplayFieldName ?? 'FName');
       child(innerOut, 'DefaultCondition', f.defaultCondition ?? 67);
       child(innerOut, 'ConditionType', 0);
@@ -244,8 +279,10 @@ function renderFieldElement(out: XmlWriter, f: BosFieldElement): void {
       child(innerOut, 'UnitTypeKey', f.unitTypeKey);
       child(innerOut, 'ConditionType', 0);
       child(innerOut, 'LookUpObjectID', f.lookUpObjectId);
+      renderDefValueIfSet();
       child(innerOut, 'PropertyName', f.key);
       child(innerOut, 'FieldName', f.key.toUpperCase());
+      renderMustInput();
       child(innerOut, 'FieldType', 127);
       break;
     }
@@ -273,6 +310,33 @@ function renderFieldElement(out: XmlWriter, f: BosFieldElement): void {
     for (const piece of inner) out.push(piece);
   }
   out.push(`</${f.type}>`);
+}
+
+/**
+ * Render `<DefValue>...</DefValue>` polymorphically per `BosDefValue.kind`:
+ *   literal  → `<DefaultValue><Value>X</Value></DefaultValue>`
+ *   function → `<FunctionDefaultValue><FunctionId/><FunctionName/>
+ *                [Value][Parameter]</FunctionDefaultValue>`
+ *
+ * Wire shape verified 2026-05-04 capture req-103. The outer `<DefValue>`
+ * wrapper is always present; the inner element class differs by kind to match
+ * BOS's DCXML polymorphic serializer dispatch.
+ */
+function renderDefValue(out: XmlWriter, dv: BosDefValue): void {
+  out.push('<DefValue>');
+  if (dv.kind === 'literal') {
+    out.push('<DefaultValue>');
+    child(out, 'Value', dv.value);
+    out.push('</DefaultValue>');
+  } else {
+    out.push('<FunctionDefaultValue>');
+    child(out, 'FunctionId', dv.functionId);
+    child(out, 'FunctionName', dv.functionName);
+    if (dv.value !== undefined) child(out, 'Value', dv.value);
+    if (dv.parameter !== undefined) child(out, 'Parameter', dv.parameter);
+    out.push('</FunctionDefaultValue>');
+  }
+  out.push('</DefValue>');
 }
 
 function renderRemoveElement(out: XmlWriter, r: BosRemoveElement): void {
@@ -342,6 +406,9 @@ function renderEntryEntity(out: XmlWriter, e: BosEntryElement): void {
   out.push(
     `<GroupColumnInfo><GroupColumnInfo><Id>${xmlEscape(groupId)}</Id></GroupColumnInfo></GroupColumnInfo>`,
   );
+  // Plan 5.12.7 — Entity.MustInput renders right after GroupColumnInfo,
+  // before Name (capture req-103).
+  if (e.mustInput) child(out, 'MustInput', 1);
   child(out, 'Name', e.name);
   child(out, 'Id', id);
   child(out, 'Key', e.key);
@@ -477,6 +544,12 @@ function renderEntryEntityAppearance(out: XmlWriter, a: BosEntryAppearance): voi
     renderDefaultEntryMenu(out, a.key);
   }
   child(out, 'Caption', a.caption);
+  // Plan 5.12.7 — IsShowSeq renders right after Caption, before PageRows
+  // (capture req-103). Bool wire format uses capitalized "True" / "False"
+  // (different from MustInput which is int 0/1).
+  if (a.isShowSeq !== undefined) {
+    out.push(`<IsShowSeq>${a.isShowSeq ? 'True' : 'False'}</IsShowSeq>`);
+  }
   child(out, 'PageRows', a.pageRows ?? 100);
   child(out, 'Dock', a.dock ?? 5);
   child(out, 'Container', a.container);

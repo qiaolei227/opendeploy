@@ -545,6 +545,399 @@ describe('rpc/dcxml emitter', () => {
     expect(xml).toContain(existingTabControl);
   });
 
+  // ─── Plan 5.12.7 — property grid additions ─────────────────────────────
+  // Wire format verified against captures req-77 + req-103 (2026-05-04).
+  // Position rules per memory `bos_property_grid_inventory.md` §wire 实证.
+
+  it('emits Field.MustInput (int 1) right after FieldName when mustInput=true', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: true,
+      layoutInfoOid: 'L1',
+      addFields: [
+        {
+          type: 'TextField',
+          key: 'F_PAIJ_TestText',
+          caption: '测试文本',
+          listTabIndex: 9000,
+          id: 'cccccccccccccccccccccccccccccc01',
+          mustInput: true,
+        },
+      ],
+    });
+    expect(xml).toContain('<MustInput>1</MustInput>');
+    // Must come after FieldName, before ListTabIndex (capture req-103 shape).
+    const fnIdx = xml.indexOf('<FieldName>F_PAIJ_TESTTEXT</FieldName>');
+    const miIdx = xml.indexOf('<MustInput>1</MustInput>');
+    const ltiIdx = xml.indexOf('<ListTabIndex>');
+    expect(fnIdx).toBeGreaterThan(0);
+    expect(miIdx).toBeGreaterThan(fnIdx);
+    expect(ltiIdx).toBeGreaterThan(miIdx);
+  });
+
+  it('does not emit MustInput when mustInput is false / undefined (BOS default = 0)', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: true,
+      layoutInfoOid: 'L1',
+      addFields: [
+        {
+          type: 'TextField',
+          key: 'F_PAIJ_NoMust',
+          caption: '不必录',
+          listTabIndex: 9001,
+          id: 'cccccccccccccccccccccccccccccc02',
+        },
+      ],
+    });
+    expect(xml).not.toContain('<MustInput>');
+  });
+
+  it('emits Field.MustInput on DecimalField after FieldName as well', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: true,
+      layoutInfoOid: 'L1',
+      addFields: [
+        {
+          type: 'DecimalField',
+          key: 'F_PAIJ_Amt',
+          caption: '金额',
+          listTabIndex: 9002,
+          fieldScale: 2,
+          fieldPrecision: 23,
+          id: 'cccccccccccccccccccccccccccccc03',
+          mustInput: true,
+        },
+      ],
+    });
+    const fnIdx = xml.indexOf('<FieldName>F_PAIJ_AMT</FieldName>');
+    const miIdx = xml.indexOf('<MustInput>1</MustInput>');
+    expect(miIdx).toBeGreaterThan(fnIdx);
+  });
+
+  it('emits BaseDataField.OrgFieldKey after SrcDisplayFieldName, before PropertyName', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: true,
+      layoutInfoOid: 'L1',
+      addFields: [
+        {
+          type: 'BaseDataField',
+          key: 'F_PAIJ_Cust',
+          caption: '客户',
+          listTabIndex: 9003,
+          lookUpObjectId: '407d24cb-57f7-46bf-afb6-a9ab458fd845',
+          orgFieldKey: 'FSaleOrgId',
+          id: 'cccccccccccccccccccccccccccccc04',
+        },
+      ],
+    });
+    expect(xml).toContain('<OrgFieldKey>FSaleOrgId</OrgFieldKey>');
+    const sdfIdx = xml.indexOf('<SrcDisplayFieldName>FNAME</SrcDisplayFieldName>');
+    const ofkIdx = xml.indexOf('<OrgFieldKey>FSaleOrgId</OrgFieldKey>');
+    const pnIdx = xml.indexOf('<PropertyName>F_PAIJ_Cust</PropertyName>');
+    expect(sdfIdx).toBeGreaterThan(0);
+    expect(ofkIdx).toBeGreaterThan(sdfIdx);
+    expect(pnIdx).toBeGreaterThan(ofkIdx);
+  });
+
+  it('does not emit OrgFieldKey when orgFieldKey is undefined (single-org standard edition)', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: true,
+      layoutInfoOid: 'L1',
+      addFields: [
+        {
+          type: 'BaseDataField',
+          key: 'F_PAIJ_Cust',
+          caption: '客户',
+          listTabIndex: 9003,
+          lookUpObjectId: '407d24cb-57f7-46bf-afb6-a9ab458fd845',
+          id: 'cccccccccccccccccccccccccccccc05',
+        },
+      ],
+    });
+    expect(xml).not.toContain('<OrgFieldKey>');
+  });
+
+  it('emits Entity.MustInput right after GroupColumnInfo when set on EntryEntity', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addEntries: [
+        {
+          key: 'F_PAIJ_Entity_61b',
+          name: '测试明细',
+          entryName: 'PAIJ_Cust_Entry200001',
+          tableName: 'PAIJ_t_Cust_Entry200001',
+          seq: 14,
+          id: '57192dd366054483a1e092472c03d6eb',
+          groupColumnInfoId: 'e3920f2b-5a19-4794-b0b6-636728ccec26',
+          mustInput: true,
+        },
+      ],
+    });
+    expect(xml).toContain('<MustInput>1</MustInput>');
+    // Position: after </GroupColumnInfo></GroupColumnInfo> closer, before <Name>.
+    const gciCloseIdx = xml.indexOf('</GroupColumnInfo></GroupColumnInfo>');
+    const miIdx = xml.indexOf('<MustInput>1</MustInput>');
+    const nameIdx = xml.indexOf('<Name>测试明细</Name>');
+    expect(gciCloseIdx).toBeGreaterThan(0);
+    expect(miIdx).toBeGreaterThan(gciCloseIdx);
+    expect(nameIdx).toBeGreaterThan(miIdx);
+  });
+
+  it('omits Entity.MustInput when not set', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addEntries: [
+        {
+          key: 'F_PAIJ_Entity_xx',
+          name: '默认明细',
+          entryName: 'PAIJ_Cust_Entry200002',
+          tableName: 'PAIJ_t_Cust_Entry200002',
+          seq: 15,
+        },
+      ],
+    });
+    expect(xml).not.toContain('<MustInput>');
+  });
+
+  it('emits IsShowSeq=True after Caption when isShowSeq=true on EntryEntityAppearance', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addEntryAppearances: [
+        {
+          key: 'F_PAIJ_Entity_61b',
+          caption: '测试明细',
+          container: 'FTab1_PAIJ_P_rtb',
+          isShowSeq: true,
+        },
+      ],
+    });
+    expect(xml).toContain('<IsShowSeq>True</IsShowSeq>');
+    const captionIdx = xml.indexOf('<Caption>测试明细</Caption>');
+    const issIdx = xml.indexOf('<IsShowSeq>True</IsShowSeq>');
+    const pageRowsIdx = xml.indexOf('<PageRows>');
+    expect(captionIdx).toBeGreaterThan(0);
+    expect(issIdx).toBeGreaterThan(captionIdx);
+    expect(pageRowsIdx).toBeGreaterThan(issIdx);
+  });
+
+  it('emits IsShowSeq=False (with capitalized False) when explicitly set to false', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addEntryAppearances: [
+        {
+          key: 'F_PAIJ_Entity_yy',
+          caption: '无序号明细',
+          container: 'FTab1_PAIJ_P_yy',
+          isShowSeq: false,
+        },
+      ],
+    });
+    expect(xml).toContain('<IsShowSeq>False</IsShowSeq>');
+  });
+
+  it('omits IsShowSeq when isShowSeq is undefined (server falls back to default)', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addEntryAppearances: [
+        {
+          key: 'F_PAIJ_Entity_zz',
+          caption: '默认明细',
+          container: 'FTab1_PAIJ_P_zz',
+        },
+      ],
+    });
+    expect(xml).not.toContain('<IsShowSeq>');
+  });
+
+  it('emits DefValue literal for TextField (DefaultValue/Value wrapper)', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: true,
+      layoutInfoOid: 'L1',
+      addFields: [
+        {
+          type: 'TextField',
+          key: 'F_PAIJ_TestText',
+          caption: '文本',
+          listTabIndex: 9100,
+          defValue: { kind: 'literal', value: 'TEST' },
+          id: 'dddddddddddddddddddddddddddddd01',
+        },
+      ],
+    });
+    expect(xml).toContain('<DefValue><DefaultValue><Value>TEST</Value></DefaultValue></DefValue>');
+    // DefValue position: between ConditionType and PropertyName per req-103 capture.
+    const ctIdx = xml.indexOf('<ConditionType>0</ConditionType>');
+    const dvIdx = xml.indexOf('<DefValue>');
+    const pnIdx = xml.indexOf('<PropertyName>F_PAIJ_TestText</PropertyName>');
+    expect(ctIdx).toBeGreaterThan(0);
+    expect(dvIdx).toBeGreaterThan(ctIdx);
+    expect(pnIdx).toBeGreaterThan(dvIdx);
+  });
+
+  it('emits DefValue literal for ComboField (Value=enum literal)', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: true,
+      layoutInfoOid: 'L1',
+      addFields: [
+        {
+          type: 'ComboField',
+          key: 'F_PAIJ_TestCombo',
+          caption: '下拉',
+          listTabIndex: 9101,
+          enumTypeId: 'd6ab165a-be17-4f2c-b845-49a05b1cef9a',
+          defValue: { kind: 'literal', value: 'A' },
+          id: 'dddddddddddddddddddddddddddddd02',
+        },
+      ],
+    });
+    expect(xml).toContain('<DefValue><DefaultValue><Value>A</Value></DefaultValue></DefValue>');
+  });
+
+  it('emits DefValue literal for CheckBoxField (Value=True/False)', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: true,
+      layoutInfoOid: 'L1',
+      addFields: [
+        {
+          type: 'CheckBoxField',
+          key: 'F_PAIJ_TestCheck',
+          caption: '复选',
+          listTabIndex: 9102,
+          defValue: { kind: 'literal', value: 'True' },
+          id: 'dddddddddddddddddddddddddddddd03',
+        },
+      ],
+    });
+    expect(xml).toContain('<DefValue><DefaultValue><Value>True</Value></DefaultValue></DefValue>');
+  });
+
+  it('emits DefValue function GetNumeric for DecimalField', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: true,
+      layoutInfoOid: 'L1',
+      addFields: [
+        {
+          type: 'DecimalField',
+          key: 'F_PAIJ_TestDecimal',
+          caption: '小数',
+          listTabIndex: 9103,
+          fieldScale: 2,
+          fieldPrecision: 10,
+          defValue: { kind: 'function', functionId: 14, functionName: 'GetNumeric', value: '66.66' },
+          id: 'dddddddddddddddddddddddddddddd04',
+        },
+      ],
+    });
+    expect(xml).toContain(
+      '<DefValue><FunctionDefaultValue><FunctionId>14</FunctionId><FunctionName>GetNumeric</FunctionName><Value>66.66</Value></FunctionDefaultValue></DefValue>',
+    );
+    // Position: after FieldPrecision, before PropertyName.
+    const fpIdx = xml.indexOf('<FieldPrecision>10</FieldPrecision>');
+    const dvIdx = xml.indexOf('<DefValue>');
+    const pnIdx = xml.indexOf('<PropertyName>F_PAIJ_TestDecimal</PropertyName>');
+    expect(fpIdx).toBeGreaterThan(0);
+    expect(dvIdx).toBeGreaterThan(fpIdx);
+    expect(pnIdx).toBeGreaterThan(dvIdx);
+  });
+
+  it('emits DefValue function GetDate with Parameter for DateField "today"', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: true,
+      layoutInfoOid: 'L1',
+      addFields: [
+        {
+          type: 'DateField',
+          key: 'F_PAIJ_TestDate',
+          caption: '日期',
+          listTabIndex: 9104,
+          defValue: {
+            kind: 'function',
+            functionId: 1,
+            functionName: 'GetDate',
+            parameter: 'yyyy-MM-dd,@CurrentDate',
+          },
+          id: 'dddddddddddddddddddddddddddddd05',
+        },
+      ],
+    });
+    expect(xml).toContain(
+      '<DefValue><FunctionDefaultValue><FunctionId>1</FunctionId><FunctionName>GetDate</FunctionName><Parameter>yyyy-MM-dd,@CurrentDate</Parameter></FunctionDefaultValue></DefValue>',
+    );
+  });
+
+  it('emits DefValue function GetBaseData for BaseDataField with FNumber Value', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: true,
+      layoutInfoOid: 'L1',
+      addFields: [
+        {
+          type: 'BaseDataField',
+          key: 'F_PAIJ_TestCust',
+          caption: '客户',
+          listTabIndex: 9105,
+          lookUpObjectId: '407d24cb-57f7-46bf-afb6-a9ab458fd845',
+          defValue: { kind: 'function', functionId: 15, functionName: 'GetBaseData', value: '01' },
+          id: 'dddddddddddddddddddddddddddddd06',
+        },
+      ],
+    });
+    expect(xml).toContain(
+      '<DefValue><FunctionDefaultValue><FunctionId>15</FunctionId><FunctionName>GetBaseData</FunctionName><Value>01</Value></FunctionDefaultValue></DefValue>',
+    );
+    // BaseDataField position: after OrgFieldKey (or SrcDisplayFieldName when no OrgFieldKey),
+    // before PropertyName.
+    const sdfIdx = xml.indexOf('<SrcDisplayFieldName>FNAME</SrcDisplayFieldName>');
+    const dvIdx = xml.indexOf('<DefValue>');
+    const pnIdx = xml.indexOf('<PropertyName>F_PAIJ_TestCust</PropertyName>');
+    expect(sdfIdx).toBeGreaterThan(0);
+    expect(dvIdx).toBeGreaterThan(sdfIdx);
+    expect(pnIdx).toBeGreaterThan(dvIdx);
+  });
+
+  it('emits OrgFieldKey before DefValue when both are set on BaseDataField (capture order)', () => {
+    const xml = buildDcxmlSource({
+      extension: baselineExt,
+      isNew: true,
+      layoutInfoOid: 'L1',
+      addFields: [
+        {
+          type: 'BaseDataField',
+          key: 'F_PAIJ_OrgCust',
+          caption: '组织客户',
+          listTabIndex: 9106,
+          lookUpObjectId: '407d24cb-57f7-46bf-afb6-a9ab458fd845',
+          orgFieldKey: 'FSaleOrgId',
+          defValue: { kind: 'function', functionId: 15, functionName: 'GetBaseData', value: '01' },
+          id: 'dddddddddddddddddddddddddddddd07',
+        },
+      ],
+    });
+    const ofkIdx = xml.indexOf('<OrgFieldKey>FSaleOrgId</OrgFieldKey>');
+    const dvIdx = xml.indexOf('<DefValue>');
+    expect(ofkIdx).toBeGreaterThan(0);
+    expect(dvIdx).toBeGreaterThan(ofkIdx);
+  });
+
   it('xml-escapes special chars in user-controlled values', () => {
     const xml = buildDcxmlSource({
       extension: baselineExt,

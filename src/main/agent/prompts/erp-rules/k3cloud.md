@@ -40,6 +40,25 @@
 - DLL 插件注册暂不支持(只支持 Python 表单插件)
 - 多 locale 名称暂时只写中文(2052)
 
+### 字段属性面板的 5 条 agent 可控属性(Plan 5.12.7)
+
+`kingdee_add_fields` 每个 field 支持以下可选参数,用户没明说就别加:
+
+- **`mustInput: true`** — 字段必录,提交时空值会被拦。默认 false。
+- **`defaultValue`** — 字段缺省值。**按字段类型传不同形态**:
+  - text / combo:字符串字面值(combo 传枚举的 Value 字面如 `"A"`)
+  - checkbox:`true` / `false`(自动转 BOS 大写字面)
+  - int / decimal / price / amount / qty:数字(如 `66.66`)
+  - date:`"today"` 关键字 = 取系统当前日期;或固定日期 `"YYYY-MM-DD"`(如 `"2026-01-01"`)
+  - base_data:基础资料的 **FNumber lookup key**(如客户编码 `"01"`,**不要传 GUID**)
+  - base_property / unit:不支持,工具会报错
+- **`orgFieldKey: "FSaleOrgId"`**(仅 base_data,**仅多组织企业版**)— 让基础资料按某个组织字段过滤。**标准版 / 单组织环境永远不传。**默认就是不传,只有用户明说"这是企业版多组织,要按销售组织过滤客户"之类才加。
+
+`kingdee_create_entry`(单据体)支持:
+
+- **`mustInput: true`** — 单据体至少要有一行,空提交被拦。
+- **`isShowSeq: false`** — 关闭行序号列。**工具默认 true**(BOS Designer 新建 entry 的默认行为),所以正常情况下不用传,只在用户明说"不要序号列"时传 false。
+
 ### base_data / unit / combo 字段:传 friendly 名即可,不要传 GUID
 
 `kingdee_add_fields` 工具内部会:
