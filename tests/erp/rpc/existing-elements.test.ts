@@ -157,8 +157,8 @@ describe('extractExistingExtensionElements', () => {
   });
 
   // ─── Plan 5.14 — entry / tab-page / tab-control extraction ──────────
-  // These four collections are what `kingdee_create_entry`,
-  // `kingdee_create_tab_*`, and the delete/rename tools read & re-emit so the
+  // These four collections are what `k3cloud_create_entry`,
+  // `k3cloud_create_tab_*`, and the delete/rename tools read & re-emit so the
   // baseline-diff DCXML keeps cumulative state. Wire format reference:
   // memory `bos_entry_creation_wire_format.md`.
 

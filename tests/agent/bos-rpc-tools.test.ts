@@ -147,25 +147,32 @@ beforeEach(() => {
 });
 
 describe('buildBosRpcTools', () => {
+  it('all tools have k3cloud_ prefix', async () => {
+    mockedGetProject.mockResolvedValue(makeProject(true));
+    const tools = await buildBosRpcTools(makeFakeConnector(), 'p1', makeSessionMgr());
+    const bad = tools.filter((t) => !t.definition.name.startsWith('k3cloud_'));
+    expect(bad.map((t) => t.definition.name)).toEqual([]);
+  });
+
   it('returns all write tools when project has bos creds', async () => {
     mockedGetProject.mockResolvedValue(makeProject(true));
     const tools = await buildBosRpcTools(makeFakeConnector(), 'p1', makeSessionMgr());
     expect(tools.map((t) => t.definition.name).sort()).toEqual([
-      'kingdee_add_fields',
-      'kingdee_create_entry',
-      'kingdee_create_enum_type',
-      'kingdee_create_extension',
-      'kingdee_create_tab_control',
-      'kingdee_create_tab_page',
-      'kingdee_delete_entry',
-      'kingdee_delete_enum_type',
-      'kingdee_delete_extension',
-      'kingdee_delete_tab_control',
-      'kingdee_delete_tab_page',
-      'kingdee_register_python_plugins',
-      'kingdee_rename_entry',
-      'kingdee_rename_tab_control',
-      'kingdee_rename_tab_page',
+      'k3cloud_add_fields',
+      'k3cloud_create_entry',
+      'k3cloud_create_enum_type',
+      'k3cloud_create_extension',
+      'k3cloud_create_tab_control',
+      'k3cloud_create_tab_page',
+      'k3cloud_delete_entry',
+      'k3cloud_delete_enum_type',
+      'k3cloud_delete_extension',
+      'k3cloud_delete_tab_control',
+      'k3cloud_delete_tab_page',
+      'k3cloud_register_python_plugins',
+      'k3cloud_rename_entry',
+      'k3cloud_rename_tab_control',
+      'k3cloud_rename_tab_page',
     ]);
   });
 
@@ -182,7 +189,7 @@ describe('buildBosRpcTools', () => {
   });
 });
 
-describe('kingdee_delete_extension', () => {
+describe('k3cloud_delete_extension', () => {
   it('logs in via session manager, calls deleteExtension RPC, returns ok json', async () => {
     mockedGetProject.mockResolvedValue(makeProject(true));
     mockedDelete.mockResolvedValue({
@@ -195,7 +202,7 @@ describe('kingdee_delete_extension', () => {
     };
     const sessionMgr = makeSessionMgr(session);
     const tools = await buildBosRpcTools(makeFakeConnector(), 'p1', sessionMgr);
-    const tool = tools.find((t) => t.definition.name === 'kingdee_delete_extension')!;
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_delete_extension')!;
 
     const result = JSON.parse(await tool.execute({ extId: 'abc123' }));
 
@@ -214,7 +221,7 @@ describe('kingdee_delete_extension', () => {
       message: '扩展不存在',
     } satisfies DeleteExtensionResult);
     const tools = await buildBosRpcTools(makeFakeConnector(), 'p1', makeSessionMgr());
-    const tool = tools.find((t) => t.definition.name === 'kingdee_delete_extension')!;
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_delete_extension')!;
 
     const result = JSON.parse(await tool.execute({ extId: 'ghost' }));
     expect(result.ok).toBe(false);
@@ -224,7 +231,7 @@ describe('kingdee_delete_extension', () => {
   it('throws clear error when extId is missing or empty', async () => {
     mockedGetProject.mockResolvedValue(makeProject(true));
     const tools = await buildBosRpcTools(makeFakeConnector(), 'p1', makeSessionMgr());
-    const tool = tools.find((t) => t.definition.name === 'kingdee_delete_extension')!;
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_delete_extension')!;
 
     await expect(tool.execute({})).rejects.toThrow(/extId/);
     await expect(tool.execute({ extId: '   ' })).rejects.toThrow(/extId/);
@@ -234,7 +241,7 @@ describe('kingdee_delete_extension', () => {
     // Build phase sees creds...
     mockedGetProject.mockResolvedValueOnce(makeProject(true));
     const tools = await buildBosRpcTools(makeFakeConnector(), 'p1', makeSessionMgr());
-    const tool = tools.find((t) => t.definition.name === 'kingdee_delete_extension')!;
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_delete_extension')!;
     // ...but execute phase finds them gone.
     mockedGetProject.mockResolvedValueOnce(makeProject(false));
 
@@ -247,7 +254,7 @@ describe('kingdee_delete_extension', () => {
     mockedGetProject.mockResolvedValue(project);
     mockedDelete.mockResolvedValue({ ok: true, responseBody: '' });
     const tools = await buildBosRpcTools(makeFakeConnector(), 'p1', makeSessionMgr());
-    const tool = tools.find((t) => t.definition.name === 'kingdee_delete_extension')!;
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_delete_extension')!;
 
     await tool.execute({ extId: 'abc123' });
 
@@ -259,12 +266,12 @@ describe('kingdee_delete_extension', () => {
   });
 });
 
-describe('kingdee_create_extension', () => {
+describe('k3cloud_create_extension', () => {
   const findCreate = async (connector = makeFakeConnector(), session = makeSessionMgr()) => {
     mockedGetProject.mockResolvedValue(makeProject(true));
     const tools = await buildBosRpcTools(connector, 'p1', session);
-    const tool = tools.find((t) => t.definition.name === 'kingdee_create_extension');
-    if (!tool) throw new Error('kingdee_create_extension not in tool list');
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_create_extension');
+    if (!tool) throw new Error('k3cloud_create_extension not in tool list');
     return { tool, session };
   };
 
@@ -387,7 +394,7 @@ describe('kingdee_create_extension', () => {
   });
 });
 
-describe('kingdee_add_fields', () => {
+describe('k3cloud_add_fields', () => {
   const EXT_ID = 'ee0011223344556677889900aabbccdd';
   const EXTENSION_OBJECT: ObjectMeta = {
     id: EXT_ID,
@@ -417,8 +424,8 @@ describe('kingdee_add_fields', () => {
           id === EXT_ID ? EMPTY_EXT_XML : PARENT_LAYOUT_XML,
       });
     const tools = await buildBosRpcTools(c, 'p1', session);
-    const tool = tools.find((t) => t.definition.name === 'kingdee_add_fields');
-    if (!tool) throw new Error('kingdee_add_fields not in tool list');
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_add_fields');
+    if (!tool) throw new Error('k3cloud_add_fields not in tool list');
     return { tool };
   };
 
@@ -1368,7 +1375,7 @@ describe('kingdee_add_fields', () => {
   });
 });
 
-describe('kingdee_register_python_plugins', () => {
+describe('k3cloud_register_python_plugins', () => {
   const EXT_ID = 'ee0011223344556677889900aabbccdd';
   const EXTENSION_OBJECT: ObjectMeta = {
     id: EXT_ID,
@@ -1397,8 +1404,8 @@ describe('kingdee_register_python_plugins', () => {
           id === EXT_ID ? EMPTY_EXT_XML : PARENT_LAYOUT_XML,
       });
     const tools = await buildBosRpcTools(c, 'p1', session);
-    const tool = tools.find((t) => t.definition.name === 'kingdee_register_python_plugins');
-    if (!tool) throw new Error('kingdee_register_python_plugins not in tool list');
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_register_python_plugins');
+    if (!tool) throw new Error('k3cloud_register_python_plugins not in tool list');
     return { tool };
   };
 
@@ -1609,12 +1616,12 @@ describe('kingdee_register_python_plugins', () => {
   });
 });
 
-describe('kingdee_create_enum_type', () => {
+describe('k3cloud_create_enum_type', () => {
   const findCreateEnum = async (session = makeSessionMgr()) => {
     mockedGetProject.mockResolvedValue(makeProject(true));
     const tools = await buildBosRpcTools(makeFakeConnector(), 'p1', session);
-    const tool = tools.find((t) => t.definition.name === 'kingdee_create_enum_type')!;
-    if (!tool) throw new Error('kingdee_create_enum_type not in tool list');
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_create_enum_type')!;
+    if (!tool) throw new Error('k3cloud_create_enum_type not in tool list');
     return { tool };
   };
 
@@ -1701,12 +1708,12 @@ describe('kingdee_create_enum_type', () => {
   });
 });
 
-describe('kingdee_delete_enum_type', () => {
+describe('k3cloud_delete_enum_type', () => {
   const findDeleteEnum = async (session = makeSessionMgr()) => {
     mockedGetProject.mockResolvedValue(makeProject(true));
     const tools = await buildBosRpcTools(makeFakeConnector(), 'p1', session);
-    const tool = tools.find((t) => t.definition.name === 'kingdee_delete_enum_type')!;
-    if (!tool) throw new Error('kingdee_delete_enum_type not in tool list');
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_delete_enum_type')!;
+    if (!tool) throw new Error('k3cloud_delete_enum_type not in tool list');
     return { tool };
   };
 
@@ -1746,7 +1753,7 @@ describe('kingdee_delete_enum_type', () => {
 
 // ─── Plan 5.14 — entry / tab toolchain ─────────────────────────────────
 
-describe('kingdee_create_tab_control', () => {
+describe('k3cloud_create_tab_control', () => {
   const EXT_ID = 'ee0011223344556677889900aabbccdd';
   const EXTENSION_OBJECT: ObjectMeta = {
     id: EXT_ID,
@@ -1784,7 +1791,7 @@ describe('kingdee_create_tab_control', () => {
   });
 
   it('creates 1 TabControl + 3 default TabPages with templated keys', async () => {
-    const tool = await findTool('kingdee_create_tab_control');
+    const tool = await findTool('k3cloud_create_tab_control');
     const out = JSON.parse(await tool.execute({ extId: EXT_ID }));
     expect(out.ok).toBe(true);
     expect(out.tabControlKey).toMatch(/^F_PAIJ_Tab_[a-z0-9]{3}$/);
@@ -1811,7 +1818,7 @@ describe('kingdee_create_tab_control', () => {
   });
 
   it('honors custom caption + tabPageCount', async () => {
-    const tool = await findTool('kingdee_create_tab_control');
+    const tool = await findTool('k3cloud_create_tab_control');
     const out = JSON.parse(
       await tool.execute({ extId: EXT_ID, caption: '质检页签组', tabPageCount: 5 }),
     );
@@ -1822,7 +1829,7 @@ describe('kingdee_create_tab_control', () => {
   });
 
   it('rejects tabPageCount out of range', async () => {
-    const tool = await findTool('kingdee_create_tab_control');
+    const tool = await findTool('k3cloud_create_tab_control');
     await expect(
       tool.execute({ extId: EXT_ID, tabPageCount: 0 }),
     ).rejects.toThrow(/tabPageCount/);
@@ -1832,12 +1839,12 @@ describe('kingdee_create_tab_control', () => {
   });
 
   it('rejects missing extId', async () => {
-    const tool = await findTool('kingdee_create_tab_control');
+    const tool = await findTool('k3cloud_create_tab_control');
     await expect(tool.execute({})).rejects.toThrow(/extId/);
   });
 });
 
-describe('kingdee_create_tab_page', () => {
+describe('k3cloud_create_tab_page', () => {
   const EXT_ID = 'ee0011223344556677889900aabbccdd';
   const EXTENSION_OBJECT: ObjectMeta = {
     id: EXT_ID,
@@ -1860,8 +1867,8 @@ describe('kingdee_create_tab_page', () => {
         id === EXT_ID ? extXmlOverride ?? EMPTY_EXT_XML : PARENT_LAYOUT_XML,
     });
     const tools = await buildBosRpcTools(c, 'p1', makeSessionMgr());
-    const tool = tools.find((t) => t.definition.name === 'kingdee_create_tab_page');
-    if (!tool) throw new Error('kingdee_create_tab_page not in tool list');
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_create_tab_page');
+    if (!tool) throw new Error('k3cloud_create_tab_page not in tool list');
     return tool;
   };
 
@@ -1936,7 +1943,7 @@ describe('kingdee_create_tab_page', () => {
         id === EXT_ID ? EMPTY_EXT_XML : parentXml,
     });
     const tools = await buildBosRpcTools(c, 'p1', makeSessionMgr());
-    const tool = tools.find((t) => t.definition.name === 'kingdee_create_tab_page')!;
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_create_tab_page')!;
     const out = JSON.parse(await tool.execute({ extId: EXT_ID }));
     expect(out.pageIndex).toBe(11); // max parent FTab1.pageIndex (10) + 1
     expect(out.zOrderIndex).toBe(8); // max parent FTab1.zOrderIndex (7) + 1
@@ -1959,7 +1966,7 @@ describe('kingdee_create_tab_page', () => {
         id === EXT_ID ? EMPTY_EXT_XML : parentXml,
     });
     const tools = await buildBosRpcTools(c, 'p1', makeSessionMgr());
-    const tool = tools.find((t) => t.definition.name === 'kingdee_create_tab_page')!;
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_create_tab_page')!;
     const out = JSON.parse(
       await tool.execute({ extId: EXT_ID, zOrderIndex: 0 }),
     );
@@ -1989,7 +1996,7 @@ describe('kingdee_create_tab_page', () => {
         id === EXT_ID ? extXml : parentXml,
     });
     const tools = await buildBosRpcTools(c, 'p1', makeSessionMgr());
-    const tool = tools.find((t) => t.definition.name === 'kingdee_create_tab_page')!;
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_create_tab_page')!;
     const out = JSON.parse(await tool.execute({ extId: EXT_ID }));
     expect(out.zOrderIndex).toBe(9);
   });
@@ -2014,7 +2021,7 @@ describe('kingdee_create_tab_page', () => {
   });
 });
 
-describe('kingdee_create_entry', () => {
+describe('k3cloud_create_entry', () => {
   const EXT_ID = 'ee0011223344556677889900aabbccdd';
   const EXTENSION_OBJECT: ObjectMeta = {
     id: EXT_ID,
@@ -2059,8 +2066,8 @@ describe('kingdee_create_entry', () => {
       getNextSequenceInt32: getNextSeq,
     } as unknown as K3CloudConnector;
     const tools = await buildBosRpcTools(c, 'p1', makeSessionMgr());
-    const tool = tools.find((t) => t.definition.name === 'kingdee_create_entry');
-    if (!tool) throw new Error('kingdee_create_entry not in tool list');
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_create_entry');
+    if (!tool) throw new Error('k3cloud_create_entry not in tool list');
     return { tool, getNextSeq };
   };
 
@@ -2181,7 +2188,7 @@ describe('kingdee_create_entry', () => {
   });
 });
 
-describe('kingdee_delete_entry / kingdee_delete_tab_page / kingdee_delete_tab_control', () => {
+describe('k3cloud_delete_entry / k3cloud_delete_tab_page / k3cloud_delete_tab_control', () => {
   const EXT_ID = 'ee0011223344556677889900aabbccdd';
   const EXTENSION_OBJECT: ObjectMeta = {
     id: EXT_ID,
@@ -2231,7 +2238,7 @@ describe('kingdee_delete_entry / kingdee_delete_tab_page / kingdee_delete_tab_co
       </Appearances>
     </LayoutInfo></LayoutInfos></FormMetadata>`;
 
-    const tool = await findDeleteTool('kingdee_delete_entry', extXml);
+    const tool = await findDeleteTool('k3cloud_delete_entry', extXml);
     const out = JSON.parse(
       await tool.execute({ extId: EXT_ID, entryKey: 'F_PAIJ_Entity_xxx' }),
     );
@@ -2257,7 +2264,7 @@ describe('kingdee_delete_entry / kingdee_delete_tab_page / kingdee_delete_tab_co
         <EntryEntityAppearance><Key>F_PAIJ_Entity_aaa</Key><Container>FTab1_PAIJ_P_xyz</Container></EntryEntityAppearance>
       </Appearances>
     </LayoutInfo></LayoutInfos></FormMetadata>`;
-    const tool = await findDeleteTool('kingdee_delete_tab_page', extXml);
+    const tool = await findDeleteTool('k3cloud_delete_tab_page', extXml);
     const out = JSON.parse(
       await tool.execute({ extId: EXT_ID, tabPageKey: 'FTab1_PAIJ_P_xyz' }),
     );
@@ -2275,7 +2282,7 @@ describe('kingdee_delete_entry / kingdee_delete_tab_page / kingdee_delete_tab_co
         <TabPageAppearance><Key>FTab1_PAIJ_P_xyz</Key><Container>FTab1</Container><Caption>p</Caption></TabPageAppearance>
       </Appearances>
     </LayoutInfo></LayoutInfos></FormMetadata>`;
-    const tool = await findDeleteTool('kingdee_delete_tab_page', extXml);
+    const tool = await findDeleteTool('k3cloud_delete_tab_page', extXml);
     const out = JSON.parse(
       await tool.execute({ extId: EXT_ID, tabPageKey: 'FTab1_PAIJ_P_xyz' }),
     );
@@ -2295,7 +2302,7 @@ describe('kingdee_delete_entry / kingdee_delete_tab_page / kingdee_delete_tab_co
         <EntryEntityAppearance><Key>F_PAIJ_Entity_a</Key><Container>F_PAIJ_Tab_aaa_P0_aaa</Container></EntryEntityAppearance>
       </Appearances>
     </LayoutInfo></LayoutInfos></FormMetadata>`;
-    const tool = await findDeleteTool('kingdee_delete_tab_control', extXml);
+    const tool = await findDeleteTool('k3cloud_delete_tab_control', extXml);
     const out = JSON.parse(
       await tool.execute({ extId: EXT_ID, tabControlKey: 'F_PAIJ_Tab_aaa' }),
     );
@@ -2314,7 +2321,7 @@ describe('kingdee_delete_entry / kingdee_delete_tab_page / kingdee_delete_tab_co
         <TabPageAppearance><Key>F_PAIJ_Tab_aaa_P1_aaa</Key><Container>F_PAIJ_Tab_aaa</Container></TabPageAppearance>
       </Appearances>
     </LayoutInfo></LayoutInfos></FormMetadata>`;
-    const tool = await findDeleteTool('kingdee_delete_tab_control', extXml);
+    const tool = await findDeleteTool('k3cloud_delete_tab_control', extXml);
     const out = JSON.parse(
       await tool.execute({ extId: EXT_ID, tabControlKey: 'F_PAIJ_Tab_aaa' }),
     );
@@ -2325,7 +2332,7 @@ describe('kingdee_delete_entry / kingdee_delete_tab_page / kingdee_delete_tab_co
   });
 });
 
-describe('kingdee_rename_entry / kingdee_rename_tab_page / kingdee_rename_tab_control', () => {
+describe('k3cloud_rename_entry / k3cloud_rename_tab_page / k3cloud_rename_tab_control', () => {
   const EXT_ID = 'ee0011223344556677889900aabbccdd';
   const EXTENSION_OBJECT: ObjectMeta = {
     id: EXT_ID,
@@ -2370,7 +2377,7 @@ describe('kingdee_rename_entry / kingdee_rename_tab_page / kingdee_rename_tab_co
         <EntryEntityAppearance><Key>F_PAIJ_Entity_x</Key><Container>FTab1_PAIJ_P_xyz</Container><Caption>旧名</Caption></EntryEntityAppearance>
       </Appearances>
     </LayoutInfo></LayoutInfos></FormMetadata>`;
-    const tool = await findTool('kingdee_rename_entry', extXml);
+    const tool = await findTool('k3cloud_rename_entry', extXml);
     const out = JSON.parse(
       await tool.execute({ extId: EXT_ID, entryKey: 'F_PAIJ_Entity_x', newName: '新名' }),
     );
@@ -2391,7 +2398,7 @@ describe('kingdee_rename_entry / kingdee_rename_tab_page / kingdee_rename_tab_co
         <TabPageAppearance><Key>FTab1_PAIJ_P_b</Key><Container>FTab1</Container><Caption>旧B</Caption></TabPageAppearance>
       </Appearances>
     </LayoutInfo></LayoutInfos></FormMetadata>`;
-    const tool = await findTool('kingdee_rename_tab_page', extXml);
+    const tool = await findTool('k3cloud_rename_tab_page', extXml);
     await tool.execute({ extId: EXT_ID, tabPageKey: 'FTab1_PAIJ_P_a', newCaption: '新A' });
     const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
     const aChunk = req.existingTabPagesRaw!.find((s) => s.includes('FTab1_PAIJ_P_a'))!;
@@ -2408,7 +2415,7 @@ describe('kingdee_rename_entry / kingdee_rename_tab_page / kingdee_rename_tab_co
         <TabControlAppearance><Key>F_PAIJ_Tab_aaa</Key><Container>FSPLITECONTAINER~Panel2</Container><Caption>旧</Caption></TabControlAppearance>
       </Appearances>
     </LayoutInfo></LayoutInfos></FormMetadata>`;
-    const tool = await findTool('kingdee_rename_tab_control', extXml);
+    const tool = await findTool('k3cloud_rename_tab_control', extXml);
     await tool.execute({ extId: EXT_ID, tabControlKey: 'F_PAIJ_Tab_aaa', newCaption: '新页签组' });
     const req = mockedSave.mock.calls[0][1] as SaveExtensionRequest;
     expect(req.existingTabControlsRaw![0]).toContain('<Caption>新页签组</Caption>');
@@ -2422,7 +2429,7 @@ describe('kingdee_rename_entry / kingdee_rename_tab_page / kingdee_rename_tab_co
         <TabControlAppearance><Key>F_PAIJ_Tab_aaa</Key><Container>FSPLITECONTAINER~Panel2</Container><Caption>old</Caption></TabControlAppearance>
       </Appearances>
     </LayoutInfo></LayoutInfos></FormMetadata>`;
-    const tool = await findTool('kingdee_rename_tab_control', extXml);
+    const tool = await findTool('k3cloud_rename_tab_control', extXml);
     await tool.execute({
       extId: EXT_ID,
       tabControlKey: 'F_PAIJ_Tab_aaa',
@@ -2433,7 +2440,7 @@ describe('kingdee_rename_entry / kingdee_rename_tab_page / kingdee_rename_tab_co
   });
 });
 
-describe('kingdee_create_extension — parent FormId case normalization', () => {
+describe('k3cloud_create_extension — parent FormId case normalization', () => {
   // K/3 父对象 FID 拼写不统一(SAL_SaleOrder 混合 / SAL_OUTSTOCK 全大写)。RPC 服务端 case-insensitive
   // 找父对象,但 BOS Designer 列扩展时严格按字符串匹配 FBASEOBJECTID,所以工具落库必须用
   // connector.getObject() 返回的 parent.id 作为 baseObjectId,而非 agent 输入的 raw 拼写。
@@ -2452,8 +2459,8 @@ describe('kingdee_create_extension — parent FormId case normalization', () => 
   const findCreate = async (connector: K3CloudConnector, session = makeSessionMgr()) => {
     mockedGetProject.mockResolvedValue(makeProject(true));
     const tools = await buildBosRpcTools(connector, 'p1', session);
-    const tool = tools.find((t) => t.definition.name === 'kingdee_create_extension');
-    if (!tool) throw new Error('kingdee_create_extension not in tool list');
+    const tool = tools.find((t) => t.definition.name === 'k3cloud_create_extension');
+    if (!tool) throw new Error('k3cloud_create_extension not in tool list');
     return tool;
   };
 

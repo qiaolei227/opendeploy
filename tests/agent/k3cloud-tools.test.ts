@@ -75,30 +75,36 @@ function makeFake(
 }
 
 describe('buildK3CloudTools', () => {
+  it('all tools have k3cloud_ prefix', () => {
+    const tools = buildK3CloudTools(makeFake());
+    const bad = tools.filter((t) => !t.definition.name.startsWith('k3cloud_'));
+    expect(bad.map((t) => t.definition.name)).toEqual([]);
+  });
+
   it('returns 21 tools when a connector is present', () => {
     const tools = buildK3CloudTools(makeFake());
     expect(tools.map((t) => t.definition.name).sort()).toEqual([
-      'kingdee_add_convert_bill_type_map',
-      'kingdee_add_convert_field_mapping',
-      'kingdee_add_convert_plugin',
-      'kingdee_create_convert_rule_extension',
-      'kingdee_delete_convert_rule_extension',
-      'kingdee_describe_basedata',
-      'kingdee_describe_convert_rule',
-      'kingdee_get_extension_fields',
-      'kingdee_get_fields',
-      'kingdee_get_form_layout',
-      'kingdee_get_object',
-      'kingdee_list_convert_rules',
-      'kingdee_list_enum_types',
-      'kingdee_list_extensions',
-      'kingdee_list_form_plugins',
-      'kingdee_list_objects',
-      'kingdee_list_subsystems',
-      'kingdee_remove_convert_plugin',
-      'kingdee_search_metadata',
-      'kingdee_set_convert_filter',
-      'kingdee_set_convert_groupby'
+      'k3cloud_add_convert_bill_type_map',
+      'k3cloud_add_convert_field_mapping',
+      'k3cloud_add_convert_plugin',
+      'k3cloud_create_convert_rule_extension',
+      'k3cloud_delete_convert_rule_extension',
+      'k3cloud_describe_basedata',
+      'k3cloud_describe_convert_rule',
+      'k3cloud_get_extension_fields',
+      'k3cloud_get_fields',
+      'k3cloud_get_form_layout',
+      'k3cloud_get_object',
+      'k3cloud_list_convert_rules',
+      'k3cloud_list_enum_types',
+      'k3cloud_list_extensions',
+      'k3cloud_list_form_plugins',
+      'k3cloud_list_objects',
+      'k3cloud_list_subsystems',
+      'k3cloud_remove_convert_plugin',
+      'k3cloud_search_metadata',
+      'k3cloud_set_convert_filter',
+      'k3cloud_set_convert_groupby'
     ]);
   });
 
@@ -108,7 +114,7 @@ describe('buildK3CloudTools', () => {
   });
 });
 
-describe('kingdee_list_objects tool', () => {
+describe('k3cloud_list_objects tool', () => {
   it('forwards keyword / limit / includeTemplates to the connector', async () => {
     const fake = makeFake({
       listObjects: vi.fn(async () => [
@@ -122,7 +128,7 @@ describe('kingdee_list_objects tool', () => {
         }
       ])
     });
-    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_list_objects')!;
+    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_list_objects')!;
 
     const raw = await tool.execute({ keyword: '销售', limit: 5, includeTemplates: false });
 
@@ -138,10 +144,10 @@ describe('kingdee_list_objects tool', () => {
   });
 });
 
-describe('kingdee_get_object tool', () => {
+describe('k3cloud_get_object tool', () => {
   it('returns found=false JSON when the object is missing', async () => {
     const fake = makeFake({ getObject: vi.fn(async () => null) });
-    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_get_object')!;
+    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_get_object')!;
 
     const parsed = JSON.parse(await tool.execute({ id: 'ghost' }));
 
@@ -158,7 +164,7 @@ describe('kingdee_get_object tool', () => {
       modifyDate: null
     };
     const fake = makeFake({ getObject: vi.fn(async () => obj) });
-    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_get_object')!;
+    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_get_object')!;
 
     const parsed = JSON.parse(await tool.execute({ id: 'BD_MATERIAL' }));
 
@@ -168,17 +174,17 @@ describe('kingdee_get_object tool', () => {
 
   it('throws when id arg is missing or empty', async () => {
     const tool = buildK3CloudTools(makeFake()).find(
-      (t) => t.definition.name === 'kingdee_get_object'
+      (t) => t.definition.name === 'k3cloud_get_object'
     )!;
     await expect(tool.execute({})).rejects.toThrow(/id/);
     await expect(tool.execute({ id: '   ' })).rejects.toThrow(/id/);
   });
 });
 
-describe('kingdee_get_fields tool', () => {
+describe('k3cloud_get_fields tool', () => {
   it('rejects when the form id is unknown (pre-flight getObject)', async () => {
     const fake = makeFake({ getObject: vi.fn(async () => null) });
-    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_get_fields')!;
+    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_get_fields')!;
 
     const parsed = JSON.parse(await tool.execute({ formId: 'NOPE' }));
 
@@ -218,7 +224,7 @@ describe('kingdee_get_fields tool', () => {
 
   it('default path returns lean summary (keys only, no per-field detail)', async () => {
     const fake = makeFakeWithFields();
-    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_get_fields')!;
+    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_get_fields')!;
 
     const parsed = JSON.parse(await tool.execute({ formId: 'SAL_SaleOrder' }));
 
@@ -233,7 +239,7 @@ describe('kingdee_get_fields tool', () => {
 
   it('keyword filter returns only matched fields with full detail', async () => {
     const fake = makeFakeWithFields();
-    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_get_fields')!;
+    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_get_fields')!;
 
     const parsed = JSON.parse(await tool.execute({ formId: 'SAL_SaleOrder', keyword: '信用' }));
 
@@ -247,7 +253,7 @@ describe('kingdee_get_fields tool', () => {
 
   it('keyword matches key substring case-insensitively', async () => {
     const fake = makeFakeWithFields();
-    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_get_fields')!;
+    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_get_fields')!;
 
     const parsed = JSON.parse(await tool.execute({ formId: 'SAL_SaleOrder', keyword: 'qty' }));
 
@@ -257,7 +263,7 @@ describe('kingdee_get_fields tool', () => {
 
   it('includeDetail:true returns full per-field detail for all fields', async () => {
     const fake = makeFakeWithFields();
-    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_get_fields')!;
+    const tool = buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_get_fields')!;
 
     const parsed = JSON.parse(
       await tool.execute({ formId: 'SAL_SaleOrder', includeDetail: true })
@@ -271,10 +277,10 @@ describe('kingdee_get_fields tool', () => {
   });
 });
 
-describe('kingdee_search_metadata tool', () => {
+describe('k3cloud_search_metadata tool', () => {
   it('rejects on empty keyword', async () => {
     const tool = buildK3CloudTools(makeFake()).find(
-      (t) => t.definition.name === 'kingdee_search_metadata'
+      (t) => t.definition.name === 'k3cloud_search_metadata'
     )!;
     await expect(tool.execute({ keyword: '' })).rejects.toThrow(/keyword/);
     await expect(tool.execute({ keyword: '   ' })).rejects.toThrow(/keyword/);
@@ -283,14 +289,14 @@ describe('kingdee_search_metadata tool', () => {
   it('forwards non-empty keyword', async () => {
     const fake = makeFake({ searchMetadata: vi.fn(async () => []) });
     const tool = buildK3CloudTools(fake).find(
-      (t) => t.definition.name === 'kingdee_search_metadata'
+      (t) => t.definition.name === 'k3cloud_search_metadata'
     )!;
     await tool.execute({ keyword: '信用额度' });
     expect(fake.searchMetadata).toHaveBeenCalledWith('信用额度');
   });
 });
 
-describe('kingdee_list_subsystems tool', () => {
+describe('k3cloud_list_subsystems tool', () => {
   it('returns the count + records from the connector', async () => {
     const fake = makeFake({
       listSubsystems: vi.fn(async () => [
@@ -299,7 +305,7 @@ describe('kingdee_list_subsystems tool', () => {
       ])
     });
     const tool = buildK3CloudTools(fake).find(
-      (t) => t.definition.name === 'kingdee_list_subsystems'
+      (t) => t.definition.name === 'k3cloud_list_subsystems'
     )!;
     const parsed = JSON.parse(await tool.execute({}));
     expect(parsed.count).toBe(2);
@@ -307,10 +313,10 @@ describe('kingdee_list_subsystems tool', () => {
   });
 });
 
-describe('kingdee_describe_basedata tool (Plan 5.12.1 Task 6)', () => {
+describe('k3cloud_describe_basedata tool (Plan 5.12.1 Task 6)', () => {
   function getDescribeTool(fake: K3CloudConnector) {
     return buildK3CloudTools(fake).find(
-      (t) => t.definition.name === 'kingdee_describe_basedata'
+      (t) => t.definition.name === 'k3cloud_describe_basedata'
     )!;
   }
 
@@ -390,9 +396,9 @@ describe('kingdee_describe_basedata tool (Plan 5.12.1 Task 6)', () => {
   });
 });
 
-describe('kingdee_list_extensions tool', () => {
+describe('k3cloud_list_extensions tool', () => {
   const findTool = (fake: K3CloudConnector) =>
-    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_list_extensions')!;
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_list_extensions')!;
 
   it('forwards parentFormId to connector and returns count + extensions', async () => {
     const exts: ExtensionMeta[] = [
@@ -442,9 +448,9 @@ describe('kingdee_list_extensions tool', () => {
   });
 });
 
-describe('kingdee_get_extension_fields tool', () => {
+describe('k3cloud_get_extension_fields tool', () => {
   const findTool = (fake: K3CloudConnector) =>
-    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_get_extension_fields')!;
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_get_extension_fields')!;
 
   it('returns fields when extension exists', async () => {
     const fake = makeFake({
@@ -496,9 +502,9 @@ describe('kingdee_get_extension_fields tool', () => {
   });
 });
 
-describe('kingdee_list_form_plugins tool', () => {
+describe('k3cloud_list_form_plugins tool', () => {
   const findTool = (fake: K3CloudConnector) =>
-    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_list_form_plugins')!;
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_list_form_plugins')!;
 
   it('returns python + dll plugins from connector', async () => {
     const plugins: PluginMeta[] = [
@@ -536,9 +542,9 @@ describe('kingdee_list_form_plugins tool', () => {
   });
 });
 
-describe('kingdee_get_form_layout tool', () => {
+describe('k3cloud_get_form_layout tool', () => {
   const findTool = (fake: K3CloudConnector) =>
-    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_get_form_layout')!;
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_get_form_layout')!;
 
   function makeLayoutFake(
     overrides: Partial<Pick<K3CloudConnector, 'getObject' | 'getFormLayout'>> = {}
@@ -608,9 +614,9 @@ describe('kingdee_get_form_layout tool', () => {
   });
 });
 
-describe('kingdee_list_convert_rules tool', () => {
+describe('k3cloud_list_convert_rules tool', () => {
   const findTool = (fake: K3CloudConnector) =>
-    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_list_convert_rules')!;
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_list_convert_rules')!;
 
   it('forwards sourceFormId filter to the connector', async () => {
     const fake = makeFake({
@@ -655,9 +661,9 @@ describe('kingdee_list_convert_rules tool', () => {
   });
 });
 
-describe('kingdee_describe_convert_rule tool', () => {
+describe('k3cloud_describe_convert_rule tool', () => {
   const findTool = (fake: K3CloudConnector) =>
-    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_describe_convert_rule')!;
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_describe_convert_rule')!;
 
   it('returns the connector summary as pretty JSON', async () => {
     const fake = makeFake({
@@ -744,7 +750,7 @@ describe('kingdee_describe_convert_rule tool', () => {
 
     expect(parsed.found).toBe(false);
     expect(parsed.ruleId).toBe('X');
-    expect(parsed.message).toContain('kingdee_list_convert_rules');
+    expect(parsed.message).toContain('k3cloud_list_convert_rules');
   });
 
   it('rethrows non-not-found errors', async () => {
@@ -763,9 +769,9 @@ describe('kingdee_describe_convert_rule tool', () => {
   });
 });
 
-describe('kingdee_create_convert_rule_extension tool', () => {
+describe('k3cloud_create_convert_rule_extension tool', () => {
   const findTool = (fake: K3CloudConnector) =>
-    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_create_convert_rule_extension')!;
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_create_convert_rule_extension')!;
 
   it('forwards originRuleId + displayName to the connector', async () => {
     const fake = makeFake({
@@ -862,10 +868,10 @@ describe('kingdee_create_convert_rule_extension tool', () => {
   });
 });
 
-describe('kingdee_delete_convert_rule_extension tool', () => {
+describe('k3cloud_delete_convert_rule_extension tool', () => {
   const findTool = (fake: K3CloudConnector) =>
     buildK3CloudTools(fake).find(
-      (t) => t.definition.name === 'kingdee_delete_convert_rule_extension'
+      (t) => t.definition.name === 'k3cloud_delete_convert_rule_extension'
     )!;
 
   it('forwards originRuleId + extId to the connector', async () => {
@@ -922,10 +928,10 @@ describe('kingdee_delete_convert_rule_extension tool', () => {
   });
 });
 
-describe('kingdee_add_convert_plugin tool', () => {
+describe('k3cloud_add_convert_plugin tool', () => {
   const findTool = (fake: K3CloudConnector) =>
     buildK3CloudTools(fake).find(
-      (t) => t.definition.name === 'kingdee_add_convert_plugin'
+      (t) => t.definition.name === 'k3cloud_add_convert_plugin'
     )!;
 
   it('forwards DLL mode (no pyScript) — connector receives undefined for pyScript', async () => {
@@ -1134,9 +1140,9 @@ describe('kingdee_add_convert_plugin tool', () => {
   });
 });
 
-describe('kingdee_add_convert_field_mapping — entry consistency validation', () => {
+describe('k3cloud_add_convert_field_mapping — entry consistency validation', () => {
   const findTool = (fake: K3CloudConnector) =>
-    buildK3CloudTools(fake).find((t) => t.definition.name === 'kingdee_add_convert_field_mapping')!;
+    buildK3CloudTools(fake).find((t) => t.definition.name === 'k3cloud_add_convert_field_mapping')!;
 
   // SaleOrder-OutStock parent rule shape (header DCP + 1 entry-level DCP).
   const standardDcps = {
@@ -1224,7 +1230,7 @@ describe('kingdee_add_convert_field_mapping — entry consistency validation', (
 
     expect(parsed.ok).toBe(false);
     expect(parsed.reason).toBe('entry_mismatch');
-    expect(parsed.hint).toMatch(/kingdee_add_convert_plugin/);
+    expect(parsed.hint).toMatch(/k3cloud_add_convert_plugin/);
     expect(parsed.hint).toMatch(/multi-entry-convert-via-plugin/);
     expect(parsed.detected.sourceEntry).toBe('F_PAIJ_Entity_61b');
     expect(parsed.detected.targetEntry).toBe('F_PAIJ_Entity_jo3');

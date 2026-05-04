@@ -41,11 +41,11 @@ describe('derivePendingActivity', () => {
   it('returns awaiting-tool with toolName + startedAt when last block is a running tool', () => {
     const result = derivePendingActivity(msg({
       blocks: [{ type: 'tool_use', callId: 'c1' }],
-      toolCalls: [{ id: 'c1', name: 'kingdee_list_extensions', args: '{}', startedAt: 1700000000000 }]
+      toolCalls: [{ id: 'c1', name: 'k3cloud_list_extensions', args: '{}', startedAt: 1700000000000 }]
     }));
     expect(result).toEqual({
       kind: 'awaiting-tool',
-      toolName: 'kingdee_list_extensions',
+      toolName: 'k3cloud_list_extensions',
       startedAt: 1700000000000
     });
   });
@@ -65,7 +65,7 @@ describe('derivePendingActivity', () => {
   it('returns thinking when last block is a finished tool (has result)', () => {
     expect(derivePendingActivity(msg({
       blocks: [{ type: 'tool_use', callId: 'c1' }],
-      toolCalls: [{ id: 'c1', name: 'kingdee_list_extensions', args: '{}', result: '{"count":0}' }]
+      toolCalls: [{ id: 'c1', name: 'k3cloud_list_extensions', args: '{}', result: '{"count":0}' }]
     }))).toEqual({ kind: 'thinking' });
   });
 

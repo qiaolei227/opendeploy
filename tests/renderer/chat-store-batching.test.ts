@@ -114,7 +114,7 @@ describe('chat-store text batching', () => {
     await sendAndCaptureStream();
     emit({ type: 'delta', content: 'thinking…' });
     const before = Date.now();
-    emit({ type: 'tool_call', toolCallId: 'c1', toolCallName: 'kingdee_list_extensions', toolCallArgs: '{}' });
+    emit({ type: 'tool_call', toolCallId: 'c1', toolCallName: 'k3cloud_list_extensions', toolCallArgs: '{}' });
     const after = Date.now();
     const last = useChatStore.getState().messages.at(-1)!;
     expect(last.pendingText).toBeUndefined();

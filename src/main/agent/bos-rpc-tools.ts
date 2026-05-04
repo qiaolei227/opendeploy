@@ -168,7 +168,7 @@ interface ExtensionForSave {
 }
 
 /**
- * Shared prelude for both `kingdee_add_fields` and `kingdee_register_python_plugins`:
+ * Shared prelude for both `k3cloud_add_fields` and `k3cloud_register_python_plugins`:
  * resolve the active project's BOS creds, validate the target extension, discover
  * the parent's layoutInfoOid, and read the extension's current FKERNELXML to
  * extract existing fields/appearances/plugins (the read-merge baseline-diff
@@ -190,7 +190,7 @@ async function loadExtensionForSave(
 
   const ext = await connector.getObject(extId);
   if (!ext) {
-    throw new Error(`扩展 ${extId} 不存在。先用 kingdee_list_extensions 确认。`);
+    throw new Error(`扩展 ${extId} 不存在。先用 k3cloud_list_extensions 确认。`);
   }
   if (!ext.baseObjectId) {
     throw new Error(
@@ -279,7 +279,7 @@ function isFieldAppearanceTag(tag: string): boolean {
  * Collect all entry keys this extension can target — parent's original-vendor
  * entries (e.g. `FSaleOrderEntry`) plus the extension's own EntryEntities.
  *
- * Used by `kingdee_add_fields` to detect when `container` names an entry
+ * Used by `k3cloud_add_fields` to detect when `container` names an entry
  * (single-level only — sub-entries excluded for v0.1) and route the field
  * through the entry-field branch.
  */
@@ -502,14 +502,14 @@ function createExtensionTool(
 ): ToolHandler {
   return {
     definition: {
-      name: 'kingdee_create_extension',
+      name: 'k3cloud_create_extension',
       description:
         '在 K/3 Cloud 上为指定父单据(原厂表单)新建一个 BOS 扩展。扩展是在父对象上挂字段 / 插件 / 业务规则等定制内容的容器,本身不带任何字段或插件。\n' +
         '\n创建后调用方拿到的 `extId` 用于后续:\n' +
-        '- `kingdee_add_fields` 批量添加扩展字段(数组,一次保存)\n' +
-        '- `kingdee_register_python_plugins` 批量挂 Python 表单插件(数组,一次保存)\n' +
-        '- `kingdee_delete_extension` 不要时整个删掉\n' +
-        '\n创建前**先调 `kingdee_list_extensions <parentFormId>`** 看是否已有可复用的扩展(同一父单据上多个扩展会变 BOS Designer 的负担)。' +
+        '- `k3cloud_add_fields` 批量添加扩展字段(数组,一次保存)\n' +
+        '- `k3cloud_register_python_plugins` 批量挂 Python 表单插件(数组,一次保存)\n' +
+        '- `k3cloud_delete_extension` 不要时整个删掉\n' +
+        '\n创建前**先调 `k3cloud_list_extensions <parentFormId>`** 看是否已有可复用的扩展(同一父单据上多个扩展会变 BOS Designer 的负担)。' +
         '`layoutInfoOid` 通常会自动从父单据的元数据里查出来,只在自动发现失败时才手动传。',
       parameters: {
         type: 'object',
@@ -534,8 +534,8 @@ function createExtensionTool(
     async execute(args) {
       const parentFormId = String(args.parentFormId ?? '').trim();
       const extName = String(args.extName ?? '').trim();
-      if (!parentFormId) throw new Error('kingdee_create_extension 需要 parentFormId 参数。');
-      if (!extName) throw new Error('kingdee_create_extension 需要 extName 参数。');
+      if (!parentFormId) throw new Error('k3cloud_create_extension 需要 parentFormId 参数。');
+      if (!extName) throw new Error('k3cloud_create_extension 需要 extName 参数。');
 
       const project = await getProject(projectId);
       if (!project?.bos) {
@@ -546,7 +546,7 @@ function createExtensionTool(
       // SaveForIDEV9 paras. Returns null when the form doesn't exist.
       const parent = await connector.getObject(parentFormId);
       if (!parent) {
-        throw new Error(`父单据 ${parentFormId} 不存在。请先用 kingdee_search_metadata 确认 FormID 拼写。`);
+        throw new Error(`父单据 ${parentFormId} 不存在。请先用 k3cloud_search_metadata 确认 FormID 拼写。`);
       }
       if (parent.modelTypeId == null || parent.subsystemId == null) {
         throw new Error(
@@ -607,7 +607,7 @@ function createExtensionTool(
       }
 
       const baseReminder =
-        '扩展已创建。后续添加字段 / 插件请把上面的 extId 传给 kingdee_add_fields / kingdee_register_python_plugins(都接数组,一次保存里把要加的全部传进来,不要拆多次)。' +
+        '扩展已创建。后续添加字段 / 插件请把上面的 extId 传给 k3cloud_add_fields / k3cloud_register_python_plugins(都接数组,一次保存里把要加的全部传进来,不要拆多次)。' +
         'BOS Designer 中需点工具栏刷新按钮才能在扩展列表里看到新建的扩展。';
       const caseHint =
         canonicalFormId !== parentFormId
@@ -633,7 +633,7 @@ function createExtensionTool(
 function deleteExtensionTool(projectId: string, sessionMgr: SessionMgrLike): ToolHandler {
   return {
     definition: {
-      name: 'kingdee_delete_extension',
+      name: 'k3cloud_delete_extension',
       description:
         '彻底删除一个 BOS 扩展 — 调用 K/3 Cloud 服务端的 Delete RPC,服务端会清掉 ' +
         'T_META_OBJECTTYPE + 名称扩展 + 引用克隆 + 跟踪表等所有相关行,以及该扩展上的字段 / 插件。\n' +
@@ -654,7 +654,7 @@ function deleteExtensionTool(projectId: string, sessionMgr: SessionMgrLike): Too
     async execute(args) {
       const extId = String(args.extId ?? '').trim();
       if (!extId) {
-        throw new Error('kingdee_delete_extension 需要 extId 参数。');
+        throw new Error('k3cloud_delete_extension 需要 extId 参数。');
       }
       const project = await getProject(projectId);
       if (!project?.bos) {
@@ -694,7 +694,7 @@ function deleteExtensionTool(projectId: string, sessionMgr: SessionMgrLike): Too
   };
 }
 
-// ─── kingdee_add_fields ──────────────────────────────────────────────────
+// ─── k3cloud_add_fields ──────────────────────────────────────────────────
 //
 // Batch + read-merge: the tool accepts an array of fields and writes them in
 // ONE SaveForIDEV9 call. Before calling Save, it reads the extension's current
@@ -1100,7 +1100,7 @@ function addFieldsTool(
 ): ToolHandler {
   return {
     definition: {
-      name: 'kingdee_add_fields',
+      name: 'k3cloud_add_fields',
       description:
         '一次性给已有 BOS 扩展批量加字段。**所有这次要加的字段都放进 fields 数组里,一个工具调用搞定** — ' +
         'BOS 服务端把每次 Save 当成扩展的"完整差异"应用,所以拆成多次 add 后一次会覆盖前一次,只剩最后一个字段。' +
@@ -1114,18 +1114,18 @@ function addFieldsTool(
         '\n- qty — 数量(必带 controlFieldKey 指向同单据上的 UnitField)' +
         '\n- date — 日期 / 日期时间' +
         '\n- checkbox — 复选框' +
-        '\n- combo — 下拉(必带 enumTypeName,如 "审核状态" / "单据状态" / "是否启用" / 客户自建枚举名;**用前先调 kingdee_list_enum_types** 找现成的枚举,工具内部翻成 GUID。要全新枚举请用 kingdee_create_enum_type 先建好再来引用)' +
+        '\n- combo — 下拉(必带 enumTypeName,如 "审核状态" / "单据状态" / "是否启用" / 客户自建枚举名;**用前先调 k3cloud_list_enum_types** 找现成的枚举,工具内部翻成 GUID。要全新枚举请用 k3cloud_create_enum_type 先建好再来引用)' +
         '\n- base_data — 基础资料引用(必带 refBaseDataObjectKey,传 friendly FormID 即可如 "BD_Customer" / "BD_MATERIAL" / "BD_Department",工具自动翻成内部 GUID。可选 srcFindFieldName / srcDisplayFieldName)' +
-        '\n- base_property — 基础资料属性带值(必带 sourceField 指向同单据已有的 BaseDataField key,如 "FCustId";可选 srcDisplayFieldName 选源字段名,如 "FName")。**用前先调 kingdee_describe_basedata** 反查目标基础资料能 srcDisplay 哪些字段。' +
+        '\n- base_property — 基础资料属性带值(必带 sourceField 指向同单据已有的 BaseDataField key,如 "FCustId";可选 srcDisplayFieldName 选源字段名,如 "FName")。**用前先调 k3cloud_describe_basedata** 反查目标基础资料能 srcDisplay 哪些字段。' +
         '\n- unit — 计量单位(默认引用 `BD_UNIT` 标准单位表,99% 场景不用传任何额外参数。罕见需要换单位字典时可传 `refBaseDataObjectKey` 指向其他单位 lookup;高级:`unitTypeKey` 默认 "1" 一般不动)' +
         '\n\n**自动排版**:本工具会读父对象布局算出目标容器里原厂字段最右边界,把新字段竖向排列在那右侧一列,' +
         '多次调用会接着前次的字段往下顺排,无需手传坐标。窄基础资料表(无原厂头字段时)默认 left=1100 兜底,可能在窄表上偏右,需要时传 left/top 显式指定。' +
-        '\n\n**写入后必反查闭环**:调 `kingdee_get_extension_fields <extId>` 验证字段都已落库;' +
-        '不要用 `kingdee_get_fields`(那个只看父对象的原厂字段,扩展字段永远查不到)。' +
+        '\n\n**写入后必反查闭环**:调 `k3cloud_get_extension_fields <extId>` 验证字段都已落库;' +
+        '不要用 `k3cloud_get_fields`(那个只看父对象的原厂字段,扩展字段永远查不到)。' +
         '\n\n**关于容器选择**(重要):`container` 既可以传**头 tab key**(如 `FTAB_P0` 基本信息)也可以传**entry key**(如 `FSaleOrderEntry` 明细信息)。' +
         '工具会自动识别:命中 entry key → 走"明细行字段"分支(emit `<EntityKey>`,不需要也不接受 `top`/`left`/`zOrderIndex`,Tabindex 在该 entry 内独立计数);命中 tab key → 走头字段分支(自动排版到右侧一列)。' +
-        '调用本工具前**必须先 `kingdee_get_form_layout`** 看清父对象 / 扩展自身有哪些 tab、哪些 entry,把选项列给用户;不要默认 FTAB_P0 直接写。' +
-        '挂在自建 entry 上时同样这样:`kingdee_create_entry` 返回的 `entryKey` 直接传给本工具的 `container` 即可。',
+        '调用本工具前**必须先 `k3cloud_get_form_layout`** 看清父对象 / 扩展自身有哪些 tab、哪些 entry,把选项列给用户;不要默认 FTAB_P0 直接写。' +
+        '挂在自建 entry 上时同样这样:`k3cloud_create_entry` 返回的 `entryKey` 直接传给本工具的 `container` 即可。',
       parameters: {
         type: 'object',
         properties: {
@@ -1176,7 +1176,7 @@ function addFieldsTool(
                 enumTypeName: {
                   type: 'string',
                   description:
-                    '(combo 必填)下拉枚举的友好名,如 "审核状态" / "单据状态" / "是否启用"。工具自动翻成 GUID,大小写不敏感。**先调 kingdee_list_enum_types 找有哪些可用**。',
+                    '(combo 必填)下拉枚举的友好名,如 "审核状态" / "单据状态" / "是否启用"。工具自动翻成 GUID,大小写不敏感。**先调 k3cloud_list_enum_types 找有哪些可用**。',
                 },
                 defaultCondition: {
                   type: 'number',
@@ -1185,7 +1185,7 @@ function addFieldsTool(
                 container: {
                   type: 'string',
                   description:
-                    '(强烈推荐先调 kingdee_get_form_layout 选)容器 key,如 "FTAB_P0"(基本信息)、"FTAB_P1"(其他头页签)、"FSaleOrderEntry"(明细单据体)。默认 "FTAB_P0"。',
+                    '(强烈推荐先调 k3cloud_get_form_layout 选)容器 key,如 "FTAB_P0"(基本信息)、"FTAB_P1"(其他头页签)、"FSaleOrderEntry"(明细单据体)。默认 "FTAB_P0"。',
                 },
                 top: { type: 'number', description: '(可选)Top 像素。留空则自动排版,顺排在前一字段下面一行。' },
                 left: { type: 'number', description: '(可选)Left 像素。留空则自动排版,贴在原厂字段右侧。' },
@@ -1234,10 +1234,10 @@ function addFieldsTool(
     },
     async execute(args) {
       const extId = String(args.extId ?? '').trim();
-      if (!extId) throw new Error('kingdee_add_fields 需要 extId 参数。');
+      if (!extId) throw new Error('k3cloud_add_fields 需要 extId 参数。');
       const rawFields = args.fields;
       if (!Array.isArray(rawFields) || rawFields.length === 0) {
-        throw new Error('kingdee_add_fields 需要 fields 参数(至少一个字段的数组)。');
+        throw new Error('k3cloud_add_fields 需要 fields 参数(至少一个字段的数组)。');
       }
       // Validate each field upfront so a partial save never happens.
       const fieldArgsList: AddFieldArgs[] = rawFields.map((raw, i) =>
@@ -1250,7 +1250,7 @@ function addFieldsTool(
           connector,
           projectId,
           extId,
-          'kingdee_add_fields',
+          'k3cloud_add_fields',
           typeof args.layoutInfoOid === 'string' ? args.layoutInfoOid : undefined,
         );
 
@@ -1270,7 +1270,7 @@ function addFieldsTool(
           missingName: (idx, fa) =>
             `fields[${idx}] (key=${fa.key}): base_data 字段必须指定 refBaseDataObjectKey(基础资料 FormID,如 BD_Customer / BD_MATERIAL)。`,
           notFound: (idx, fa, name) =>
-            `fields[${idx}] (key=${fa.key}): 找不到名为 "${name}" 的基础资料。常用的有 BD_Customer / BD_MATERIAL / BD_Department / BD_UNIT。可以先调 kingdee_describe_basedata 反查。`,
+            `fields[${idx}] (key=${fa.key}): 找不到名为 "${name}" 的基础资料。常用的有 BD_Customer / BD_MATERIAL / BD_Department / BD_UNIT。可以先调 k3cloud_describe_basedata 反查。`,
         },
       );
 
@@ -1286,9 +1286,9 @@ function addFieldsTool(
         },
         {
           missingName: (idx, fa) =>
-            `fields[${idx}] (key=${fa.key}): combo 字段必须指定 enumTypeName(下拉枚举的友好名,先调 kingdee_list_enum_types 找)。`,
+            `fields[${idx}] (key=${fa.key}): combo 字段必须指定 enumTypeName(下拉枚举的友好名,先调 k3cloud_list_enum_types 找)。`,
           notFound: (idx, fa, name) =>
-            `fields[${idx}] (key=${fa.key}): 找不到名为 "${name}" 的枚举类型。先调 kingdee_list_enum_types 看完整列表(常用的有 审核状态 / 单据状态 / 是否启用 / 优先级)。`,
+            `fields[${idx}] (key=${fa.key}): 找不到名为 "${name}" 的枚举类型。先调 k3cloud_list_enum_types 看完整列表(常用的有 审核状态 / 单据状态 / 是否启用 / 优先级)。`,
         },
       );
 
@@ -1389,7 +1389,7 @@ function addFieldsTool(
           reminder:
             '所有字段已一次性写入。BOS Designer 里需点扩展工具栏的刷新按钮才能看到;客户端表单缓存可能需要关闭客户端重登才会更新。' +
             '**字段已自动排版**:贴在原厂字段最右边界右侧一列,纵向顺排;之后再加字段会接着排到下方,无需拖动。如视觉位置不理想用户可在 BOS Designer 中手动微调。' +
-            '验证全部字段已落库:调 kingdee_get_extension_fields(不是 kingdee_get_fields)。',
+            '验证全部字段已落库:调 k3cloud_get_extension_fields(不是 k3cloud_get_fields)。',
         },
         null,
         2,
@@ -1398,13 +1398,13 @@ function addFieldsTool(
   };
 }
 
-// ─── kingdee_register_python_plugins ─────────────────────────────────────
+// ─── k3cloud_register_python_plugins ─────────────────────────────────────
 //
 // Wire format verified 2026-04-27 capture req-75 + smoke-plugin.ts smoke
 // (extId=631a71d7f48249fca4e78daa74e0b925, IsSuccess=true). Plugin lives
 // inside `<Form><FormPlugins><PlugIn>...` — see rpc/dcxml.ts emitter.
 //
-// Batch + read-merge: same baseline-diff issue as kingdee_add_fields. Each
+// Batch + read-merge: same baseline-diff issue as k3cloud_add_fields. Each
 // save's DCXML is the extension's complete state, so we read the extension's
 // current FKERNELXML and re-include existing fields / appearances / plugins.
 
@@ -1433,7 +1433,7 @@ function registerPythonPluginsTool(
 ): ToolHandler {
   return {
     definition: {
-      name: 'kingdee_register_python_plugins',
+      name: 'k3cloud_register_python_plugins',
       description:
         '一次性给已有 BOS 扩展批量挂 Python 表单插件(写到扩展 `<Form>` 节点下的 `<FormPlugins>`)。' +
         '**所有这次要挂的插件都放进 plugins 数组里,一个工具调用搞定** — BOS 服务端把每次 Save 当成扩展的"完整差异",拆多次调用会让前面挂的插件消失。' +
@@ -1479,10 +1479,10 @@ function registerPythonPluginsTool(
     },
     async execute(args) {
       const extId = String(args.extId ?? '').trim();
-      if (!extId) throw new Error('kingdee_register_python_plugins 需要 extId 参数。');
+      if (!extId) throw new Error('k3cloud_register_python_plugins 需要 extId 参数。');
       const rawPlugins = args.plugins;
       if (!Array.isArray(rawPlugins) || rawPlugins.length === 0) {
-        throw new Error('kingdee_register_python_plugins 需要 plugins 参数(至少一个的数组)。');
+        throw new Error('k3cloud_register_python_plugins 需要 plugins 参数(至少一个的数组)。');
       }
       const pluginArgsList: PluginArgs[] = rawPlugins.map((raw, i) =>
         coercePluginArgs((raw ?? {}) as Record<string, unknown>, i),
@@ -1493,7 +1493,7 @@ function registerPythonPluginsTool(
         connector,
         projectId,
         extId,
-        'kingdee_register_python_plugins',
+        'k3cloud_register_python_plugins',
       );
 
       const newPlugins: BosPluginElement[] = pluginArgsList.map((p) => ({
@@ -1543,7 +1543,7 @@ function registerPythonPluginsTool(
   };
 }
 
-// ─── kingdee_create_enum_type ────────────────────────────────────────────
+// ─── k3cloud_create_enum_type ────────────────────────────────────────────
 //
 // Wire format verified 2026-04-28 capture req-583 (BOS Designer create-enum):
 //   POST BusinessDataService.SaveV9 with ap0 = base64+zlib JSON containing
@@ -1558,16 +1558,16 @@ function createEnumTypeTool(
 ): ToolHandler {
   return {
     definition: {
-      name: 'kingdee_create_enum_type',
+      name: 'k3cloud_create_enum_type',
       description:
-        '在当前账套上**新建**一个下拉枚举类型(写 T_META_FORMENUM + items 表)。**只在 `kingdee_list_enum_types` 找不到合适的现成枚举时才用** —— 同一账套不必要的重复枚举会让 BOS Designer 列表越来越乱。' +
+        '在当前账套上**新建**一个下拉枚举类型(写 T_META_FORMENUM + items 表)。**只在 `k3cloud_list_enum_types` 找不到合适的现成枚举时才用** —— 同一账套不必要的重复枚举会让 BOS Designer 列表越来越乱。' +
         '\n\n传参:' +
         '\n- `name`:中文显示名,如 "信用等级" / "客户类型" / "退货原因"。同账套内不能与其他枚举重名(本工具不预校验,服务端会拒)。' +
         '\n- `items`:数组,每项 `{ value, caption }`:' +
         '\n  - `value`:存到数据库的代码,推荐短 ASCII 如 "1"/"2"/"A"/"B"/"YES"。**项内必须唯一**,不能空字符串。' +
         '\n  - `caption`:中文显示文字,如 "优秀"/"良好"。' +
         '\n  - 可选 `seq`:排序序号,默认按数组顺序 0/1/2/...' +
-        '\n\n返回 `{ ok, enumTypeId, name, itemCount }`。**`enumTypeId` 后续传给 `kingdee_add_fields` 的 combo 字段时可以用枚举名 + 名→GUID 翻译,也可以直接传 GUID(高级)。**',
+        '\n\n返回 `{ ok, enumTypeId, name, itemCount }`。**`enumTypeId` 后续传给 `k3cloud_add_fields` 的 combo 字段时可以用枚举名 + 名→GUID 翻译,也可以直接传 GUID(高级)。**',
       parameters: {
         type: 'object',
         properties: {
@@ -1592,10 +1592,10 @@ function createEnumTypeTool(
     },
     async execute(args) {
       const name = String(args.name ?? '').trim();
-      if (!name) throw new Error('kingdee_create_enum_type 需要 name 参数。');
+      if (!name) throw new Error('k3cloud_create_enum_type 需要 name 参数。');
       const rawItems = args.items;
       if (!Array.isArray(rawItems) || rawItems.length === 0) {
-        throw new Error('kingdee_create_enum_type 需要 items 数组(至少 1 项)。');
+        throw new Error('k3cloud_create_enum_type 需要 items 数组(至少 1 项)。');
       }
       const items: EnumItemInput[] = rawItems.map((raw, i) => {
         const r = (raw ?? {}) as Record<string, unknown>;
@@ -1653,7 +1653,7 @@ function createEnumTypeTool(
           name,
           itemCount: items.length,
           reminder:
-            '枚举已建。后续 kingdee_add_fields 的 combo 字段可以直接传 enumTypeName 引用本枚举(本工具会刷新缓存)。BOS Designer 里若已打开「枚举管理」面板需手动刷新一次才能看到新条目。',
+            '枚举已建。后续 k3cloud_add_fields 的 combo 字段可以直接传 enumTypeName 引用本枚举(本工具会刷新缓存)。BOS Designer 里若已打开「枚举管理」面板需手动刷新一次才能看到新条目。',
         },
         null,
         2,
@@ -1662,7 +1662,7 @@ function createEnumTypeTool(
   };
 }
 
-// ─── kingdee_delete_enum_type ────────────────────────────────────────────
+// ─── k3cloud_delete_enum_type ────────────────────────────────────────────
 //
 // Soft-delete via MetadataService.AddEnumObjectToRecycle(enumTypeId).
 // Server moves the row to a recycle-bin equivalent — recoverable via
@@ -1675,13 +1675,13 @@ function deleteEnumTypeTool(
 ): ToolHandler {
   return {
     definition: {
-      name: 'kingdee_delete_enum_type',
+      name: 'k3cloud_delete_enum_type',
       description:
         '把一个下拉枚举类型移到回收站(软删除,可恢复)。' +
         '\n\n何时用:' +
-        '\n- `kingdee_create_enum_type` 建错了想清掉' +
+        '\n- `k3cloud_create_enum_type` 建错了想清掉' +
         '\n- 客户实施完拆除测试 / 中间过渡的枚举' +
-        '\n\n**金蝶预置枚举(`isSysPreset === "1"`)删不了** —— 服务端会拒绝。先用 `kingdee_list_enum_types` 看 isSysPreset 字段,值为 "1" 的别尝试删。\n\n传参:`enumTypeId`(GUID,从 `kingdee_list_enum_types` 拿)。',
+        '\n\n**金蝶预置枚举(`isSysPreset === "1"`)删不了** —— 服务端会拒绝。先用 `k3cloud_list_enum_types` 看 isSysPreset 字段,值为 "1" 的别尝试删。\n\n传参:`enumTypeId`(GUID,从 `k3cloud_list_enum_types` 拿)。',
       parameters: {
         type: 'object',
         properties: {
@@ -1696,7 +1696,7 @@ function deleteEnumTypeTool(
     async execute(args) {
       const enumTypeId = String(args.enumTypeId ?? '').trim();
       if (!enumTypeId) {
-        throw new Error('kingdee_delete_enum_type 需要 enumTypeId 参数。');
+        throw new Error('k3cloud_delete_enum_type 需要 enumTypeId 参数。');
       }
 
       const project = await getProject(projectId);
@@ -1747,7 +1747,7 @@ function deleteEnumTypeTool(
 // ─── Plan 5.14 — Entry / Tab toolchain ─────────────────────────────────
 // Wire format reference: memory `bos_entry_creation_wire_format.md`.
 
-// ── kingdee_create_tab_control ─────────────────────────────────────────
+// ── k3cloud_create_tab_control ─────────────────────────────────────────
 
 function createTabControlTool(
   connector: K3CloudConnector,
@@ -1756,12 +1756,12 @@ function createTabControlTool(
 ): ToolHandler {
   return {
     definition: {
-      name: 'kingdee_create_tab_control',
+      name: 'k3cloud_create_tab_control',
       description:
         '在已有 BOS 扩展的单据体侧(`FSPLITECONTAINER~Panel2`)新建一个 TabControl 页签控件,默认带 N 个空 TabPage 作为子页签。' +
         '\n\n何时用:用户想"在单据体上加一组 tab"或要"新单据体放在新 tab 下"。' +
         '\n\n返回 `{ ok, tabControlKey, tabPageKeys: [{ key, index }] }` —— 后续:' +
-        '\n- 创建单据体 entry → `kingdee_create_entry(parentTabPageKey=tabPageKeys[i].key)`' +
+        '\n- 创建单据体 entry → `k3cloud_create_entry(parentTabPageKey=tabPageKeys[i].key)`' +
         '\n- 加字段到 TabPage 之下需要先加 entry,字段不能直接落 TabPage' +
         '\n\n参数:' +
         '\n- `extId`(必)扩展 FID' +
@@ -1782,20 +1782,20 @@ function createTabControlTool(
     },
     async execute(args) {
       const extId = String(args.extId ?? '').trim();
-      if (!extId) throw new Error('kingdee_create_tab_control 需要 extId 参数。');
+      if (!extId) throw new Error('k3cloud_create_tab_control 需要 extId 参数。');
       const caption =
         String(args.caption ?? DEFAULT_TAB_CONTROL_CAPTION).trim() || DEFAULT_TAB_CONTROL_CAPTION;
       const tabPageCount =
         args.tabPageCount != null ? Number(args.tabPageCount) : 3;
       if (!Number.isInteger(tabPageCount) || tabPageCount < 1 || tabPageCount > 10) {
-        throw new Error('kingdee_create_tab_control 的 tabPageCount 必须为 1-10 的整数。');
+        throw new Error('k3cloud_create_tab_control 的 tabPageCount 必须为 1-10 的整数。');
       }
 
       const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
         connector,
         projectId,
         extId,
-        'kingdee_create_tab_control',
+        'k3cloud_create_tab_control',
       );
 
       const suffix = gen3CharLcSuffix();
@@ -1856,7 +1856,7 @@ function createTabControlTool(
           reminder:
             'TabControl 已创建并自带 ' +
             tabPageCount +
-            ' 个空页签。在某个 TabPage 上加单据体:`kingdee_create_entry(parentTabPageKey=tabPageKeys[i].key)`。BOS Designer 中需点工具栏刷新按钮才能看到。',
+            ' 个空页签。在某个 TabPage 上加单据体:`k3cloud_create_entry(parentTabPageKey=tabPageKeys[i].key)`。BOS Designer 中需点工具栏刷新按钮才能看到。',
         },
         null,
         2,
@@ -1865,7 +1865,7 @@ function createTabControlTool(
   };
 }
 
-// ── kingdee_create_tab_page ────────────────────────────────────────────
+// ── k3cloud_create_tab_page ────────────────────────────────────────────
 
 function createTabPageTool(
   connector: K3CloudConnector,
@@ -1874,15 +1874,15 @@ function createTabPageTool(
 ): ToolHandler {
   return {
     definition: {
-      name: 'kingdee_create_tab_page',
+      name: 'k3cloud_create_tab_page',
       description:
         '在指定 TabControl 下新建一个 TabPage(单页签)。' +
         '\n\n默认 `parentTabControlKey="FTab1"`(原厂单据体侧 TabControl,所有 K/3 单据都有)。' +
-        '想挂到自建 TabControl 时传 `kingdee_create_tab_control` 返回的 `tabControlKey`。' +
+        '想挂到自建 TabControl 时传 `k3cloud_create_tab_control` 返回的 `tabControlKey`。' +
         '\n\n**位置**:默认追加到该 TabControl 下所有现有页签的最右侧(自动算 max ZOrderIndex+1)。' +
         '想插到指定位置时显式传 `zOrderIndex`(0 = 最左,序号越大越靠右)。' +
         '\n\n返回 `{ ok, tabPageKey, zOrderIndex }`。后续:' +
-        '\n- 在该 TabPage 上挂 entry → `kingdee_create_entry(parentTabPageKey=tabPageKey)`',
+        '\n- 在该 TabPage 上挂 entry → `k3cloud_create_entry(parentTabPageKey=tabPageKey)`',
       parameters: {
         type: 'object',
         properties: {
@@ -1890,7 +1890,7 @@ function createTabPageTool(
           parentTabControlKey: {
             type: 'string',
             description:
-              '父 TabControl 的 Key。默认 "FTab1"(原厂单据体侧)。自建则传 kingdee_create_tab_control 返回的 tabControlKey。',
+              '父 TabControl 的 Key。默认 "FTab1"(原厂单据体侧)。自建则传 k3cloud_create_tab_control 返回的 tabControlKey。',
           },
           caption: { type: 'string', description: 'TabPage 显示文字,默认 "页签"。' },
           zOrderIndex: {
@@ -1905,7 +1905,7 @@ function createTabPageTool(
     },
     async execute(args) {
       const extId = String(args.extId ?? '').trim();
-      if (!extId) throw new Error('kingdee_create_tab_page 需要 extId 参数。');
+      if (!extId) throw new Error('k3cloud_create_tab_page 需要 extId 参数。');
       const parentKey =
         String(args.parentTabControlKey ?? ORIGINAL_ENTRY_TAB_CONTROL).trim() ||
         ORIGINAL_ENTRY_TAB_CONTROL;
@@ -1914,7 +1914,7 @@ function createTabPageTool(
       const explicitZ =
         args.zOrderIndex != null ? Number(args.zOrderIndex) : null;
       if (explicitZ != null && (!Number.isInteger(explicitZ) || explicitZ < 0)) {
-        throw new Error('kingdee_create_tab_page 的 zOrderIndex 必须为非负整数。');
+        throw new Error('k3cloud_create_tab_page 的 zOrderIndex 必须为非负整数。');
       }
 
       const { ext, project, layoutInfoOid, existing, parentKernelXml } =
@@ -1922,7 +1922,7 @@ function createTabPageTool(
           connector,
           projectId,
           extId,
-          'kingdee_create_tab_page',
+          'k3cloud_create_tab_page',
         );
 
       let pageKey: string;
@@ -1987,7 +1987,7 @@ function createTabPageTool(
             pageIndex +
             ',Z 序 ' +
             zOrderIndex +
-            ',追加在末尾)。挂 entry 上去:`kingdee_create_entry(parentTabPageKey="' +
+            ',追加在末尾)。挂 entry 上去:`k3cloud_create_entry(parentTabPageKey="' +
             pageKey +
             '")`。',
         },
@@ -1998,7 +1998,7 @@ function createTabPageTool(
   };
 }
 
-// ── kingdee_create_entry ───────────────────────────────────────────────
+// ── k3cloud_create_entry ───────────────────────────────────────────────
 
 function createEntryTool(
   connector: K3CloudConnector,
@@ -2007,14 +2007,14 @@ function createEntryTool(
 ): ToolHandler {
   return {
     definition: {
-      name: 'kingdee_create_entry',
+      name: 'k3cloud_create_entry',
       description:
         '在已有 BOS 扩展上新建一个单据体(EntryEntity / 明细行)。' +
         '\n\n用户说"加一个明细 / 加一个表体 / 在订单上加一行子表"时用本工具。' +
         '工具内部会调服务端的 GetSequenceInt32 拿一个全局唯一 int,自动按 BOS 内部约定生成 EntryName / TableName / Key。' +
-        '\n\n**前置**:必须先有一个 TabPage 收纳 entry —— 调 `kingdee_create_tab_page`(默认挂到原厂 FTab1 下)拿到 `tabPageKey`,把它传给本工具的 `parentTabPageKey`。' +
+        '\n\n**前置**:必须先有一个 TabPage 收纳 entry —— 调 `k3cloud_create_tab_page`(默认挂到原厂 FTab1 下)拿到 `tabPageKey`,把它传给本工具的 `parentTabPageKey`。' +
         '\n\n返回 `{ ok, entryKey, tableName, entryName, seq, parentTabPageKey }`。后续:' +
-        '\n- 给 entry 加字段 → `kingdee_add_fields(container=entryKey)`(工具自动识别 entry 路径,emit EntityKey,Tabindex 每 entry 独立)',
+        '\n- 给 entry 加字段 → `k3cloud_add_fields(container=entryKey)`(工具自动识别 entry 路径,emit EntityKey,Tabindex 每 entry 独立)',
       parameters: {
         type: 'object',
         properties: {
@@ -2023,7 +2023,7 @@ function createEntryTool(
           parentTabPageKey: {
             type: 'string',
             description:
-              '父 TabPage 的 Key。先调 kingdee_create_tab_page(可挂到 FTab1)或 kingdee_get_form_layout 找现有 TabPage。',
+              '父 TabPage 的 Key。先调 k3cloud_create_tab_page(可挂到 FTab1)或 k3cloud_get_form_layout 找现有 TabPage。',
           },
           mustInput: {
             type: 'boolean',
@@ -2041,19 +2041,19 @@ function createEntryTool(
     },
     async execute(args) {
       const extId = String(args.extId ?? '').trim();
-      if (!extId) throw new Error('kingdee_create_entry 需要 extId 参数。');
+      if (!extId) throw new Error('k3cloud_create_entry 需要 extId 参数。');
       const name = String(args.name ?? '').trim();
-      if (!name) throw new Error('kingdee_create_entry 需要 name 参数。');
+      if (!name) throw new Error('k3cloud_create_entry 需要 name 参数。');
       const parentTabPageKey = String(args.parentTabPageKey ?? '').trim();
       if (!parentTabPageKey) {
-        throw new Error('kingdee_create_entry 需要 parentTabPageKey 参数。');
+        throw new Error('k3cloud_create_entry 需要 parentTabPageKey 参数。');
       }
       // Plan 5.12.7 — entity-level required + show-seq (default true).
       const mustInput = args.mustInput === true ? true : undefined;
       const isShowSeq = args.isShowSeq === false ? false : true;
 
       const { ext, project, layoutInfoOid, existing, parentKernelXml } =
-        await loadExtensionForSave(connector, projectId, extId, 'kingdee_create_entry');
+        await loadExtensionForSave(connector, projectId, extId, 'k3cloud_create_entry');
 
       let allocatedInt: number;
       try {
@@ -2156,7 +2156,7 @@ function createEntryTool(
           seq,
           parentTabPageKey,
           reminder:
-            '单据体已建。加字段到该 entry:`kingdee_add_fields(extId, fields=[{...container="' +
+            '单据体已建。加字段到该 entry:`k3cloud_add_fields(extId, fields=[{...container="' +
             entryKey +
             '"}])`,工具会自动走 entry-field 路径。BOS Designer 中需点工具栏刷新按钮才能看到;客户端缓存可能需要关闭重登。',
         },
@@ -2176,7 +2176,7 @@ function deleteEntryTool(
 ): ToolHandler {
   return {
     definition: {
-      name: 'kingdee_delete_entry',
+      name: 'k3cloud_delete_entry',
       description:
         '从 BOS 扩展上删除一个**扩展自建**的单据体(EntryEntity)。' +
         '\n\n会级联清掉该 entry 下挂的所有扩展字段(EntityKey 命中的)和对应的 EntryEntityAppearance。' +
@@ -2193,14 +2193,14 @@ function deleteEntryTool(
     async execute(args) {
       const extId = String(args.extId ?? '').trim();
       const entryKey = String(args.entryKey ?? '').trim();
-      if (!extId) throw new Error('kingdee_delete_entry 需要 extId 参数。');
-      if (!entryKey) throw new Error('kingdee_delete_entry 需要 entryKey 参数。');
+      if (!extId) throw new Error('k3cloud_delete_entry 需要 extId 参数。');
+      if (!entryKey) throw new Error('k3cloud_delete_entry 需要 entryKey 参数。');
 
       const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
         connector,
         projectId,
         extId,
-        'kingdee_delete_entry',
+        'k3cloud_delete_entry',
       );
 
       const filtered: ExistingExtensionElements = {
@@ -2262,9 +2262,9 @@ function deleteTabPageTool(
 ): ToolHandler {
   return {
     definition: {
-      name: 'kingdee_delete_tab_page',
+      name: 'k3cloud_delete_tab_page',
       description:
-        '从 BOS 扩展上删除一个 TabPage。**会先检查是否有 entry 挂在这个 page 上**,有则拒绝并返回挂着的 entry 列表 —— 用户须先用 `kingdee_delete_entry` 清掉那些 entry。',
+        '从 BOS 扩展上删除一个 TabPage。**会先检查是否有 entry 挂在这个 page 上**,有则拒绝并返回挂着的 entry 列表 —— 用户须先用 `k3cloud_delete_entry` 清掉那些 entry。',
       parameters: {
         type: 'object',
         properties: {
@@ -2277,14 +2277,14 @@ function deleteTabPageTool(
     async execute(args) {
       const extId = String(args.extId ?? '').trim();
       const tabPageKey = String(args.tabPageKey ?? '').trim();
-      if (!extId) throw new Error('kingdee_delete_tab_page 需要 extId 参数。');
-      if (!tabPageKey) throw new Error('kingdee_delete_tab_page 需要 tabPageKey 参数。');
+      if (!extId) throw new Error('k3cloud_delete_tab_page 需要 extId 参数。');
+      if (!tabPageKey) throw new Error('k3cloud_delete_tab_page 需要 tabPageKey 参数。');
 
       const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
         connector,
         projectId,
         extId,
-        'kingdee_delete_tab_page',
+        'k3cloud_delete_tab_page',
       );
 
       // Refuse if any entry is attached to this page.
@@ -2303,7 +2303,7 @@ function deleteTabPageTool(
             tabPageKey,
             attachedEntries: attached,
             messageDetail:
-              'TabPage 上还挂着 entry,先用 kingdee_delete_entry 清掉这些 entry 再删 page。',
+              'TabPage 上还挂着 entry,先用 k3cloud_delete_entry 清掉这些 entry 再删 page。',
           },
           null,
           2,
@@ -2349,9 +2349,9 @@ function deleteTabControlTool(
 ): ToolHandler {
   return {
     definition: {
-      name: 'kingdee_delete_tab_control',
+      name: 'k3cloud_delete_tab_control',
       description:
-        '从 BOS 扩展上删除一个 TabControl(级联删除其下所有 TabPage)。**先检查所有子 page 上无 entry 挂着**,有则拒绝并列出挂着的 entry —— 用户须先 `kingdee_delete_entry` 清掉。',
+        '从 BOS 扩展上删除一个 TabControl(级联删除其下所有 TabPage)。**先检查所有子 page 上无 entry 挂着**,有则拒绝并列出挂着的 entry —— 用户须先 `k3cloud_delete_entry` 清掉。',
       parameters: {
         type: 'object',
         properties: {
@@ -2364,14 +2364,14 @@ function deleteTabControlTool(
     async execute(args) {
       const extId = String(args.extId ?? '').trim();
       const tabControlKey = String(args.tabControlKey ?? '').trim();
-      if (!extId) throw new Error('kingdee_delete_tab_control 需要 extId 参数。');
-      if (!tabControlKey) throw new Error('kingdee_delete_tab_control 需要 tabControlKey 参数。');
+      if (!extId) throw new Error('k3cloud_delete_tab_control 需要 extId 参数。');
+      if (!tabControlKey) throw new Error('k3cloud_delete_tab_control 需要 tabControlKey 参数。');
 
       const { ext, project, layoutInfoOid, existing } = await loadExtensionForSave(
         connector,
         projectId,
         extId,
-        'kingdee_delete_tab_control',
+        'k3cloud_delete_tab_control',
       );
 
       // Single-pass split: drop child TabPages, keep the rest, while
@@ -2405,7 +2405,7 @@ function deleteTabControlTool(
             tabControlKey,
             attachedEntries: attached,
             messageDetail:
-              'TabControl 下的 TabPage 上还挂着 entry,先用 kingdee_delete_entry 清掉这些 entry 再删 TabControl。',
+              'TabControl 下的 TabPage 上还挂着 entry,先用 k3cloud_delete_entry 清掉这些 entry 再删 TabControl。',
           },
           null,
           2,
@@ -2544,7 +2544,7 @@ function makeRenameTool(
 
 function renameEntryTool(c: K3CloudConnector, p: string, s: SessionMgrLike): ToolHandler {
   return makeRenameTool(c, p, s, {
-    toolName: 'kingdee_rename_entry',
+    toolName: 'k3cloud_rename_entry',
     description:
       '改单据体(EntryEntity)的中文名。**同时改 EntryEntity 的 `<Name>` 和 EntryEntityAppearance 的 `<Caption>`,保持一致** —— BOS Designer 自身重命名只改 Name,我们工具显式同步两边。',
     keyArgName: 'entryKey',
@@ -2558,7 +2558,7 @@ function renameEntryTool(c: K3CloudConnector, p: string, s: SessionMgrLike): Too
 
 function renameTabPageTool(c: K3CloudConnector, p: string, s: SessionMgrLike): ToolHandler {
   return makeRenameTool(c, p, s, {
-    toolName: 'kingdee_rename_tab_page',
+    toolName: 'k3cloud_rename_tab_page',
     description: '改 TabPage 的标题(Caption)。',
     keyArgName: 'tabPageKey',
     valueArgName: 'newCaption',
@@ -2568,7 +2568,7 @@ function renameTabPageTool(c: K3CloudConnector, p: string, s: SessionMgrLike): T
 
 function renameTabControlTool(c: K3CloudConnector, p: string, s: SessionMgrLike): ToolHandler {
   return makeRenameTool(c, p, s, {
-    toolName: 'kingdee_rename_tab_control',
+    toolName: 'k3cloud_rename_tab_control',
     description: '改 TabControl 的标题(Caption)。',
     keyArgName: 'tabControlKey',
     valueArgName: 'newCaption',

@@ -16,7 +16,7 @@ import type { FieldMeta, ObjectMeta, Project } from '@shared/erp-types';
 
 /**
  * End-to-end exercise of the codegen path: a scripted agent queries
- * metadata via kingdee_get_fields, then writes a Python plugin file via
+ * metadata via k3cloud_get_fields, then writes a Python plugin file via
  * write_plugin, then confirms to the user. Verifies that:
  *   - the write_plugin tool actually lands bytes on disk at the expected
  *     per-project plugin path
@@ -120,7 +120,7 @@ const PLUGIN_BODY = [
 ].join('\n');
 
 describe('plugins codegen e2e', () => {
-  it('agent uses kingdee_get_fields + write_plugin to produce a .py on disk', async () => {
+  it('agent uses k3cloud_get_fields + write_plugin to produce a .py on disk', async () => {
     const registry = new ToolRegistry();
     for (const t of buildK3CloudTools(fakeConnector())) registry.register(t);
     for (const t of buildPluginTools()) registry.register(t);
@@ -131,7 +131,7 @@ describe('plugins codegen e2e', () => {
           type: 'tool_call',
           toolCall: {
             id: 'tc1',
-            name: 'kingdee_get_fields',
+            name: 'k3cloud_get_fields',
             arguments: { formId: 'SAL_SaleOrder' }
           }
         },
@@ -187,7 +187,7 @@ describe('plugins codegen e2e', () => {
 
     // Tool result in the message stream carries the fields artifacts-store
     // reads. Grab the LAST tool message — the write_plugin result, not the
-    // earlier kingdee_get_fields one.
+    // earlier k3cloud_get_fields one.
     const toolMessages = final.filter((m) => m.role === 'tool');
     const writeResult = toolMessages[toolMessages.length - 1];
     expect(writeResult).toBeDefined();

@@ -226,7 +226,7 @@ describe('parseFormLayoutContainers', () => {
   });
 
   // Plan 5.14 — entry creation needs id/entryName/seq/entryPkFieldName so
-  // a follow-up `kingdee_create_entry` can compute next Seq + emit consistent
+  // a follow-up `k3cloud_create_entry` can compute next Seq + emit consistent
   // EntryEntity DCXML. Wire format reference: memory `bos_entry_creation_wire_format.md`
   // (capture #1334 EntryEntity full body).
   it('extracts EntryEntity detail fields (id, entryName, seq, entryPkFieldName)', () => {
@@ -267,7 +267,7 @@ describe('parseFormLayoutContainers', () => {
   });
 
   // TabControl is the parent container for TabPages. Plan 5.14 supports
-  // creating one (kingdee_create_tab_control), so we need to enumerate the
+  // creating one (k3cloud_create_tab_control), so we need to enumerate the
   // extension's existing TabControls + their containers.
   it('extracts TabControlAppearance with key + caption + container', () => {
     const xml = `<Appearances>
