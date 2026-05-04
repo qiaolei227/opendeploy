@@ -486,3 +486,113 @@ GetFieldValue\(\s*["']F[\p{Script=Han}A-Za-z0-9_]+["']\s*\)
 - ActionId=22 (TakeBaseData) 和 ActionId=23 (CallBillFunction) 的 Parameters JSON schema（计算公式服务 ActionId=2 已实证赋值字符串数组形态）
 - IronPython 沙箱 `import` 白名单（`import System` 实证可用，但其他模块未试）
 - 多条规则在同一 entity 上的 `<Seq>` 排序行为（用户当前 `Seq=12` 可能是 BOS 内部分配的位置标识）
+
+---
+
+## 7. SaveForIDEV9 wire format（🟢 实证 2026-05-04 / Plan 5.12.3a Phase 1）
+
+> 完整 capture 证据：`docs/recon/2026-05-04-business-rules-tier-b.md` + `.scratch/captures/decoded/business-rules/req-{120,138,158}/`
+> 与 §4 (FKERNELXML 形态) 的差别：§4 是**持久化形式**（DB 中存的），本节是**SaveForIDEV9 wire form**（BOS Designer 客户端 → 服务端的 baseline-diff DCXML），两者节点结构有细微差异。
+
+### 7.1 关键校正（FKERNELXML §4 vs DCXML wire）
+
+| §4 FKERNELXML 旧描述 | 本节 wire 实证 |
+|---|---|
+| `<ClassName>` 不序列化, 由 `<ActionId>` 唯一标识 service 类型 | **仅对 Calculate (ActionId=2 / 基类 FormBusinessService) 成立**。**特化 ServiceMeta 子类（GetInvStockBusinessServiceMeta / GetPriceBusinessServiceMeta / ...）的 C# 类名直接当 XML 元素名**（不是 `<FormBusinessService><ClassName>X</ClassName>` 而是 `<X>...</X>`） |
+| `<PreConditionDesc>` BOS Designer 自动填 | **用户必须填**（实证：BOS Designer 不会自动生成中文描述，原 §4.2 说"自动填"是误解） |
+| 默认 `<EntityServiceRule>` 包含 `<IsEnabled>true</IsEnabled>` 跳过序列化 | 同上（保持） |
+
+### 7.2 ActionId=2 Calculate — 字段级 UpdateAction（🟢 实证）
+
+```xml
+<IntegerField ElementType="3" ElementStyle="0">
+  <PropertyName>F_PAIJ_TestInt</PropertyName>
+  <FieldName>F_PAIJ_TESTINT</FieldName>
+  <UpdateActions>
+    <FormBusinessService>                           <!-- 基类元素名 -->
+      <Parameters>[" F_PAIJ_TestDecimal  =   F_PAIJ_TestInt "]</Parameters>
+      <ActionId>2</ActionId>
+      <Description>计算定义公式的值并填写到指定列</Description>
+      <RaiseValueChanged>DisableRaise</RaiseValueChanged>
+      <RaiseItemReset>DisableRaise</RaiseItemReset>
+      <RaiseReset>DisableRaise</RaiseReset>
+      <Id>afc25ea1-5732-4803-9f54-516a22fb0b09</Id>
+    </FormBusinessService>
+  </UpdateActions>
+  <Name>测试整数</Name>
+  ...
+</IntegerField>
+```
+
+- UpdateActions **直接是任一 Field 节点子元素**（IntegerField / TextField / DecimalField / ... 都行）
+- Calculate 走基类 → 元素名 `<FormBusinessService>`，无 ClassName
+- Parameters JSON 数组前后空格保留
+
+### 7.3 ActionId=67 GetInvStock — 实体级 EntityServiceRule（🟢 实证）
+
+```xml
+<HeadEntity action="edit" oid="be8f270b-..." ElementType="34" ElementStyle="0">
+  <EntityServiceRules>
+    <EntityServiceRule>
+      <Id>0c027f9c-...</Id>
+      <Description>5.12.3a 测试 - GetInvStock</Description>
+      <PreCondition> FBillTypeID.FNumber = '01.01'</PreCondition>
+      <PreConditionDesc>test</PreConditionDesc>
+      <Seq>12</Seq>
+      <WhenTrueBusinessServices>
+        <GetInvStockBusinessServiceMeta>          <!-- 子类名 = 元素名 -->
+          <ActionId>67</ActionId>
+          <StockQtyField>F_PAIJ_TestQty</StockQtyField>
+          <ExtAuxQtyField />                      <!-- 无默认值的属性，user 未填 → 空自闭合 -->
+          <ReturnQtyField>1</ReturnQtyField>
+          <PluginClassName />
+          <KeeperTypeField />                     <!-- user 清掉了默认值 FKEEPERTYPEID -->
+          <KeeperField />
+          <StockPlaceField />
+          <StockStatusField />
+          <ProjectNoField />
+          <SecUnitIdField />
+          <ExtAuxUnitIdField />
+          <Description>获取即时库存信息</Description>
+          <Id>82394226-...</Id>
+        </GetInvStockBusinessServiceMeta>
+      </WhenTrueBusinessServices>
+    </EntityServiceRule>
+  </EntityServiceRules>
+</HeadEntity>
+```
+
+- **EntityServiceRules 容器在 `<HeadEntity action="edit">` 内**（即使 BOS Designer UI 里选了某 entry，wire 仍走 HeadEntity 容器——已实证）
+- **PreCondition 必填非空**（BOS Designer UI 强制；实证：用户告知"实体服务规则必须录入条件，不然不允许确定"）
+- **PreConditionDesc 用户输入**（BOS Designer 不自动生成）
+- 实证补充字段（反编译漏掉的）：`ReturnQtyField` / `PluginClassName` / `StockStatusField` / `ProjectNoField` / `SecUnitIdField` / `ExtAuxUnitIdField`
+
+### 7.4 BOS 序列化省略规则（🟢 实证）
+
+| 属性运行时值 | wire 表现 |
+|---|---|
+| 等于 DefaultValue（attribute 上有 `[DefaultValue(...)]`）| **整个属性 omit**（不出现 XML 节点）|
+| 不等于 DefaultValue 且非空 | `<Prop>value</Prop>` 完整出现 |
+| 被显式清空（用户 UI 里删了默认值）| `<Prop />` 空自闭合 |
+| 没有 DefaultValue 的属性 + 未填 | `<Prop />` 空自闭合 |
+
+→ 实施 .NET bridge 时 **不能"全量序列化所有 SimpleProperty"**，要对照默认值决定。BOS Core 自带的 BOSObject 序列化器会自动处理；bridge 直接调用即可。
+
+### 7.5 删除 wire format（🟢 实证）
+
+- **删除信号 = 整段 HeadEntity 从 DCXML omit**——**没有 `<EntityServiceRule action="remove" oid="..." />`** 也**没有 `<EntityServiceRules action="setnull" />`**
+- BOS 服务端用 **baseline-diff reconcile**：比较"客户端发的目标状态" vs "服务端当前 baseline"，发现 EntityServiceRule 在新状态里不存在 → 删除
+- v0.1 实施推荐路径：bridge 走 **Load → 修改对象集合 → SaveForIDEV9** 三步，让 BOS Core 自己生成正确 DCXML，**不复刻 wire 文本**
+
+### 7.6 反编译漏字段对实施的启示
+
+GetInvStock 反编译给出 13 个 SimpleProperty，但 wire 出现 22 个字段。差异 6+3 来自 [NonSerialized] 字段或父类继承。
+
+**实施纪律**：bridge 端**不要硬编码字段表**——直接 invoke `MetadataServiceV9Proxy.SaveForIDEV9` 并传入 `GetInvStockBusinessServiceMeta` 实例，让 BOS Core 序列化器读 reflection 自决定哪些字段进 wire。我们的 LLM 输入 schema 走"已知有 default 的字段 ≈ 13 个 + wire 实证补充字段 ≈ 6 个 = ~19 个 typed param"，留余地给客户实战时发现 v0.2 补充字段。
+
+### 7.7 留 v0.2 实证
+
+- ActionId=42 GetPrice / 70 InvMinusCheck / 3 MulUnitConvert / 23 CallBillFunction wire format
+- 多条规则同一 entity 时 `<Seq>` 分配规则
+- "及时触发" UI toggle 真实映射（实证 wire 里没看到差异，可能 toggle 不持久化或映射至默认值省略的属性）
+- 删除多条规则时是否仍走 HeadEntity omit（v0.1 实证仅 1 条删除）
