@@ -91,7 +91,7 @@ export async function getBusinessObjectMetaData(
  * Fetch the FIDs of all extensions whose `FBASEOBJECTID` is `parentId`.
  *
  * Cheap call (small response, just an array of GUID strings); used by
- * `kingdee_list_extensions` to enumerate extensions before pulling each
+ * `k3cloud_list_extensions` to enumerate extensions before pulling each
  * one's metadata via `getBusinessObjectMetaData`.
  */
 export async function getExtendObjectTypeId(
@@ -143,7 +143,7 @@ function pickName(name: RawLocaleString[] | undefined, lcid: number = DEFAULT_LO
  * List the K/3 Cloud sub-systems (SAL / PUR / STK / FIN / etc).
  *
  * Mirrors `GetSubSystems()` in MetadataServiceProxy. Used by the agent's
- * `kingdee_list_subsystems` tool.
+ * `k3cloud_list_subsystems` tool.
  */
 export async function getSubSystems(
   session: KdSession,
@@ -158,7 +158,7 @@ export async function getSubSystems(
 
 /**
  * Server-side keyword search across object metadata. Maps to BOS Designer's
- * "search" UX in the form-picker dialog. Used by `kingdee_search_metadata`.
+ * "search" UX in the form-picker dialog. Used by `k3cloud_search_metadata`.
  */
 export async function queryObjectType(
   session: KdSession,

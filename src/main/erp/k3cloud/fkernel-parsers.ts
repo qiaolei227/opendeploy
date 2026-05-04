@@ -291,7 +291,7 @@ export interface AppearanceGeometry {
 /**
  * Walk every appearance node (anything inside `<Appearances>...</Appearances>`)
  * and emit its container/left/top/width. Used by the placement engine in
- * `kingdee_add_fields` to find the rightmost edge of existing layout in a
+ * `k3cloud_add_fields` to find the rightmost edge of existing layout in a
  * given container — we drop new fields just past it so they don't overlap.
  *
  * Why "any appearance with a Container":
@@ -392,7 +392,7 @@ export interface FormEntryContainer {
 /**
  * TabControl is the parent UI container that holds N TabPages. Self-built
  * extensions may add their own TabControl (placed in `FSPLITECONTAINER~Panel2`
- * by BOS Designer) — `kingdee_create_tab_control` emits one + 3 default pages.
+ * by BOS Designer) — `k3cloud_create_tab_control` emits one + 3 default pages.
  */
 export interface FormTabControlContainer {
   /** TabControl key, e.g. "F_UNW_Tab_8mg". */
@@ -413,7 +413,7 @@ export interface FormLayout {
  * Enumerate the parent form's container catalog: every TabPageAppearance and
  * every EntryEntity / SubEntryEntity, with their Chinese display labels.
  *
- * Used by `kingdee_get_form_layout` so the agent can ask the user "which tab
+ * Used by `k3cloud_get_form_layout` so the agent can ask the user "which tab
  * (基本信息 / 客户信息 / 财务信息 ...)" or "which entry (订单条款 / 明细信息 ...)" rather
  * than blind-defaulting to FTAB_P0.
  *
@@ -494,7 +494,7 @@ export function parseFormLayoutContainers(xml: string): FormLayout {
     if (!key || seenEntryKeys.has(key)) continue;
     const name = findLastTopLevelChildText(inner, 'Name') ?? '';
     const tableName = findLastTopLevelChildText(inner, 'TableName') ?? null;
-    // Optional detail fields — `kingdee_create_entry` reads `seq` to compute
+    // Optional detail fields — `k3cloud_create_entry` reads `seq` to compute
     // the next entry's Seq, and `id`/`entryName`/`entryPkFieldName` are
     // surfaced for diagnostic / closure-readback purposes.
     const id = findLastTopLevelChildText(inner, 'Id');

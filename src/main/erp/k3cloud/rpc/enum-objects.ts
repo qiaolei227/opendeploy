@@ -94,7 +94,7 @@ export async function getEnumObjectList(
  * Caveat: ~3500 entries with frequent duplicates — many "状态" / "类型" / "级别"
  * names recur across modules. We index by exact name string; ambiguous lookups
  * return the first match. Callers wanting strict resolution should let the
- * agent see the full list (via kingdee_list_enum_types) and pick by id.
+ * agent see the full list (via k3cloud_list_enum_types) and pick by id.
  */
 export function indexByEnumName(list: EnumObjectSummary[]): Map<string, EnumObjectSummary> {
   const map = new Map<string, EnumObjectSummary>();

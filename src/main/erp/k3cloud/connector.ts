@@ -113,7 +113,7 @@ export class K3CloudConnector implements ErpConnector {
    * translate friendly enum names ("审核状态" / "OPENDEPLOY_TEST_ENUM") to
    * GUIDs that ComboField's `<EnumType>` requires. Mirrors the lookup-class
    * cache shape: case-insensitive name → entry; `[...map.values()]` covers
-   * the agent's `kingdee_list_enum_types` browse without a second array.
+   * the agent's `k3cloud_list_enum_types` browse without a second array.
    * Cleared by `disconnect()`.
    */
   private enumObjectsByName: Map<string, EnumObjectSummary> | null = null;
@@ -305,7 +305,7 @@ export class K3CloudConnector implements ErpConnector {
 
   /**
    * Lazy fetch + cache the full enum-type list (~3500 rows). Used for
-   * ComboField name → GUID translation and the agent's `kingdee_list_enum_types`
+   * ComboField name → GUID translation and the agent's `k3cloud_list_enum_types`
    * browse tool.
    */
   async listEnumObjects(): Promise<EnumObjectSummary[]> {
@@ -385,7 +385,7 @@ export class K3CloudConnector implements ErpConnector {
 
   /**
    * Return the form's container catalog: every header tab + every entry /
-   * sub-entry, with display labels. Drives `kingdee_get_form_layout` so the
+   * sub-entry, with display labels. Drives `k3cloud_get_form_layout` so the
    * agent can list options to the user before adding fields.
    *
    * Returns null when the form doesn't exist; empty `{tabs, entries}` is a
@@ -400,7 +400,7 @@ export class K3CloudConnector implements ErpConnector {
 
   /**
    * Allocate the next int from the server's sequence allocator. Used by
-   * `kingdee_create_entry` to generate the `<int>` part of EntryName /
+   * `k3cloud_create_entry` to generate the `<int>` part of EntryName /
    * TableName (`<DevCode>_Cust_Entry<int>` / `<DevCode>_t_Cust_Entry<int>`).
    *
    * Server reserves the int on call — no rollback. If a save fails after
@@ -590,7 +590,7 @@ export class K3CloudConnector implements ErpConnector {
   /**
    * Inspect the origin rule of an extension and return its DefaultConvertPolicy
    * shape — the (sourceEntry, targetEntry) pairs that field mappings can mount
-   * onto. Used by `kingdee_add_convert_field_mapping`'s entry-consistency
+   * onto. Used by `k3cloud_add_convert_field_mapping`'s entry-consistency
    * validator to refuse multi-entry-mismatch wiring before it hits the bridge.
    *
    * Header-level entries surface as `''` (the K/3 convention — empty

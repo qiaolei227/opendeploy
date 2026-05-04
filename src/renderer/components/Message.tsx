@@ -53,7 +53,7 @@ export function derivePendingActivity(message: ChatMessage): PendingActivity | n
 
 /**
  * Tool-call card with a collapsible result body. Default is collapsed —
- * kingdee_search_metadata can return 50+ rows of JSON that swamp the turn
+ * k3cloud_search_metadata can return 50+ rows of JSON that swamp the turn
  * when always visible. The head row remains clickable once the call
  * finishes; while it's still `running` the head isn't interactive because
  * there's no body yet.

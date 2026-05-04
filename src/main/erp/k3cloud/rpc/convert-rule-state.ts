@@ -60,7 +60,7 @@ export async function loadConvertRuleExtState(
     throw new Error(
       `转换规则扩展 ${extId} 未找到本地状态(${p})。` +
         `该扩展可能不是由 OpenDeploy 创建的，或者在另一台机器上创建。` +
-        `请用 kingdee_create_convert_rule_extension 创建新扩展，或告知扩展来源。`,
+        `请用 k3cloud_create_convert_rule_extension 创建新扩展，或告知扩展来源。`,
     );
   }
   const raw = await readFile(p, 'utf-8');

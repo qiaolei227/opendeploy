@@ -7,7 +7,7 @@ same wire protocol BOS Designer uses to talk to the K/3 Cloud Web Server.
 
 ```
                  ┌──────────────────────────────────────────────┐
-                 │  agent tool (e.g. kingdee_create_extension)  │
+                 │  agent tool (e.g. k3cloud_create_extension)  │
                  └─────────────────────┬────────────────────────┘
                                        │ SaveExtensionRequest (typed AST)
                                        ▼
