@@ -112,6 +112,7 @@ describe('describeServiceMetaTool', () => {
   it('returns schema for ActionId 67 (GetInvStock) including stockQtyField default', async () => {
     const tool = describeServiceMetaTool();
     const parsed = JSON.parse(await tool.execute({ actionId: 67 }));
+    expect(parsed.found).toBe(true);
     expect(parsed.actionId).toBe(67);
     expect(parsed.className).toBe('GetInvStockBusinessServiceMeta');
     expect(parsed.properties).toBeDefined();
@@ -124,16 +125,19 @@ describe('describeServiceMetaTool', () => {
   it('returns schema for ActionId 2 (Calculate / FormBusinessService)', async () => {
     const tool = describeServiceMetaTool();
     const parsed = JSON.parse(await tool.execute({ actionId: 2 }));
+    expect(parsed.found).toBe(true);
     expect(parsed.actionId).toBe(2);
     expect(parsed.className).toBe('FormBusinessService');
     expect(parsed.properties.parameters.type).toBe('string[]');
   });
 
-  it('returns clear error for unsupported ActionId, naming the supported set', async () => {
+  it('returns found:false for unsupported ActionId, naming the supported set', async () => {
     const tool = describeServiceMetaTool();
     const parsed = JSON.parse(await tool.execute({ actionId: 42 }));
-    expect(parsed.error).toMatch(/2 \(Calculate\)/);
-    expect(parsed.error).toMatch(/67 \(GetInvStock\)/);
+    expect(parsed.found).toBe(false);
+    expect(parsed.actionId).toBe(42);
+    expect(parsed.message).toContain('2');
+    expect(parsed.message).toContain('67');
   });
 
   it('rejects when actionId is missing or not a number', async () => {
