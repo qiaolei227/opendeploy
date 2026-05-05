@@ -16,7 +16,10 @@ import {
   buildRemoveEntityRuleOverlay,
   injectOverlay,
   extractHeadEntityOid,
+  buildFieldUpdateActionOverlay,
+  extractFieldOid,
   type EntityServiceRuleArgs,
+  type FieldUpdateActionService,
 } from '../../src/main/erp/k3cloud/rpc/business-rule-overlay';
 
 const PARENT_HEAD_OID = '00000000-0000-0000-0000-aaaaaaaaaaaa';
@@ -239,5 +242,238 @@ describe('extractHeadEntityOid', () => {
     const xml =
       '<Form><Elements><HeadEntity ElementType="34" ElementStyle="0" oid="head-oid-2"></HeadEntity></Elements></Form>';
     expect(extractHeadEntityOid(xml)).toBe('head-oid-2');
+  });
+});
+
+// ─── Field-level UpdateAction overlay (Task 3.5) ────────────────────────
+
+const FIELD_OID = 'fdcd6ab50b8b40e2ba8fe6166b14d8c9';
+const SVC_DASHED_ID = 'afc25ea1-5732-4803-9f54-516a22fb0b09';
+
+describe('buildFieldUpdateActionOverlay', () => {
+  it('builds Calculate overlay for IntegerField with no disabledEvents', () => {
+    const svc: FieldUpdateActionService = {
+      actionId: 2,
+      id: SVC_DASHED_ID,
+      parameters: [' F_PAIJ_TestDecimal  =   F_PAIJ_TestInt '],
+    };
+    const xml = buildFieldUpdateActionOverlay('IntegerField', FIELD_OID, svc);
+
+    // Wrapper carries action="edit" + oid
+    expect(xml.startsWith(`<IntegerField action="edit" oid="${FIELD_OID}">`)).toBe(true);
+    expect(xml.endsWith('</IntegerField>')).toBe(true);
+
+    // Bare FormBusinessService (no className subclass)
+    expect(xml).toContain('<UpdateActions>');
+    expect(xml).toContain('<FormBusinessService>');
+    expect(xml).toContain('</FormBusinessService>');
+    expect(xml).toContain('</UpdateActions>');
+
+    // Parameters JSON-stringified, then XML-escaped (none needed here)
+    expect(xml).toContain(
+      '<Parameters>[" F_PAIJ_TestDecimal  =   F_PAIJ_TestInt "]</Parameters>',
+    );
+
+    // Default description used when caller omits
+    expect(xml).toContain('<Description>计算定义公式的值并填写到指定列</Description>');
+    expect(xml).toContain('<ActionId>2</ActionId>');
+    expect(xml).toContain(`<Id>${SVC_DASHED_ID}</Id>`);
+
+    // No Raise* elements when disabledEvents omitted
+    expect(xml).not.toContain('<Raise');
+  });
+
+  it('builds overlay with 3 disabledEvents (matches recon req-120 shape)', () => {
+    const svc: FieldUpdateActionService = {
+      actionId: 2,
+      id: SVC_DASHED_ID,
+      parameters: ['F_X = F_Y * 2'],
+      disabledEvents: ['ValueChanged', 'ItemReset', 'Reset'],
+    };
+    const xml = buildFieldUpdateActionOverlay('IntegerField', FIELD_OID, svc);
+
+    expect(xml).toContain('<RaiseValueChanged>DisableRaise</RaiseValueChanged>');
+    expect(xml).toContain('<RaiseItemReset>DisableRaise</RaiseItemReset>');
+    expect(xml).toContain('<RaiseReset>DisableRaise</RaiseReset>');
+    // Order preservation matches caller order
+    const idxV = xml.indexOf('<RaiseValueChanged>');
+    const idxI = xml.indexOf('<RaiseItemReset>');
+    const idxR = xml.indexOf('<RaiseReset>');
+    expect(idxV).toBeGreaterThan(0);
+    expect(idxI).toBeGreaterThan(idxV);
+    expect(idxR).toBeGreaterThan(idxI);
+  });
+
+  it('uses caller-supplied description when provided', () => {
+    const xml = buildFieldUpdateActionOverlay('TextField', FIELD_OID, {
+      actionId: 2,
+      id: SVC_DASHED_ID,
+      parameters: ['F_X = "x"'],
+      description: '自定义说明',
+    });
+    expect(xml).toContain('<Description>自定义说明</Description>');
+    expect(xml).not.toContain('计算定义公式的值并填写到指定列');
+  });
+
+  it('XML-escapes parameters that contain quotes / angle brackets / ampersand', () => {
+    const svc: FieldUpdateActionService = {
+      actionId: 2,
+      id: SVC_DASHED_ID,
+      parameters: ['F_Result = "<x>" + F_A & F_B'],
+    };
+    const xml = buildFieldUpdateActionOverlay('TextField', FIELD_OID, svc);
+
+    // JSON encodes "<x>" → \"<x>\" inside the JSON string; xmlEscape then turns
+    // < → &lt;, > → &gt;, & → &amp;, " → &quot;.
+    expect(xml).not.toMatch(/<Parameters>[^<]*<x>/); // raw < must not survive
+    expect(xml).toContain('&lt;x&gt;');
+    expect(xml).toContain('&amp;');
+    // Tag delimiters we emit ourselves stay
+    expect(xml).toContain('<Parameters>');
+    expect(xml).toContain('</Parameters>');
+  });
+
+  it('XML-escapes description with metacharacters', () => {
+    const xml = buildFieldUpdateActionOverlay('IntegerField', FIELD_OID, {
+      actionId: 2,
+      id: SVC_DASHED_ID,
+      parameters: ['F_X = 1'],
+      description: 'a < b & c',
+    });
+    expect(xml).toContain('<Description>a &lt; b &amp; c</Description>');
+  });
+
+  it('rejects invalid fieldType (non-C-identifier shape)', () => {
+    expect(() =>
+      buildFieldUpdateActionOverlay('Bad Field', FIELD_OID, {
+        actionId: 2,
+        id: SVC_DASHED_ID,
+        parameters: ['F_X = 1'],
+      }),
+    ).toThrow(/not a valid BOS element name/);
+  });
+
+  it('rejects empty fieldOid', () => {
+    expect(() =>
+      buildFieldUpdateActionOverlay('IntegerField', '', {
+        actionId: 2,
+        id: SVC_DASHED_ID,
+        parameters: ['F_X = 1'],
+      }),
+    ).toThrow(/fieldOid is empty/);
+  });
+
+  it('rejects empty service.id', () => {
+    expect(() =>
+      buildFieldUpdateActionOverlay('IntegerField', FIELD_OID, {
+        actionId: 2,
+        id: '',
+        parameters: ['F_X = 1'],
+      }),
+    ).toThrow(/service\.id is empty/);
+  });
+
+  it('rejects empty parameters array', () => {
+    expect(() =>
+      buildFieldUpdateActionOverlay('IntegerField', FIELD_OID, {
+        actionId: 2,
+        id: SVC_DASHED_ID,
+        parameters: [],
+      }),
+    ).toThrow(/at least one IronPython assignment/);
+  });
+
+  it('rejects unknown event name in disabledEvents', () => {
+    expect(() =>
+      buildFieldUpdateActionOverlay('IntegerField', FIELD_OID, {
+        actionId: 2,
+        id: SVC_DASHED_ID,
+        parameters: ['F_X = 1'],
+        disabledEvents: ['ValueChanged', 'NotAnEvent'],
+      }),
+    ).toThrow(/unknown Raise event 'NotAnEvent'/);
+  });
+
+  it('rejects invalid className', () => {
+    expect(() =>
+      buildFieldUpdateActionOverlay('IntegerField', FIELD_OID, {
+        actionId: 2,
+        id: SVC_DASHED_ID,
+        parameters: ['F_X = 1'],
+        className: 'Bad Class',
+      }),
+    ).toThrow(/not a valid BOS element name/);
+  });
+
+  it('omits ClassName subclass when className not provided (uses bare FormBusinessService)', () => {
+    const xml = buildFieldUpdateActionOverlay('IntegerField', FIELD_OID, {
+      actionId: 2,
+      id: SVC_DASHED_ID,
+      parameters: ['F_X = 1'],
+    });
+    expect(xml).toContain('<FormBusinessService>');
+    expect(xml).not.toContain('<ClassName>');
+  });
+});
+
+describe('extractFieldOid', () => {
+  it('finds field oid by Key match', () => {
+    const xml =
+      '<Form><Elements>' +
+      '<IntegerField ElementType="3" ElementStyle="0">' +
+      '<Name>测试整数</Name>' +
+      '<Id>fdcd6ab50b8b40e2ba8fe6166b14d8c9</Id>' +
+      '<Key>F_PAIJ_TestInt</Key>' +
+      '</IntegerField>' +
+      '</Elements></Form>';
+    const result = extractFieldOid(xml, 'F_PAIJ_TestInt');
+    expect(result).toEqual({
+      oid: 'fdcd6ab50b8b40e2ba8fe6166b14d8c9',
+      fieldType: 'IntegerField',
+    });
+  });
+
+  it('returns null when field key is not found', () => {
+    const xml =
+      '<Form><Elements>' +
+      '<TextField><Name>x</Name><Id>oid1</Id><Key>FX</Key></TextField>' +
+      '</Elements></Form>';
+    expect(extractFieldOid(xml, 'FNotThere')).toBeNull();
+  });
+
+  it('handles multiple fields in same XML — returns the matching one', () => {
+    const xml =
+      '<Form><Elements>' +
+      '<TextField ElementType="1"><Name>A</Name><Id>oid-text-A</Id><Key>FA</Key></TextField>' +
+      '<DecimalField ElementType="11"><Name>B</Name><Id>oid-dec-B</Id><Key>FB</Key></DecimalField>' +
+      '<IntegerField ElementType="3"><Name>C</Name><Id>oid-int-C</Id><Key>FC</Key></IntegerField>' +
+      '</Elements></Form>';
+    expect(extractFieldOid(xml, 'FA')).toEqual({ oid: 'oid-text-A', fieldType: 'TextField' });
+    expect(extractFieldOid(xml, 'FB')).toEqual({ oid: 'oid-dec-B', fieldType: 'DecimalField' });
+    expect(extractFieldOid(xml, 'FC')).toEqual({ oid: 'oid-int-C', fieldType: 'IntegerField' });
+  });
+
+  it('picks the last (top-level) Id when nested RefProperty Ids are present', () => {
+    // Real BOS field XML often has nested <RefProperty><Id>...</Id></RefProperty>
+    // before the field's own top-level <Id>. We pick the LAST Id to align
+    // with parseFieldsFromKernelXml's findLastTopLevelChildText('Id') discipline.
+    const xml =
+      '<Elements>' +
+      '<BaseDataField ElementType="13">' +
+      '<RefProperty><Id>nested-ref-id</Id></RefProperty>' +
+      '<Name>客户</Name>' +
+      '<Id>field-own-id</Id>' +
+      '<Key>FCustomerId</Key>' +
+      '</BaseDataField>' +
+      '</Elements>';
+    expect(extractFieldOid(xml, 'FCustomerId')).toEqual({
+      oid: 'field-own-id',
+      fieldType: 'BaseDataField',
+    });
+  });
+
+  it('returns null when input is empty', () => {
+    expect(extractFieldOid('', 'FX')).toBeNull();
+    expect(extractFieldOid('<Elements/>', '')).toBeNull();
   });
 });

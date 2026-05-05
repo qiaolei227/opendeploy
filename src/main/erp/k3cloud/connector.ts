@@ -83,9 +83,12 @@ import { saveExtensionRaw, type SaveExtensionRawMeta } from './rpc/save-for-ide'
 import {
   buildAddEntityRuleOverlay,
   buildRemoveEntityRuleOverlay,
+  buildFieldUpdateActionOverlay,
   injectOverlay,
   extractHeadEntityOid,
+  extractFieldOid,
   type EntityServiceRuleService,
+  type FieldUpdateActionService,
 } from './rpc/business-rule-overlay';
 import type { SaveExtensionResult } from './rpc/types';
 import { getBridge } from './bridge';
@@ -908,26 +911,85 @@ export class K3CloudConnector implements ErpConnector {
   }
 
   /**
-   * Add a field-level UpdateAction (Calculate / etc. that fires on field
-   * value change). **Placeholder** — Task 3.5 owns the field-level overlay
-   * spike (`<Field action="edit" oid="..."><UpdateActions>...`). The
-   * type signature is committed early so the agent tool layer (Task 3.5)
-   * can typecheck against it before the implementation lands.
+   * Add a field-level UpdateAction (Calculate / etc. that fires when the
+   * field's value changes).
+   *
+   * Wire path mirrors `addEntityServiceRule`:
+   *   1. Pull extension FKERNELXML stub + parent FKERNELXML
+   *   2. Resolve the field's oid by walking the parent's XML for the
+   *      `<Key>fieldKey</Key>` block — extension stubs don't carry oids for
+   *      parent-original fields.
+   *   3. Build `<{FieldType} action="edit" oid="..."><UpdateActions>...`
+   *      overlay (Tier B recon §1, 2026-05-04 capture req-120).
+   *   4. Inject before `</Elements>` and ship via `SaveForIDEV9`.
+   *
+   * v0.1 ships **one service per call**: a single Calculate UpdateAction.
+   * Multi-service field actions (e.g. stacking Calculate + GetInvStock on
+   * the same field) are out-of-scope — pending wire-format recon. The
+   * caller-generated `id` is a dashed UUID matching the recon's
+   * `<Id>afc25ea1-5732-4803-9f54-516a22fb0b09</Id>` shape.
    */
-  async addFieldUpdateAction(_args: {
+  async addFieldUpdateAction(args: {
     extensionFid: string;
     fieldKey: string;
     services: Array<{
-      className: string;
+      className?: string;
       actionId: number;
       id: string;
-      parameters?: string[];
+      parameters: string[];
+      description?: string;
+      disabledEvents?: string[];
     }>;
-    disabledEvents?: string[];
   }): Promise<{ serviceId: string }> {
-    throw new Error(
-      'addFieldUpdateAction is deferred to Task 3.5 — field-level overlay not yet spiked',
-    );
+    if (args.services.length !== 1) {
+      throw new Error(
+        'addFieldUpdateAction (v0.1): exactly one service per call — multi-service field UpdateActions deferred to v0.2',
+      );
+    }
+    const session = this.requireSession();
+
+    const ext = await this.getObject(args.extensionFid);
+    if (!ext) throw new Error(`扩展 ${args.extensionFid} 不存在`);
+    if (!ext.baseObjectId) {
+      throw new Error(`扩展 ${args.extensionFid} 缺少 BaseObjectId — 不是有效扩展`);
+    }
+
+    const [extXml, parentXml] = await Promise.all([
+      this.getKernelXml(args.extensionFid),
+      this.getKernelXml(ext.baseObjectId),
+    ]);
+    if (!extXml) throw new Error(`扩展 ${args.extensionFid} 无 FKERNELXML`);
+    if (!parentXml) {
+      throw new Error(`父对象 ${ext.baseObjectId} 无 FKERNELXML — 无法定位字段 oid`);
+    }
+
+    const located = extractFieldOid(parentXml, args.fieldKey);
+    if (!located) {
+      throw new Error(
+        `字段 ${args.fieldKey} 在父对象 ${ext.baseObjectId} 上未找到 — 无法挂载字段级 UpdateAction`,
+      );
+    }
+
+    const svc = args.services[0];
+    const overlayService: FieldUpdateActionService = {
+      className: svc.className,
+      actionId: svc.actionId,
+      id: svc.id,
+      parameters: svc.parameters,
+      description: svc.description,
+      disabledEvents: svc.disabledEvents,
+    };
+    const overlay = buildFieldUpdateActionOverlay(located.fieldType, located.oid, overlayService);
+    const patchedXml = injectOverlay(extXml, overlay);
+
+    const meta = await this.buildSaveExtensionRawMeta(session, args.extensionFid, ext);
+    const result = await saveExtensionRaw(session, meta, patchedXml);
+    if (!result.isSuccess) {
+      throw new Error(
+        `添加字段级 UpdateAction 失败：${result.messageTitle ?? ''} ${result.messageDetail ?? '<no detail>'}`,
+      );
+    }
+    return { serviceId: svc.id };
   }
 
   /**

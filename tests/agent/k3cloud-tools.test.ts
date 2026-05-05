@@ -81,9 +81,10 @@ describe('buildK3CloudTools', () => {
     expect(bad.map((t) => t.definition.name)).toEqual([]);
   });
 
-  it('returns 25 tools when a connector is present', () => {
+  it('returns 26 tools when a connector is present', () => {
     const tools = buildK3CloudTools(makeFake());
     expect(tools.map((t) => t.definition.name).sort()).toEqual([
+      'k3cloud_add_calculate_rule',
       'k3cloud_add_convert_bill_type_map',
       'k3cloud_add_convert_field_mapping',
       'k3cloud_add_convert_plugin',

@@ -81,6 +81,21 @@ function xmlEscape(value: unknown): string {
 }
 
 /**
+ * Escape only the structurally significant XML characters (`&`, `<`, `>`)
+ * for use inside element TEXT content. Used by the field-level
+ * UpdateAction overlay's `<Parameters>` and `<Description>` bodies — recon
+ * req-120 (2026-05-04) shows BOS preserves raw `"` inside element text
+ * (the JSON-encoded array's quotes ship unescaped). Attributes still need
+ * `xmlEscape` because `"` is the attribute delimiter.
+ */
+function xmlEscapeText(value: unknown): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
  * BOS XML element names are restricted to the C-identifier shape (the
  * .NET DCXML serializer reflects against type/property names). LLM-fed
  * `properties` keys are interpolated as element tags (`<Foo>val</Foo>`),
@@ -203,4 +218,209 @@ export function injectOverlay(extKernelXml: string, overlayXml: string): string 
 export function extractHeadEntityOid(parentKernelXml: string): string | null {
   const match = parentKernelXml.match(/<HeadEntity[^>]*\boid="([^"]+)"/);
   return match?.[1] ?? null;
+}
+
+// ─── Field-level UpdateAction overlay (Plan 5.12.3b Task 3.5) ──────────
+//
+// Wire shape (Tier B recon §1, 2026-05-04 capture req-120):
+//
+//   <IntegerField action="edit" oid="<field-oid>">
+//     <UpdateActions>
+//       <FormBusinessService>
+//         <Parameters>[" F_X = F_Y * 2 "]</Parameters>
+//         <ActionId>2</ActionId>
+//         <Description>计算定义公式的值并填写到指定列</Description>
+//         <RaiseValueChanged>DisableRaise</RaiseValueChanged>
+//         <RaiseItemReset>DisableRaise</RaiseItemReset>
+//         <RaiseReset>DisableRaise</RaiseReset>
+//         <Id>afc25ea1-5732-4803-9f54-516a22fb0b09</Id>
+//       </FormBusinessService>
+//     </UpdateActions>
+//   </IntegerField>
+//
+// Wrapper element name varies by FieldMeta.type (`IntegerField` /
+// `TextField` / `DecimalField` / etc.). The field oid lives in the
+// **parent's** FKERNELXML — the extension stub doesn't carry it — so
+// `extractFieldOid` walks the parent XML and returns both the oid and the
+// wrapper tag name to use.
+
+/**
+ * One UpdateAction service inside a field's `<UpdateActions>` collection.
+ *
+ * v0.1 supports only base `FormBusinessService` (Calculate, ActionId 2);
+ * subclass-specific UpdateActions are out-of-scope. `className` is left
+ * extensible for v0.2 — when omitted, the wrapper element name is the bare
+ * `<FormBusinessService>` (matches the recon shape).
+ *
+ * `parameters` is JSON-stringified into the wire `<Parameters>` body.
+ * BOS preserves whitespace inside the JSON-encoded strings — caller does
+ * NOT trim them; the agent's own spacing carries through.
+ *
+ * `disabledEvents` toggle 8 known BOS Raise events (default = `EnableRaise`,
+ * we emit `DisableRaise` for each name in the list). Recon req-120 ships
+ * `RaiseValueChanged` / `RaiseItemReset` / `RaiseReset` for a typical
+ * Calculate; the others are accepted for parity with BOS Designer's full
+ * 8-event toggle set.
+ */
+export interface FieldUpdateActionService {
+  /** Currently always 'FormBusinessService' for v0.1 (Calculate base class).
+   *  Omit → bare `<FormBusinessService>` element. */
+  className?: string;
+  actionId: number;
+  /** Caller-generated dashed UUID for the FormBusinessService.Id. */
+  id: string;
+  description?: string;
+  /** IronPython assignment strings — wire-emitted as JSON-stringified array. */
+  parameters: string[];
+  /** Subset of: 'Initialized', 'ItemAdded', 'ItemRemoved',
+   *  'SelectRowChanged', 'SelectRowExtChanged', 'ValueChanged', 'ItemReset',
+   *  'Reset'. Each maps to <Raise{Name}>DisableRaise</Raise{Name}>. */
+  disabledEvents?: string[];
+}
+
+const KNOWN_RAISE_EVENTS = new Set([
+  'Initialized',
+  'ItemAdded',
+  'ItemRemoved',
+  'SelectRowChanged',
+  'SelectRowExtChanged',
+  'ValueChanged',
+  'ItemReset',
+  'Reset',
+]);
+
+const DEFAULT_CALC_DESCRIPTION = '计算定义公式的值并填写到指定列';
+
+/**
+ * Build a `<{FieldType} action="edit" oid="...">` overlay that adds one
+ * Calculate UpdateAction to a field. Caller injects via `injectOverlay`.
+ *
+ * Validation rejects malformed field type / className / event names so
+ * agent-supplied data can't smuggle non-C-identifier strings into the wire
+ * tag positions where XML escaping doesn't help.
+ */
+export function buildFieldUpdateActionOverlay(
+  fieldType: string,
+  fieldOid: string,
+  service: FieldUpdateActionService,
+): string {
+  if (!fieldType) throw new Error('buildFieldUpdateActionOverlay: fieldType is empty');
+  assertElementName(fieldType, 'buildFieldUpdateActionOverlay: fieldType');
+  if (!fieldOid) throw new Error('buildFieldUpdateActionOverlay: fieldOid is empty');
+  if (!service.id) throw new Error('buildFieldUpdateActionOverlay: service.id is empty');
+  if (!Array.isArray(service.parameters) || service.parameters.length < 1) {
+    throw new Error(
+      'buildFieldUpdateActionOverlay: service.parameters must contain at least one IronPython assignment',
+    );
+  }
+
+  const className = service.className ?? 'FormBusinessService';
+  assertElementName(className, 'buildFieldUpdateActionOverlay: service className');
+
+  const disabled = service.disabledEvents ?? [];
+  for (const evt of disabled) {
+    if (!KNOWN_RAISE_EVENTS.has(evt)) {
+      throw new Error(
+        `buildFieldUpdateActionOverlay: unknown Raise event '${evt}' — known: ${[...KNOWN_RAISE_EVENTS].join(', ')}`,
+      );
+    }
+  }
+
+  // JSON.stringify first (so quotes / brackets get JSON-encoded), then
+  // xml-escape the structurally significant chars (<, >, &) so any
+  // metacharacters in the user's IronPython source (e.g. `F_X < F_Y`)
+  // can't break out of the element. Recon req-120 shows BOS preserves
+  // raw double-quotes inside element text — we don't escape `"` for the
+  // <Parameters> body (only attribute values need that). xmlEscapeText
+  // matches BOS's serialization shape.
+  const parametersJson = JSON.stringify(service.parameters);
+  const description = service.description ?? DEFAULT_CALC_DESCRIPTION;
+
+  const raiseElements = disabled
+    .map((evt) => `<Raise${evt}>DisableRaise</Raise${evt}>`)
+    .join('');
+
+  return (
+    `<${fieldType} action="edit" oid="${xmlEscape(fieldOid)}">` +
+    `<UpdateActions>` +
+    `<${className}>` +
+    `<Parameters>${xmlEscapeText(parametersJson)}</Parameters>` +
+    `<ActionId>${service.actionId}</ActionId>` +
+    `<Description>${xmlEscapeText(description)}</Description>` +
+    raiseElements +
+    `<Id>${xmlEscape(service.id)}</Id>` +
+    `</${className}>` +
+    `</UpdateActions>` +
+    `</${fieldType}>`
+  );
+}
+
+/**
+ * Locate a field by `<Key>fieldKey</Key>` in a parent's FKERNELXML and
+ * return its oid (the field's `<Id>` element value) along with the wrapper
+ * element tag name (e.g. `IntegerField`, `TextField`).
+ *
+ * The extension stub (returned by `getKernelXml(extensionFid)`) doesn't
+ * carry oids for parent-original fields — those live only in the parent
+ * (SAL_SaleOrder etc.) FKERNELXML. The field-level UpdateAction overlay
+ * must target that parent oid via `action="edit" oid="<field-oid>"`.
+ *
+ * Implementation: regex iteration. BOS field XML is regular enough that a
+ * full parser isn't needed — we walk every `<{X}Field>...</{X}Field>` block
+ * (or `<{X}EntryEntity>...` for the rare entry-as-element cases), match by
+ * the inner `<Key>` value, and return the inner `<Id>`. Returns null on
+ * miss; caller surfaces a clear error naming the fieldKey + parent.
+ *
+ * Caveats:
+ *   - Field XML is "flat" at top of `<Elements>` (see parseFieldsFromKernelXml
+ *     comment in fkernel-parsers.ts), so we don't need to descend into
+ *     EntryEntity wrappers.
+ *   - Multiple fields in same XML — each pair {Key, Id} is bound to its
+ *     wrapper boundary so we don't accidentally match a `<Key>X</Key>`
+ *     from one field against the `<Id>` from another.
+ *   - The wrapper element's first attribute may include action / oid /
+ *     ElementType etc.; the regex tolerates any attribute set.
+ */
+export function extractFieldOid(
+  parentKernelXml: string,
+  fieldKey: string,
+): { oid: string; fieldType: string } | null {
+  if (!parentKernelXml || !fieldKey) return null;
+
+  // Match every <(\w+Field) ...>...</\1> block. The `[\s\S]*?` is non-greedy
+  // so consecutive sibling fields don't collapse into one match. We iterate
+  // all matches and pick the one whose body has a top-level <Key>fieldKey</Key>.
+  const blockRe = /<(\w+Field)\b[^>]*>([\s\S]*?)<\/\1>/g;
+  let m: RegExpExecArray | null;
+  while ((m = blockRe.exec(parentKernelXml)) !== null) {
+    const fieldType = m[1];
+    const body = m[2];
+    // Match Key/Id at any depth — BOS field bodies have only their own
+    // direct-child Key, and nested metadata's Id elements (RefProperty etc.)
+    // are scoped tightly enough that "first Key + first Id" works.
+    // Use findLastTopLevelChildText-style scan via simple regex: the field's
+    // own <Key> sits as a direct child near the end; nested <Key> tags inside
+    // <RefProperty><Key>FOther</Key></RefProperty> would be earlier and
+    // structurally don't match field's top-level Key — but for simplicity
+    // we look for any <Key>fieldKey</Key> in the body (uniqueness within the
+    // field block is what matters; BOS doesn't repeat Key across nested nodes
+    // referring to the same value).
+    const keyRe = new RegExp(`<Key>${escapeRegex(fieldKey)}</Key>`);
+    if (!keyRe.test(body)) continue;
+    // Pull <Id>...</Id> — there may be multiple (RefProperty subnodes can
+    // carry their own Id). Field's own Id is the LAST top-level Id; pick
+    // the last match in the body to align with parseFieldsFromKernelXml's
+    // findLastTopLevelChildText('Id') discipline.
+    const idMatches = [...body.matchAll(/<Id>([^<]+)<\/Id>/g)];
+    if (idMatches.length === 0) continue;
+    const oid = idMatches[idMatches.length - 1][1];
+    return { oid, fieldType };
+  }
+  return null;
+}
+
+/** Escape regex metacharacters in a literal string (for use inside a RegExp).
+ *  Field keys are C-identifiers, but we keep this defensive. */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

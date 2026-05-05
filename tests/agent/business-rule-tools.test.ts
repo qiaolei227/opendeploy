@@ -3,7 +3,8 @@ import {
   listBusinessRulesTool,
   deleteBusinessRuleTool,
   describeServiceMetaTool,
-  addGetInvStockRuleTool
+  addGetInvStockRuleTool,
+  addCalculateRuleTool
 } from '../../src/main/agent/business-rule-tools';
 import type { K3CloudConnector } from '../../src/main/erp/k3cloud/connector';
 import type { FieldMeta, ObjectMeta } from '@shared/erp-types';
@@ -21,6 +22,7 @@ function makeFakeConnector(
       | 'getObject'
       | 'getFields'
       | 'addEntityServiceRule'
+      | 'addFieldUpdateAction'
     >
   > = {}
 ): K3CloudConnector {
@@ -30,6 +32,7 @@ function makeFakeConnector(
     getObject: vi.fn(async () => null as ObjectMeta | null),
     getFields: vi.fn(async () => [] as FieldMeta[]),
     addEntityServiceRule: vi.fn(async () => ({ ruleId: 'unset' })),
+    addFieldUpdateAction: vi.fn(async () => ({ serviceId: 'unset' })),
     ...overrides
   } as unknown as K3CloudConnector;
 }
@@ -441,5 +444,284 @@ describe('addGetInvStockRuleTool', () => {
 
     expect(parsed.found).toBe(true);
     expect(addEntityServiceRule).toHaveBeenCalled();
+  });
+});
+
+describe('addCalculateRuleTool', () => {
+  const EXT_ID = '7cd9e5a1dbd54faba4be1b558877fbd2';
+  const PARENT_ID = 'SAL_SaleOrder';
+
+  function extObject(): ObjectMeta {
+    return {
+      id: EXT_ID,
+      name: 'OpenDeploy 计算规则扩展',
+      modelTypeId: 100,
+      subsystemId: '23',
+      baseObjectId: PARENT_ID,
+      isTemplate: false,
+      modifyDate: null
+    };
+  }
+
+  function parentFields(): FieldMeta[] {
+    return [
+      { key: 'F金额', name: '金额', type: 'DecimalField', isEntryField: false },
+      { key: 'F数量', name: '数量', type: 'DecimalField', isEntryField: false },
+      { key: 'F单价', name: '单价', type: 'DecimalField', isEntryField: false }
+    ];
+  }
+
+  function extFields(): FieldMeta[] {
+    return [
+      { key: 'F_PAIJ_CalcResult', name: '计算结果', type: 'DecimalField', isEntryField: false }
+    ];
+  }
+
+  function happyConnector(extra: Partial<K3CloudConnector> = {}): K3CloudConnector {
+    return makeFakeConnector({
+      getObject: vi.fn(async (id: string) => (id === EXT_ID ? extObject() : null)),
+      getFields: vi.fn(async (formId: string) =>
+        formId === EXT_ID ? extFields() : formId === PARENT_ID ? parentFields() : []
+      ),
+      ...extra
+    });
+  }
+
+  it('registers as k3cloud_add_calculate_rule and is NOT parallelSafe (writer)', () => {
+    const tool = addCalculateRuleTool(happyConnector());
+    expect(tool.definition.name).toBe('k3cloud_add_calculate_rule');
+    expect(tool.parallelSafe).toBeUndefined();
+  });
+
+  it('field-level happy path: forwards to addFieldUpdateAction with dashed UUID', async () => {
+    const addFieldUpdateAction = vi.fn(async () => ({ serviceId: 'svc-from-server' }));
+    const tool = addCalculateRuleTool(happyConnector({ addFieldUpdateAction }));
+
+    const raw = await tool.execute({
+      extensionFid: EXT_ID,
+      mountPoint: { kind: 'field', fieldKey: 'F单价' },
+      actions: [' F金额 = F数量 * F单价 ']
+    });
+    const parsed = JSON.parse(raw);
+
+    expect(parsed.found).toBe(true);
+    expect(parsed.fieldKey).toBe('F单价');
+    expect(parsed.serviceId).toBe('svc-from-server');
+    expect(parsed.message).toMatch(/重登/);
+
+    expect(addFieldUpdateAction).toHaveBeenCalledTimes(1);
+    const call = addFieldUpdateAction.mock.calls[0][0];
+    expect(call.extensionFid).toBe(EXT_ID);
+    expect(call.fieldKey).toBe('F单价');
+    expect(call.services).toHaveLength(1);
+    expect(call.services[0].actionId).toBe(2);
+    // Dashed UUID (matches Tier B recon req-120 shape)
+    expect(call.services[0].id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    );
+    // Whitespace preserved (BOS doesn't trim)
+    expect(call.services[0].parameters).toEqual([' F金额 = F数量 * F单价 ']);
+  });
+
+  it('field-level: forwards disabledEvents subset', async () => {
+    const addFieldUpdateAction = vi.fn(async () => ({ serviceId: 'svc1' }));
+    const tool = addCalculateRuleTool(happyConnector({ addFieldUpdateAction }));
+
+    await tool.execute({
+      extensionFid: EXT_ID,
+      mountPoint: {
+        kind: 'field',
+        fieldKey: 'F单价',
+        disabledEvents: ['ValueChanged', 'ItemReset', 'Reset']
+      },
+      actions: ['F金额 = F数量 * F单价']
+    });
+
+    const call = addFieldUpdateAction.mock.calls[0][0];
+    expect(call.services[0].disabledEvents).toEqual(['ValueChanged', 'ItemReset', 'Reset']);
+  });
+
+  it('field-level: SQL-style ROUND rejected with errors + retryHint', async () => {
+    const addFieldUpdateAction = vi.fn(async () => ({ serviceId: 'svc1' }));
+    const tool = addCalculateRuleTool(happyConnector({ addFieldUpdateAction }));
+
+    const raw = await tool.execute({
+      extensionFid: EXT_ID,
+      mountPoint: { kind: 'field', fieldKey: 'F单价' },
+      actions: ['F金额 = ROUND(F数量 * F单价, 2)']
+    });
+    const parsed = JSON.parse(raw);
+
+    expect(parsed.found).toBe(false);
+    expect(parsed.errors).toBeDefined();
+    expect(parsed.errors[0].message).toMatch(/ROUND/);
+    expect(parsed.errors[0].message).toMatch(/round/);
+    expect(parsed.retryHint).toMatch(/k3cloud_describe_service_meta/);
+    expect(addFieldUpdateAction).not.toHaveBeenCalled();
+  });
+
+  it('field-level: unknown field reference rejected', async () => {
+    const addFieldUpdateAction = vi.fn(async () => ({ serviceId: 'svc1' }));
+    const tool = addCalculateRuleTool(happyConnector({ addFieldUpdateAction }));
+
+    const raw = await tool.execute({
+      extensionFid: EXT_ID,
+      mountPoint: { kind: 'field', fieldKey: 'F单价' },
+      actions: ['F金额 = F不存在 * 2']
+    });
+    const parsed = JSON.parse(raw);
+
+    expect(parsed.found).toBe(false);
+    expect(parsed.errors).toBeDefined();
+    expect(parsed.errors.some((e: { field?: string }) => e.field === 'F不存在')).toBe(true);
+    expect(addFieldUpdateAction).not.toHaveBeenCalled();
+  });
+
+  it('field-level: missing fieldKey rejected', async () => {
+    const tool = addCalculateRuleTool(happyConnector());
+    await expect(
+      tool.execute({
+        extensionFid: EXT_ID,
+        mountPoint: { kind: 'field' },
+        actions: ['F金额 = F数量 * F单价']
+      })
+    ).rejects.toThrow(/fieldKey/);
+  });
+
+  it('entity-level happy path: forwards to addEntityServiceRule with proper GUIDs', async () => {
+    const addEntityServiceRule = vi.fn(async () => ({ ruleId: 'rule-from-server' }));
+    const tool = addCalculateRuleTool(happyConnector({ addEntityServiceRule }));
+
+    const raw = await tool.execute({
+      extensionFid: EXT_ID,
+      mountPoint: {
+        kind: 'entity',
+        preCondition: 'True',
+        description: '保存时计算金额'
+      },
+      actions: ['F金额 = F数量 * F单价']
+    });
+    const parsed = JSON.parse(raw);
+
+    expect(parsed.found).toBe(true);
+    expect(parsed.ruleId).toBe('rule-from-server');
+    expect(parsed.serviceId).toMatch(/^[0-9a-f]{32}$/); // 32-hex no dashes
+    expect(parsed.message).toMatch(/重登/);
+
+    expect(addEntityServiceRule).toHaveBeenCalledTimes(1);
+    const call = addEntityServiceRule.mock.calls[0][0];
+    expect(call.extensionFid).toBe(EXT_ID);
+    expect(call.description).toBe('保存时计算金额');
+    expect(call.preCondition).toBe('True');
+    // ruleId dashed
+    expect(call.ruleId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    );
+    expect(call.services).toHaveLength(1);
+    expect(call.services[0].className).toBe('FormBusinessService');
+    expect(call.services[0].actionId).toBe(2);
+    expect(call.services[0].id).toMatch(/^[0-9a-f]{32}$/);
+    // Parameters carried as JSON-stringified array
+    expect(call.services[0].properties.Parameters).toBe(
+      JSON.stringify(['F金额 = F数量 * F单价'])
+    );
+  });
+
+  it('entity-level: empty preCondition rejected', async () => {
+    const tool = addCalculateRuleTool(happyConnector());
+    await expect(
+      tool.execute({
+        extensionFid: EXT_ID,
+        mountPoint: { kind: 'entity', preCondition: '', description: 'x' },
+        actions: ['F金额 = F数量 * F单价']
+      })
+    ).rejects.toThrow(/preCondition/);
+
+    await expect(
+      tool.execute({
+        extensionFid: EXT_ID,
+        mountPoint: { kind: 'entity', preCondition: '   ', description: 'x' },
+        actions: ['F金额 = F数量 * F单价']
+      })
+    ).rejects.toThrow(/preCondition/);
+  });
+
+  it('entity-level: missing description rejected', async () => {
+    const tool = addCalculateRuleTool(happyConnector());
+    await expect(
+      tool.execute({
+        extensionFid: EXT_ID,
+        mountPoint: { kind: 'entity', preCondition: 'True' },
+        actions: ['F金额 = F数量 * F单价']
+      })
+    ).rejects.toThrow(/description/);
+  });
+
+  it('mountPoint.kind invalid → rejected', async () => {
+    const tool = addCalculateRuleTool(happyConnector());
+    await expect(
+      tool.execute({
+        extensionFid: EXT_ID,
+        mountPoint: { kind: 'something-else' },
+        actions: ['F金额 = F数量 * F单价']
+      })
+    ).rejects.toThrow(/kind/);
+
+    await expect(
+      tool.execute({
+        extensionFid: EXT_ID,
+        mountPoint: 'not-an-object',
+        actions: ['F金额 = F数量 * F单价']
+      })
+    ).rejects.toThrow(/mountPoint/);
+  });
+
+  it('actions empty array rejected', async () => {
+    const tool = addCalculateRuleTool(happyConnector());
+    await expect(
+      tool.execute({
+        extensionFid: EXT_ID,
+        mountPoint: { kind: 'field', fieldKey: 'F单价' },
+        actions: []
+      })
+    ).rejects.toThrow(/actions/);
+
+    await expect(
+      tool.execute({
+        extensionFid: EXT_ID,
+        mountPoint: { kind: 'field', fieldKey: 'F单价' },
+        actions: ['F金额 = F数量 * F单价', '']
+      })
+    ).rejects.toThrow(/actions\[1\]/);
+  });
+
+  it('returns found:false JSON when extension does not exist', async () => {
+    const fake = makeFakeConnector({ getObject: vi.fn(async () => null) });
+    const tool = addCalculateRuleTool(fake);
+
+    const parsed = JSON.parse(
+      await tool.execute({
+        extensionFid: 'ghost',
+        mountPoint: { kind: 'field', fieldKey: 'F单价' },
+        actions: ['F金额 = F数量 * F单价']
+      })
+    );
+    expect(parsed.found).toBe(false);
+    expect(parsed.message).toMatch(/不存在/);
+  });
+
+  it('field validation accepts keys from EITHER extension OR parent', async () => {
+    const addFieldUpdateAction = vi.fn(async () => ({ serviceId: 'svc1' }));
+    const tool = addCalculateRuleTool(happyConnector({ addFieldUpdateAction }));
+
+    // F_PAIJ_CalcResult is ext-only, F金额/F数量/F单价 are parent-only — mixing
+    // both must validate cleanly.
+    const raw = await tool.execute({
+      extensionFid: EXT_ID,
+      mountPoint: { kind: 'field', fieldKey: 'F单价' },
+      actions: ['F_PAIJ_CalcResult = F金额 * 0.05']
+    });
+    expect(JSON.parse(raw).found).toBe(true);
+    expect(addFieldUpdateAction).toHaveBeenCalled();
   });
 });

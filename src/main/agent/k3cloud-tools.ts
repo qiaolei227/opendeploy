@@ -6,7 +6,8 @@ import {
   listBusinessRulesTool,
   deleteBusinessRuleTool,
   describeServiceMetaTool,
-  addGetInvStockRuleTool
+  addGetInvStockRuleTool,
+  addCalculateRuleTool
 } from './business-rule-tools';
 
 /**
@@ -46,7 +47,8 @@ export function buildK3CloudTools(connector?: K3CloudConnector): ToolHandler[] {
     listBusinessRulesTool(c),
     deleteBusinessRuleTool(c),
     describeServiceMetaTool(),
-    addGetInvStockRuleTool(c)
+    addGetInvStockRuleTool(c),
+    addCalculateRuleTool(c)
   ];
 }
 
