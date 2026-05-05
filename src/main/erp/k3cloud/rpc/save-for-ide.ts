@@ -15,8 +15,10 @@
 import { SaveExtensionRequest, SaveExtensionResult } from './types';
 import { buildDcxmlSource } from './dcxml';
 import { encodeApField, callKdsvc, applySetCookieToSession, parseJsonResponse, KdSession } from './http-client';
+import type { IsvDescriptor } from './save-convert-rules';
 
 const METADATA_SERVICE = 'Kingdee.BOS.ServiceFacade.ServicesStub.Metadata.MetadataService';
+const ZH_CN_LCID = 2052;
 
 /** Build the `__paras__` JSON-string-in-JSON value for SaveForIDEV9. */
 export function buildParas(req: SaveExtensionRequest): string {
@@ -95,6 +97,102 @@ export async function saveExtension(
   applySetCookieToSession(session, res.setCookieHeaders);
   // callKdsvc throws BosResponseError on `response_error:` envelopes, so
   // by here we know the body is meant to be JSON IDEOperateResult shape.
+  const parsed = parseJsonResponse<{
+    IsSuccess: boolean;
+    FuncResult: boolean;
+    MessageTitle: string | null;
+    MessageDetail: string | null;
+  }>(res.bodyText);
+  return {
+    isSuccess: parsed.IsSuccess,
+    funcResult: parsed.FuncResult,
+    messageTitle: parsed.MessageTitle,
+    messageDetail: parsed.MessageDetail,
+  };
+}
+
+/**
+ * Metadata required to push a raw, pre-built FKERNELXML for an existing
+ * extension via SaveForIDEV9. Mirrors the subset of `SaveExtensionRequest`
+ * the server cares about for an `__paras__` ISV-descriptor envelope, sans
+ * the typed AST (the caller already has `__source__`).
+ *
+ * Used by `saveExtensionRaw` — the raw-source twin of `saveExtension`.
+ */
+export interface SaveExtensionRawMeta {
+  extId: string;
+  /** Defaults to `extId` (the BOS Designer "save existing extension" pattern). */
+  oldId?: string | null;
+  /** Display name in zh-CN. Server enforces non-empty. */
+  extName: string;
+  modelTypeId: number;
+  baseObjectId: string;
+  /** Subsystem id, e.g. "23". */
+  subSystemId: string;
+  isv: IsvDescriptor;
+}
+
+/**
+ * Build the `__paras__` JSON-string for `saveExtensionRaw`. Mirrors
+ * `buildParas` for typed-AST callers but takes the raw fields directly so
+ * we don't have to fabricate a `BosExtensionMeta` just to ship a string
+ * source. Used by Plan 5.12.3b business-rule overlays — see
+ * `business-rule-overlay.ts` for the wire shape rationale.
+ */
+export function buildRawParas(meta: SaveExtensionRawMeta): string {
+  const oldId = meta.oldId !== undefined ? meta.oldId : meta.extId;
+  return JSON.stringify({
+    Id: meta.extId,
+    OldId: oldId,
+    ModelTypeId: meta.modelTypeId,
+    BaseObjectId: meta.baseObjectId,
+    DevType: 2,
+    SubSystemId: meta.subSystemId,
+    Version: null,
+    PackageId: null,
+    HasExtends: false,
+    RunTime: false,
+    LayoutViewId: null,
+    OldLayoutViewId: null,
+    LayoutViewVersion: null,
+    DependencyObjectId: null,
+    FirstNonExtendObjectID: meta.baseObjectId,
+    ISV: meta.isv,
+    UpdateIdToKey: false,
+    SourceFormId: null,
+    InheritPath: null,
+    IsInheritElement: false,
+    ModelTypeSubId: meta.modelTypeId,
+    MainVersion: null,
+    Name: JSON.stringify([{ Key: ZH_CN_LCID, Value: meta.extName }]),
+    FuncInterfaces: null,
+  });
+}
+
+/**
+ * Push a raw, pre-built FKERNELXML source string to SaveForIDEV9. The
+ * `sourceXml` param is the application-layer `__source__` value — the
+ * caller is responsible for building it (typically by overlaying a delta
+ * onto the extension's existing FKERNELXML).
+ *
+ * Returns the same typed result shape as `saveExtension`. Mirrors the
+ * spike's `saveForIdeV9Direct` (see
+ * `.scratch/probes/spike-bizrule-writeback.ts`) and is the sibling of
+ * the typed-AST path used for fields / entries / plugins.
+ */
+export async function saveExtensionRaw(
+  session: KdSession,
+  meta: SaveExtensionRawMeta,
+  sourceXml: string,
+): Promise<SaveExtensionResult> {
+  const ap0Plain = JSON.stringify({
+    __source__: sourceXml,
+    __paras__: buildRawParas(meta),
+    [String(ZH_CN_LCID)]: '',
+  });
+  const ap0 = encodeApField(JSON.parse(ap0Plain));
+  const res = await callKdsvc(session, METADATA_SERVICE, 'SaveForIDEV9', { apFields: { ap0 } });
+  applySetCookieToSession(session, res.setCookieHeaders);
   const parsed = parseJsonResponse<{
     IsSuccess: boolean;
     FuncResult: boolean;

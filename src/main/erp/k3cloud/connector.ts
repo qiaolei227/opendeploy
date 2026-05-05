@@ -79,6 +79,15 @@ import {
 } from './rpc/convert-rule-state';
 import { buildPatchBaseXml } from './rpc/build-patch-base-xml';
 import { transformPatchedToExtensionWire } from './rpc/transform-extension-wire';
+import { saveExtensionRaw, type SaveExtensionRawMeta } from './rpc/save-for-ide';
+import {
+  buildAddEntityRuleOverlay,
+  buildRemoveEntityRuleOverlay,
+  injectOverlay,
+  extractHeadEntityOid,
+  type EntityServiceRuleService,
+} from './rpc/business-rule-overlay';
+import type { SaveExtensionResult } from './rpc/types';
 import { getBridge } from './bridge';
 import type { KdSession } from './rpc/http-client';
 import type {
@@ -722,5 +731,227 @@ export class K3CloudConnector implements ErpConnector {
     const baseline = this.requireBaseline('deleteConvertRuleExtension', originRuleId);
     const isv = await this.getIsv(session);
     return rpcDeleteConvertRuleExtension(session, { baseline, extId, isv });
+  }
+
+  // ─── Business rules (Plan 5.12.3b) ─────────────────────────────────
+  //
+  // Path A: TS string-template overlay (validated by
+  // `.scratch/probes/spike-bizrule-writeback.ts`). The bridge's typed
+  // `add_entity_service_rule` op cannot run on real extension XML
+  // because real extensions don't own a HeadEntity — that lives on the
+  // parent. The wire shape BOS Designer ships is a minimal
+  // `<HeadEntity action="edit" oid="..."><EntityServiceRules>...`
+  // overlay injected before `</Elements>`. See `business-rule-overlay.ts`
+  // for the full rationale.
+  //
+  // Field-level UpdateAction overlay is intentionally not implemented —
+  // Task 3.5 owns that spike. `addFieldUpdateAction` throws.
+
+  /**
+   * List all business rules (entity-level service rules + field-level
+   * update actions) on an extension. Read-only.
+   *
+   * Implementation: fetch the extension's currently-persisted FKERNELXML
+   * (which includes any HeadEntity overlay we previously pushed — the
+   * server merges deltas into the persisted form) and let the bridge
+   * walker emit the typed summary. Bridge ops on the read path work
+   * because the FKERNELXML the server returns to us already contains the
+   * HeadEntity collection.
+   */
+  async listBusinessRules(extensionFid: string): Promise<{
+    entityRules: Array<{
+      ruleId: string;
+      entityKey: string;
+      preCondition: string;
+      preConditionDesc?: string;
+      description?: string;
+      seq?: number;
+      services: Array<{ branch: string; actionId: number; className: string; serviceId: string }>;
+    }>;
+    fieldUpdateActions: Array<{
+      fieldKey: string;
+      actionId: number;
+      className: string;
+      serviceId: string;
+      parameters?: string;
+    }>;
+  }> {
+    const xml = await this.getKernelXml(extensionFid);
+    if (!xml) throw new Error(`扩展 ${extensionFid} 无 FKERNELXML — 不存在或未持久化`);
+    const bridge = await getBridge();
+    return bridge.send('list_business_rules', { xml });
+  }
+
+  /**
+   * Add an entity-level business rule (EntityServiceRule) to an extension.
+   *
+   * Wire path: pull extension FKERNELXML stub + parent FKERNELXML for the
+   * HeadEntity oid, build a string-template overlay, inject before
+   * `</Elements>`, ship via `SaveForIDEV9`. Server merges, persists,
+   * fills server-side defaults (PreConditionDesc setnull etc.).
+   *
+   * Each `services[]` entry must carry a caller-generated `id` (32-hex
+   * GUID) — the server doesn't auto-generate service ids inside an overlay.
+   */
+  async addEntityServiceRule(args: {
+    extensionFid: string;
+    ruleId: string;
+    description: string;
+    preCondition: string;
+    preConditionDesc?: string;
+    services: EntityServiceRuleService[];
+  }): Promise<{ ruleId: string }> {
+    if (args.services.length === 0) {
+      throw new Error('addEntityServiceRule: services must contain at least one entry');
+    }
+    const session = this.requireSession();
+
+    const ext = await this.getObject(args.extensionFid);
+    if (!ext) throw new Error(`扩展 ${args.extensionFid} 不存在`);
+    if (!ext.baseObjectId) {
+      throw new Error(`扩展 ${args.extensionFid} 缺少 BaseObjectId — 不是有效扩展`);
+    }
+
+    const [extXml, parentXml] = await Promise.all([
+      this.getKernelXml(args.extensionFid),
+      this.getKernelXml(ext.baseObjectId),
+    ]);
+    if (!extXml) throw new Error(`扩展 ${args.extensionFid} 无 FKERNELXML`);
+    if (!parentXml) {
+      throw new Error(`父对象 ${ext.baseObjectId} 无 FKERNELXML — 无法定位 HeadEntity oid`);
+    }
+
+    const parentHeadOid = extractHeadEntityOid(parentXml);
+    if (!parentHeadOid) {
+      throw new Error(
+        `父对象 ${ext.baseObjectId} 没有 HeadEntity 节点 — 实体业务规则无法挂载`,
+      );
+    }
+
+    const overlay = buildAddEntityRuleOverlay(parentHeadOid, {
+      ruleId: args.ruleId,
+      description: args.description,
+      preCondition: args.preCondition,
+      preConditionDesc: args.preConditionDesc,
+      services: args.services,
+    });
+    const patchedXml = injectOverlay(extXml, overlay);
+
+    const meta = await this.buildSaveExtensionRawMeta(session, args.extensionFid, ext);
+    const result = await saveExtensionRaw(session, meta, patchedXml);
+    if (!result.isSuccess) {
+      throw new Error(
+        `添加业务规则失败：${result.messageTitle ?? ''} ${result.messageDetail ?? '<no detail>'}`,
+      );
+    }
+    return { ruleId: args.ruleId };
+  }
+
+  /**
+   * Remove a business rule by id.
+   *
+   * Decides which overlay shape to emit by first listing rules (cheap
+   * round-trip) — entity-level rules use the HeadEntity remove overlay
+   * we ship today; field-level UpdateAction removal is deferred to
+   * Task 3.5.
+   */
+  async removeBusinessRule(
+    extensionFid: string,
+    ruleId: string,
+  ): Promise<{ location: 'entity' | 'field' }> {
+    const session = this.requireSession();
+    const ext = await this.getObject(extensionFid);
+    if (!ext) throw new Error(`扩展 ${extensionFid} 不存在`);
+    if (!ext.baseObjectId) {
+      throw new Error(`扩展 ${extensionFid} 缺少 BaseObjectId — 不是有效扩展`);
+    }
+
+    const list = await this.listBusinessRules(extensionFid);
+    const isEntity = list.entityRules.some((r) => r.ruleId === ruleId);
+    const isField = list.fieldUpdateActions.some((a) => a.serviceId === ruleId);
+
+    if (!isEntity && !isField) {
+      throw new Error(`业务规则 ${ruleId} 在扩展 ${extensionFid} 中未找到`);
+    }
+    if (isField) {
+      throw new Error(
+        `field-level UpdateAction removal deferred to Task 3.5 — 字段级业务规则删除暂未实现`,
+      );
+    }
+
+    const [extXml, parentXml] = await Promise.all([
+      this.getKernelXml(extensionFid),
+      this.getKernelXml(ext.baseObjectId),
+    ]);
+    if (!extXml) throw new Error(`扩展 ${extensionFid} 无 FKERNELXML`);
+    if (!parentXml) {
+      throw new Error(`父对象 ${ext.baseObjectId} 无 FKERNELXML — 无法定位 HeadEntity oid`);
+    }
+    const parentHeadOid = extractHeadEntityOid(parentXml);
+    if (!parentHeadOid) {
+      throw new Error(
+        `父对象 ${ext.baseObjectId} 没有 HeadEntity 节点 — 实体业务规则无法定位`,
+      );
+    }
+
+    const overlay = buildRemoveEntityRuleOverlay(parentHeadOid, ruleId);
+    const patchedXml = injectOverlay(extXml, overlay);
+
+    const meta = await this.buildSaveExtensionRawMeta(session, extensionFid, ext);
+    const result = await saveExtensionRaw(session, meta, patchedXml);
+    if (!result.isSuccess) {
+      throw new Error(
+        `删除业务规则失败：${result.messageTitle ?? ''} ${result.messageDetail ?? '<no detail>'}`,
+      );
+    }
+    return { location: 'entity' };
+  }
+
+  /**
+   * Add a field-level UpdateAction (Calculate / etc. that fires on field
+   * value change). **Placeholder** — Task 3.5 owns the field-level overlay
+   * spike (`<Field action="edit" oid="..."><UpdateActions>...`). The
+   * type signature is committed early so the agent tool layer (Task 3.5)
+   * can typecheck against it before the implementation lands.
+   */
+  async addFieldUpdateAction(_args: {
+    extensionFid: string;
+    fieldKey: string;
+    services: Array<{
+      className: string;
+      actionId: number;
+      id: string;
+      parameters?: string[];
+    }>;
+    disabledEvents?: string[];
+  }): Promise<{ serviceId: string }> {
+    throw new Error(
+      'addFieldUpdateAction is deferred to Task 3.5 — field-level overlay not yet spiked',
+    );
+  }
+
+  /**
+   * Hydrate the metadata envelope `saveExtensionRaw` needs for an existing
+   * extension. Centralizes the extension-meta lookup so the business-rule
+   * write paths don't each repeat the getObject / getIsv / oldId mechanics.
+   */
+  private async buildSaveExtensionRawMeta(
+    session: KdSession,
+    extensionFid: string,
+    ext: { id: string; name: string; modelTypeId: number | null; subsystemId: string | null; baseObjectId: string | null },
+  ): Promise<SaveExtensionRawMeta> {
+    if (!ext.baseObjectId) {
+      throw new Error(`扩展 ${extensionFid} 缺少 BaseObjectId`);
+    }
+    const isv = await this.getIsv(session);
+    return {
+      extId: extensionFid,
+      oldId: extensionFid,
+      extName: ext.name,
+      modelTypeId: ext.modelTypeId ?? 0,
+      baseObjectId: ext.baseObjectId,
+      subSystemId: ext.subsystemId ?? '',
+      isv,
+    };
   }
 }
