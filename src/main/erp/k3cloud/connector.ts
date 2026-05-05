@@ -747,8 +747,14 @@ export class K3CloudConnector implements ErpConnector {
   // overlay injected before `</Elements>`. See `business-rule-overlay.ts`
   // for the full rationale.
   //
-  // Field-level UpdateAction overlay is intentionally not implemented —
-  // Task 3.5 owns that spike. `addFieldUpdateAction` throws.
+  // Field-level UpdateAction overlay (`addFieldUpdateAction`) replicates
+  // the entity-level pattern: load extension stub + parent FKERNELXML,
+  // resolve the target field's oid by walking the parent's XML for the
+  // matching `<Key>` (`extractFieldOid`), build a
+  // `<{FieldType} action="edit" oid="..."><UpdateActions>...` overlay,
+  // inject before `</Elements>`, and ship via SaveForIDEV9. v0.1 ships
+  // exactly one service per call (Calculate). Removal of field-level
+  // UpdateActions is deferred to v0.2.
 
   /**
    * List all business rules (entity-level service rules + field-level
@@ -878,7 +884,7 @@ export class K3CloudConnector implements ErpConnector {
     }
     if (isField) {
       throw new Error(
-        `field-level UpdateAction removal deferred to Task 3.5 — 字段级业务规则删除暂未实现`,
+        `field-level UpdateAction removal deferred to v0.2 — 字段级业务规则删除暂未实现`,
       );
     }
 

@@ -1,3 +1,5 @@
+import { iterateTagTokens, findLastTopLevelChildText } from '../fkernel-parsers';
+
 /**
  * Business-rule HeadEntity overlay templates for SaveForIDEV9.
  *
@@ -365,21 +367,15 @@ export function buildFieldUpdateActionOverlay(
  * (SAL_SaleOrder etc.) FKERNELXML. The field-level UpdateAction overlay
  * must target that parent oid via `action="edit" oid="<field-oid>"`.
  *
- * Implementation: regex iteration. BOS field XML is regular enough that a
- * full parser isn't needed — we walk every `<{X}Field>...</{X}Field>` block
- * (or `<{X}EntryEntity>...` for the rare entry-as-element cases), match by
- * the inner `<Key>` value, and return the inner `<Id>`. Returns null on
- * miss; caller surfaces a clear error naming the fieldKey + parent.
+ * Implementation: walk the kernel XML with the shared tag tokenizer
+ * (`iterateTagTokens` from `fkernel-parsers.ts`), find each
+ * `<XField>...</XField>` block, and match its TOP-LEVEL `<Key>` only —
+ * never a `<Key>` nested inside `<RefProperty>` or other sub-elements.
  *
- * Caveats:
- *   - Field XML is "flat" at top of `<Elements>` (see parseFieldsFromKernelXml
- *     comment in fkernel-parsers.ts), so we don't need to descend into
- *     EntryEntity wrappers.
- *   - Multiple fields in same XML — each pair {Key, Id} is bound to its
- *     wrapper boundary so we don't accidentally match a `<Key>X</Key>`
- *     from one field against the `<Id>` from another.
- *   - The wrapper element's first attribute may include action / oid /
- *     ElementType etc.; the regex tolerates any attribute set.
+ * Returns null on miss; caller surfaces a clear error naming the fieldKey
+ * + parent. Field XML is "flat" at top of `<Elements>` (see
+ * `parseFieldsFromKernelXml` in `fkernel-parsers.ts`), so we don't need
+ * to descend into EntryEntity wrappers.
  */
 export function extractFieldOid(
   parentKernelXml: string,
@@ -387,40 +383,29 @@ export function extractFieldOid(
 ): { oid: string; fieldType: string } | null {
   if (!parentKernelXml || !fieldKey) return null;
 
-  // Match every <(\w+Field) ...>...</\1> block. The `[\s\S]*?` is non-greedy
-  // so consecutive sibling fields don't collapse into one match. We iterate
-  // all matches and pick the one whose body has a top-level <Key>fieldKey</Key>.
-  const blockRe = /<(\w+Field)\b[^>]*>([\s\S]*?)<\/\1>/g;
-  let m: RegExpExecArray | null;
-  while ((m = blockRe.exec(parentKernelXml)) !== null) {
-    const fieldType = m[1];
-    const body = m[2];
-    // Match Key/Id at any depth — BOS field bodies have only their own
-    // direct-child Key, and nested metadata's Id elements (RefProperty etc.)
-    // are scoped tightly enough that "first Key + first Id" works.
-    // Use findLastTopLevelChildText-style scan via simple regex: the field's
-    // own <Key> sits as a direct child near the end; nested <Key> tags inside
-    // <RefProperty><Key>FOther</Key></RefProperty> would be earlier and
-    // structurally don't match field's top-level Key — but for simplicity
-    // we look for any <Key>fieldKey</Key> in the body (uniqueness within the
-    // field block is what matters; BOS doesn't repeat Key across nested nodes
-    // referring to the same value).
-    const keyRe = new RegExp(`<Key>${escapeRegex(fieldKey)}</Key>`);
-    if (!keyRe.test(body)) continue;
-    // Pull <Id>...</Id> — there may be multiple (RefProperty subnodes can
-    // carry their own Id). Field's own Id is the LAST top-level Id; pick
-    // the last match in the body to align with parseFieldsFromKernelXml's
-    // findLastTopLevelChildText('Id') discipline.
-    const idMatches = [...body.matchAll(/<Id>([^<]+)<\/Id>/g)];
-    if (idMatches.length === 0) continue;
-    const oid = idMatches[idMatches.length - 1][1];
-    return { oid, fieldType };
+  // Walk every `<XField>...</XField>` block at any depth via the shared
+  // tokenizer, then resolve its identity via top-level child lookups.
+  // findLastTopLevelChildText is critical here: real BOS BillModel XML
+  // commonly has `<RefProperty><Key>FOther</Key></RefProperty>` nested
+  // inside another field's body; a naive `<Key>fieldKey</Key>` regex
+  // bleeds the wrong field. See parseFieldsFromKernelXml for the same
+  // discipline applied at scale.
+  const stack: Array<{ tag: string; bodyStart: number } | null> = [];
+  for (const tk of iterateTagTokens(parentKernelXml)) {
+    if (tk.isSelfClose) continue;
+    if (!tk.isClose) {
+      const isField = /Field$/.test(tk.tag);
+      stack.push(isField ? { tag: tk.tag, bodyStart: tk.end } : null);
+      continue;
+    }
+    const frame = stack.pop();
+    if (!frame) continue;
+    const body = parentKernelXml.substring(frame.bodyStart, tk.start);
+    const key = findLastTopLevelChildText(body, 'Key');
+    if (key !== fieldKey) continue;
+    const oid = findLastTopLevelChildText(body, 'Id');
+    if (!oid) continue;
+    return { oid, fieldType: frame.tag };
   }
   return null;
-}
-
-/** Escape regex metacharacters in a literal string (for use inside a RegExp).
- *  Field keys are C-identifiers, but we keep this defensive. */
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

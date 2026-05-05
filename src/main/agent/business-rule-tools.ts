@@ -387,10 +387,6 @@ export function addCalculateRuleTool(c: K3CloudConnector): ToolHandler {
                 description:
                   'kind=field 时可选，禁用的 Raise 事件名（不带 Raise 前缀），如 ["ValueChanged"]。可选项: Initialized / ItemAdded / ItemRemoved / SelectRowChanged / SelectRowExtChanged / ValueChanged / ItemReset / Reset。'
               },
-              entityKey: {
-                type: 'string',
-                description: 'kind=entity 时（v0.1 总是 HeadEntity，可省）。'
-              },
               preCondition: {
                 type: 'string',
                 description: 'kind=entity 时必填非空，IronPython 布尔表达式。'

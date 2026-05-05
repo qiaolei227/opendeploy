@@ -476,4 +476,25 @@ describe('extractFieldOid', () => {
     expect(extractFieldOid('', 'FX')).toBeNull();
     expect(extractFieldOid('<Elements/>', '')).toBeNull();
   });
+
+  it('extractFieldOid does not match Key inside nested <RefProperty>', () => {
+    const xml =
+      '<Form><Elements>' +
+      '<TextField>' +
+      '<RefProperty><Key>FOther</Key><Id>nested-id</Id></RefProperty>' +
+      '<Name>name</Name>' +
+      '<Id>id-of-A</Id>' +
+      '<Key>FA</Key>' +
+      '</TextField>' +
+      '<TextField>' +
+      '<Name>nameOther</Name>' +
+      '<Id>id-of-Other</Id>' +
+      '<Key>FOther</Key>' +
+      '</TextField>' +
+      '</Elements></Form>';
+    // Look up FOther — must find the SECOND field (id-of-Other), NOT the first.
+    expect(extractFieldOid(xml, 'FOther')).toEqual({ oid: 'id-of-Other', fieldType: 'TextField' });
+    // Look up FA — must find the first field, ignoring its nested RefProperty key.
+    expect(extractFieldOid(xml, 'FA')).toEqual({ oid: 'id-of-A', fieldType: 'TextField' });
+  });
 });
