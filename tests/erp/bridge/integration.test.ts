@@ -293,4 +293,41 @@ describeIfBridge('bos-bridge integration', () => {
       }),
     ).rejects.toThrow(/preCondition/i);
   });
+
+  // base FormBusinessService is what Calculate (ActionId=2) uses at the
+  // entity level. Smoke covers the path of instantiating the base class
+  // (no subclass) via ServiceMetaTypes index — separate from the
+  // GetInvStockBusinessServiceMeta subclass path covered above.
+  it('add_entity_service_rule supports base FormBusinessService (Calculate)', async () => {
+    const inputXml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/business-rules-no-rules.xml',
+      'utf8',
+    );
+    const ruleId = '33333333-3333-3333-3333-333333333333';
+
+    const { xml: patchedXml } = await client.send<{ xml: string }>('add_entity_service_rule', {
+      xml: inputXml,
+      ruleId,
+      description: 'TS test - Calculate at entity level',
+      preCondition: 'True',
+      services: [
+        {
+          className: 'FormBusinessService',
+          actionId: 2,
+          properties: { Parameters: '[" F_TestDecimal = 1 "]' },
+        },
+      ],
+    });
+
+    const listed = await client.send<{ entityRules: any[] }>('list_business_rules', {
+      xml: patchedXml,
+    });
+    const found = listed.entityRules.find((r: any) => r.ruleId === ruleId);
+    expect(found).toBeDefined();
+    expect(found.services).toHaveLength(1);
+    expect(found.services[0]).toMatchObject({
+      actionId: 2,
+      className: 'FormBusinessService',
+    });
+  });
 });
