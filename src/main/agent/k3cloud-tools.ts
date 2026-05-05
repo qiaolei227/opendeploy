@@ -2,6 +2,11 @@ import { getActiveConnector, getConnectionState } from '../erp/active';
 import { UnsupportedConvertRuleError } from '../erp/k3cloud/rpc/convert-rule-baselines';
 import type { ToolHandler } from './tools';
 import type { K3CloudConnector } from '../erp/k3cloud/connector';
+import {
+  listBusinessRulesTool,
+  deleteBusinessRuleTool,
+  describeServiceMetaTool
+} from './business-rule-tools';
 
 /**
  * Build the K/3 Cloud tool set for the current active project. Returns an
@@ -36,7 +41,10 @@ export function buildK3CloudTools(connector?: K3CloudConnector): ToolHandler[] {
     setConvertFilterTool(c),
     addConvertPluginTool(c),
     removeConvertPluginTool(c),
-    addConvertBillTypeMapTool(c)
+    addConvertBillTypeMapTool(c),
+    listBusinessRulesTool(c),
+    deleteBusinessRuleTool(c),
+    describeServiceMetaTool()
   ];
 }
 

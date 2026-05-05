@@ -81,20 +81,23 @@ describe('buildK3CloudTools', () => {
     expect(bad.map((t) => t.definition.name)).toEqual([]);
   });
 
-  it('returns 21 tools when a connector is present', () => {
+  it('returns 24 tools when a connector is present', () => {
     const tools = buildK3CloudTools(makeFake());
     expect(tools.map((t) => t.definition.name).sort()).toEqual([
       'k3cloud_add_convert_bill_type_map',
       'k3cloud_add_convert_field_mapping',
       'k3cloud_add_convert_plugin',
       'k3cloud_create_convert_rule_extension',
+      'k3cloud_delete_business_rule',
       'k3cloud_delete_convert_rule_extension',
       'k3cloud_describe_basedata',
       'k3cloud_describe_convert_rule',
+      'k3cloud_describe_service_meta',
       'k3cloud_get_extension_fields',
       'k3cloud_get_fields',
       'k3cloud_get_form_layout',
       'k3cloud_get_object',
+      'k3cloud_list_business_rules',
       'k3cloud_list_convert_rules',
       'k3cloud_list_enum_types',
       'k3cloud_list_extensions',
