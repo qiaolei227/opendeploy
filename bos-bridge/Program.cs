@@ -149,6 +149,8 @@ namespace OpenDeploy.BosBridge
                     var tgt = (string?)req["target_bill_type_id"] ?? string.Empty;
                     return new { xml = ctx.AddConvertBillTypeMap(xml, src, tgt) };
                 }
+                case "list_business_rules":
+                    return ctx.ListBusinessRules(RequireString(req, "xml"));
                 default:
                     throw new InvalidOperationException($"unknown op: {op}");
             }

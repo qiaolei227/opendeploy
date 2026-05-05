@@ -154,4 +154,69 @@ describeIfBridge('bos-bridge integration', () => {
       client.send('set_convert_group_by', { xml: inputXml, mode: 'NotARealMode' }),
     ).rejects.toThrow(/invalid GroupByMode/);
   });
+
+  // ── Plan 5.12.3b Task 2.1 — list_business_rules ───────────────────────
+  // Walks BusinessInfo on a deserialized FormMetadata and emits a typed
+  // summary. Read-only — no XML rewrite. Subsequent add/remove ops
+  // (Tasks 2.2–2.4) reuse this deserialize path.
+
+  it('list_business_rules returns empty arrays for form with no rules', async () => {
+    const xml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/business-rules-no-rules.xml',
+      'utf8',
+    );
+    const result = await client.send<{
+      entityRules: unknown[];
+      fieldUpdateActions: unknown[];
+    }>('list_business_rules', { xml });
+    expect(result.entityRules).toEqual([]);
+    expect(result.fieldUpdateActions).toEqual([]);
+  });
+
+  it('list_business_rules finds GetInvStock entity rule + Calculate UpdateAction', async () => {
+    const xml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/business-rules-with-rules.xml',
+      'utf8',
+    );
+    const result = await client.send<{
+      entityRules: Array<{
+        ruleId: string;
+        entityKey: string;
+        preCondition: string;
+        preConditionDesc?: string;
+        description?: string;
+        seq?: number;
+        services: Array<{ branch: string; actionId: number; className: string; serviceId: string }>;
+      }>;
+      fieldUpdateActions: Array<{
+        fieldKey: string;
+        actionId: number;
+        className: string;
+        serviceId: string;
+        parameters?: string;
+      }>;
+    }>('list_business_rules', { xml });
+
+    expect(result.entityRules).toHaveLength(1);
+    const rule = result.entityRules[0];
+    expect(rule.ruleId).toBe('0c027f9c-00c0-4a8f-b0c0-171ad7682d7e');
+    expect(rule.preCondition).toContain("'01.01'");
+    expect(rule.services).toHaveLength(1);
+    expect(rule.services[0]).toMatchObject({
+      branch: 'whenTrue',
+      actionId: 67,
+      className: 'GetInvStockBusinessServiceMeta',
+    });
+
+    expect(result.fieldUpdateActions).toHaveLength(1);
+    expect(result.fieldUpdateActions[0]).toMatchObject({
+      fieldKey: 'F_PAIJ_TestInt',
+      actionId: 2,
+      className: 'FormBusinessService',
+    });
+  });
+
+  it('list_business_rules rejects empty xml', async () => {
+    await expect(client.send('list_business_rules', { xml: '' })).rejects.toThrow(/xml is empty/);
+  });
 });
