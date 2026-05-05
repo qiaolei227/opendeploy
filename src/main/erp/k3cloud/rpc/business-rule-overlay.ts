@@ -81,6 +81,21 @@ function xmlEscape(value: unknown): string {
 }
 
 /**
+ * BOS XML element names are restricted to the C-identifier shape (the
+ * .NET DCXML serializer reflects against type/property names). LLM-fed
+ * `properties` keys are interpolated as element tags (`<Foo>val</Foo>`),
+ * so we validate at the boundary — escaping doesn't help on tag names.
+ */
+const ELEMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+function assertElementName(name: string, context: string): void {
+  if (!ELEMENT_NAME_PATTERN.test(name)) {
+    throw new Error(
+      `${context}: '${name}' is not a valid BOS element name (expected C-identifier shape /^[A-Za-z_][A-Za-z0-9_]*$/)`,
+    );
+  }
+}
+
+/**
  * Build the `<HeadEntity action="edit" oid="...">` overlay that adds one
  * EntityServiceRule (with N services in `<WhenTrueBusinessServices>`).
  *
@@ -91,6 +106,9 @@ export function buildAddEntityRuleOverlay(
   parentHeadOid: string,
   rule: EntityServiceRuleArgs,
 ): string {
+  if (!parentHeadOid) throw new Error('buildAddEntityRuleOverlay: parentHeadOid is empty');
+  if (!rule.ruleId) throw new Error('buildAddEntityRuleOverlay: rule.ruleId is empty');
+
   const seq = rule.seq ?? 1;
   const preConditionDescElement = rule.preConditionDesc
     ? `<PreConditionDesc>${xmlEscape(rule.preConditionDesc)}</PreConditionDesc>`
@@ -98,12 +116,16 @@ export function buildAddEntityRuleOverlay(
 
   const servicesXml = rule.services
     .map((svc) => {
+      assertElementName(svc.className, 'buildAddEntityRuleOverlay: service className');
       const descElement = svc.description
         ? `<Description>${xmlEscape(svc.description)}</Description>`
         : '';
       const propsXml = svc.properties
         ? Object.entries(svc.properties)
-            .map(([k, v]) => `<${k}>${xmlEscape(v)}</${k}>`)
+            .map(([k, v]) => {
+              assertElementName(k, 'buildAddEntityRuleOverlay: service property name');
+              return `<${k}>${xmlEscape(v)}</${k}>`;
+            })
             .join('')
         : '';
       return (
@@ -144,6 +166,8 @@ export function buildRemoveEntityRuleOverlay(
   parentHeadOid: string,
   ruleId: string,
 ): string {
+  if (!parentHeadOid) throw new Error('buildRemoveEntityRuleOverlay: parentHeadOid is empty');
+  if (!ruleId) throw new Error('buildRemoveEntityRuleOverlay: ruleId is empty');
   return (
     `<HeadEntity action="edit" oid="${xmlEscape(parentHeadOid)}" ElementType="34" ElementStyle="0">` +
     `<EntityServiceRules>` +

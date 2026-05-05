@@ -134,6 +134,59 @@ describe('buildAddEntityRuleOverlay', () => {
   });
 });
 
+describe('buildAddEntityRuleOverlay validation', () => {
+  it('rejects empty parentHeadOid', () => {
+    expect(() =>
+      buildAddEntityRuleOverlay('', {
+        ruleId: RULE_ID,
+        description: 'x',
+        preCondition: 'True',
+        services: [{ className: 'FormBusinessService', actionId: 2, id: SVC_ID }],
+      }),
+    ).toThrow(/parentHeadOid is empty/);
+  });
+
+  it('rejects empty rule.ruleId', () => {
+    expect(() =>
+      buildAddEntityRuleOverlay(PARENT_HEAD_OID, {
+        ruleId: '',
+        description: 'x',
+        preCondition: 'True',
+        services: [{ className: 'FormBusinessService', actionId: 2, id: SVC_ID }],
+      }),
+    ).toThrow(/ruleId is empty/);
+  });
+
+  it('rejects service className that is not a valid BOS element name', () => {
+    expect(() =>
+      buildAddEntityRuleOverlay(PARENT_HEAD_OID, {
+        ruleId: RULE_ID,
+        description: 'x',
+        preCondition: 'True',
+        services: [{ className: 'Form Business Service', actionId: 2, id: SVC_ID }],
+      }),
+    ).toThrow(/not a valid BOS element name/);
+  });
+
+  it('rejects property name that is not a valid BOS element name', () => {
+    expect(() =>
+      buildAddEntityRuleOverlay(PARENT_HEAD_OID, {
+        ruleId: RULE_ID,
+        description: 'x',
+        preCondition: 'True',
+        services: [
+          {
+            className: 'GetInvStockBusinessServiceMeta',
+            actionId: 67,
+            id: SVC_ID,
+            properties: { 'Bad<Name': 'v' },
+          },
+        ],
+      }),
+    ).toThrow(/not a valid BOS element name/);
+  });
+});
+
 describe('buildRemoveEntityRuleOverlay', () => {
   it('emits HeadEntity wrapper with EntityServiceRule action="remove"', () => {
     const xml = buildRemoveEntityRuleOverlay(PARENT_HEAD_OID, RULE_ID);
@@ -145,6 +198,11 @@ describe('buildRemoveEntityRuleOverlay', () => {
     expect(xml).toContain('</HeadEntity>');
     // The remove form is self-closing — must not contain a child <Id>.
     expect(xml).not.toMatch(new RegExp(`<EntityServiceRule[^/]*>\\s*<Id>${RULE_ID}</Id>`));
+  });
+
+  it('rejects empty parentHeadOid / ruleId', () => {
+    expect(() => buildRemoveEntityRuleOverlay('', RULE_ID)).toThrow(/parentHeadOid is empty/);
+    expect(() => buildRemoveEntityRuleOverlay(PARENT_HEAD_OID, '')).toThrow(/ruleId is empty/);
   });
 });
 
