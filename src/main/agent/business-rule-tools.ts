@@ -1,9 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import type { ToolHandler } from './tools';
 import type { K3CloudConnector } from '../erp/k3cloud/connector';
 import {
   SERVICE_META_SCHEMAS,
   UNSUPPORTED_ACTION_ID_MESSAGE
 } from '../erp/k3cloud/business-rule-schemas';
+import { validateFieldExistence } from './validators/field-existence';
 
 function requireString(args: Record<string, unknown>, key: string): string {
   const v = args[key];
@@ -102,6 +104,221 @@ export function describeServiceMetaTool(): ToolHandler {
         );
       }
       return JSON.stringify({ found: true, actionId, ...schema }, null, 2);
+    }
+  };
+}
+
+/**
+ * Plan 5.12.3b Task 3.3 — add an entity-level GetInvStock (ActionId 67)
+ * business rule onto a BOS extension.
+ *
+ * Why a dedicated tool instead of a generic "add entity service rule":
+ *   - Each ActionId has its own property schema (`SERVICE_META_SCHEMAS`),
+ *     and BOS rejects rules whose properties don't match the class's
+ *     reflection. A typed tool surface lets the LLM see the right knobs in
+ *     its system prompt rather than blindly populating a free-form bag.
+ *   - GetInvStock + Calculate are the two ActionIds covered in v0.1
+ *     (recon at `docs/recon/business-rule-wire-format.md`); other classes
+ *     stay deferred to v0.2.
+ *
+ * Pre-flight checks:
+ *   1. `description` / `preCondition` non-empty (BOS Designer enforces this).
+ *   2. Every string-valued property the agent passed must reference a real
+ *      field — we merge the extension's delta-fields with the parent form's
+ *      original fields and run `validateFieldExistence`. Unknown fields come
+ *      back with Levenshtein-ranked "did you mean" suggestions.
+ *   3. Properties whose value equals the schema default are dropped from the
+ *      wire payload — the server fills them in itself, sending the default
+ *      bloats the overlay XML for no benefit.
+ *
+ * GUID conventions match Task 3.1's spike: rule id stays dashed, service id
+ * is 32-hex without dashes.
+ */
+export function addGetInvStockRuleTool(c: K3CloudConnector): ToolHandler {
+  const schema = SERVICE_META_SCHEMAS[67];
+  const propsSchema = schema.properties;
+
+  // Build the agent-facing `parameters` schema declaratively from the static
+  // service-meta schema. Each property becomes a string/number param with the
+  // recon-sourced description; `default` shows in the description so the LLM
+  // can decide whether overriding is needed without a separate
+  // describe_service_meta call.
+  const dynamicProps: Record<string, { type: string; description: string }> = {};
+  for (const [key, def] of Object.entries(propsSchema)) {
+    const baseType = def.type === 'number' ? 'number' : 'string';
+    const desc = def.default
+      ? `${def.description}（默认 "${def.default}"，仅在与默认不同时传）`
+      : def.description;
+    dynamicProps[key] = { type: baseType, description: desc };
+  }
+
+  return {
+    definition: {
+      name: 'k3cloud_add_get_inv_stock_rule',
+      description:
+        '在 BOS 扩展的实体级（HeadEntity）上加一条 GetInvStock（查可用库存，ActionId 67）业务规则。' +
+        '\n\n用途：当用户保存单据或在编辑时触发，按"物料 + 仓库 + 库存组织 ..."等键查询当前可用库存，把可用 / 在途 / 总量回填到指定字段。' +
+        '\n\n**规则前提**：BOS Designer 强制实体服务规则必须有非空 preCondition（IronPython 布尔表达式，决定何时触发）。' +
+        '\n\n**字段映射**：默认值与原厂表字段一致（FInvQty / FAwaitQty / FAvbQty / FSTOCKID / FMATERIALID 等）。仅在用户用了非默认字段名（多见于扩展自建库存字段）时显式传新值——参数描述里有默认值标注。' +
+        '\n\n**字段存在校验**：工具会反查扩展自身的 delta 字段 + 父对象原厂字段，agent 传的所有字符串字段必须真实存在；不存在则返回 `{found: false, errors: [{field, suggestions}]}`，suggestions 是 Levenshtein 最近匹配。' +
+        '\n\n**写路径**：通过 SaveForIDEV9 落库，扩展会被服务端校验。**保存成功后**：请让用户关闭客户端整个重登才能看到新规则触发（BOS 客户端有缓存）。',
+      parameters: {
+        type: 'object',
+        properties: {
+          extensionFid: {
+            type: 'string',
+            description: '扩展对象的 FID（GUID，32 位 hex 或带连字符）。'
+          },
+          description: {
+            type: 'string',
+            description: '规则中文名 / 用途描述，会显示在 BOS Designer 业务规则列表里。必填非空。'
+          },
+          preCondition: {
+            type: 'string',
+            description:
+              'IronPython 布尔表达式，BOS 会在保存 / 编辑触发点 evaluate 它，true 才执行规则。必填非空。' +
+              "示例：`FBillTypeID.FNumber == '01.01'` / `FCustId.FNumber != \"\"` / `True`（永远触发）。"
+          },
+          preConditionDesc: {
+            type: 'string',
+            description: '（可选）前置条件中文描述，给客户在 BOS Designer 里能看懂何时触发。'
+          },
+          ...dynamicProps
+        },
+        required: ['extensionFid', 'description', 'preCondition']
+      }
+    },
+    async execute(args) {
+      const extensionFid = requireString(args, 'extensionFid');
+      const description = requireString(args, 'description');
+      const preCondition = requireString(args, 'preCondition');
+      const preConditionDesc =
+        typeof args.preConditionDesc === 'string' && args.preConditionDesc.trim() !== ''
+          ? args.preConditionDesc.trim()
+          : undefined;
+
+      // Resolve parent form from extension to load its field schema.
+      const ext = await c.getObject(extensionFid);
+      if (!ext) {
+        return JSON.stringify(
+          {
+            found: false,
+            extensionFid,
+            message: `扩展 ${extensionFid} 不存在 — 检查 FID 拼写，或先用 k3cloud_list_extensions 找一下。`
+          },
+          null,
+          2
+        );
+      }
+      if (!ext.baseObjectId) {
+        return JSON.stringify(
+          {
+            found: false,
+            extensionFid,
+            message: `扩展 ${extensionFid} 缺少 BaseObjectId — 不是有效的 BOS 扩展。`
+          },
+          null,
+          2
+        );
+      }
+
+      // Load both extension delta-fields and parent original-fields.
+      // Business rule properties may reference either source.
+      const [extFields, parentFields] = await Promise.all([
+        c.getFields(extensionFid),
+        c.getFields(ext.baseObjectId)
+      ]);
+      const knownFieldKeys = Array.from(
+        new Set([
+          ...extFields.map((f) => f.key),
+          ...parentFields.map((f) => f.key)
+        ])
+      );
+
+      // Collect string-typed property values the agent supplied that exist
+      // in the schema. Skip non-string values (number / undefined) — only
+      // string properties carry field references. Properties NOT in the
+      // schema are silently dropped (typo-tolerant); fields the LLM might
+      // mis-type are caught one layer up by the existence check.
+      const referenced: string[] = [];
+      const userProperties: Record<string, unknown> = {};
+      for (const [k, def] of Object.entries(propsSchema)) {
+        const v = (args as Record<string, unknown>)[k];
+        if (v === undefined || v === null) continue;
+        if (def.type === 'string') {
+          if (typeof v !== 'string') continue;
+          const trimmed = v.trim();
+          if (trimmed === '') continue;
+          referenced.push(trimmed);
+          userProperties[k] = trimmed;
+        } else if (def.type === 'number') {
+          if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+          userProperties[k] = v;
+        } else {
+          // Unknown schema type (shouldn't happen for ActionId 67) — pass through.
+          userProperties[k] = v;
+        }
+      }
+
+      // Field existence check.
+      const validation = validateFieldExistence(referenced, { fields: knownFieldKeys });
+      if (!validation.ok) {
+        return JSON.stringify(
+          {
+            found: false,
+            extensionFid,
+            message: '业务规则引用了不存在的字段 — 服务端会拒绝，不发送。',
+            errors: validation.errors!.map((e) => ({
+              field: e.field,
+              suggestions: e.suggestions,
+              hint: `字段 ${e.field} 不在父对象 ${ext.baseObjectId} 或扩展 ${extensionFid} 上。最近匹配：${e.suggestions.join(' / ')}`
+            }))
+          },
+          null,
+          2
+        );
+      }
+
+      // Strip schema defaults — server fills them in, sending equals-default
+      // bloats overlay XML and noises up BOS Designer diff.
+      const properties: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(userProperties)) {
+        const def = propsSchema[k];
+        if (def && def.default !== undefined && v === def.default) continue;
+        properties[k] = v;
+      }
+
+      const ruleId = randomUUID(); // dashed form (rule conventions allow both)
+      const serviceId = randomUUID().replace(/-/g, ''); // 32-hex without dashes
+      const result = await c.addEntityServiceRule({
+        extensionFid,
+        ruleId,
+        description,
+        preCondition,
+        preConditionDesc,
+        services: [
+          {
+            className: 'GetInvStockBusinessServiceMeta',
+            actionId: 67,
+            id: serviceId,
+            properties
+          }
+        ]
+      });
+
+      return JSON.stringify(
+        {
+          found: true,
+          extensionFid,
+          ruleId: result.ruleId,
+          serviceId,
+          message:
+            `GetInvStock 规则已添加（ruleId=${result.ruleId}）。` +
+            '请让用户关闭客户端整个重登以确认（BOS 客户端有缓存）。'
+        },
+        null,
+        2
+      );
     }
   };
 }

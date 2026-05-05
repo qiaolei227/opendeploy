@@ -5,7 +5,8 @@ import type { K3CloudConnector } from '../erp/k3cloud/connector';
 import {
   listBusinessRulesTool,
   deleteBusinessRuleTool,
-  describeServiceMetaTool
+  describeServiceMetaTool,
+  addGetInvStockRuleTool
 } from './business-rule-tools';
 
 /**
@@ -44,7 +45,8 @@ export function buildK3CloudTools(connector?: K3CloudConnector): ToolHandler[] {
     addConvertBillTypeMapTool(c),
     listBusinessRulesTool(c),
     deleteBusinessRuleTool(c),
-    describeServiceMetaTool()
+    describeServiceMetaTool(),
+    addGetInvStockRuleTool(c)
   ];
 }
 
