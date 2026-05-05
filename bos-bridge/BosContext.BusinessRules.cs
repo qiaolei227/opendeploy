@@ -191,6 +191,83 @@ namespace OpenDeploy.BosBridge
         }
 
         /// <summary>
+        /// Append a <c>FormBusinessService</c> (or subclass) instance to a
+        /// Field's <c>UpdateActions</c> collection. The most common Calculate
+        /// use case (ActionId=2) fires when this field's value changes;
+        /// <c>disabledEvents</c> lets callers suppress specific RaiseEvent
+        /// channels (e.g. <c>RaiseValueChanged</c> to avoid recalculation
+        /// loops). Per Tier B recon §1.2, those properties are typed
+        /// <see cref="ServiceRaiseMode"/> with <c>DisableRaise</c> as the
+        /// override; <see cref="ConvertValue"/> handles the string→enum
+        /// coercion. Returns the re-serialized DCXML.
+        /// </summary>
+        public string AddFieldUpdateAction(string xml, AddFieldUpdateActionArgs args)
+        {
+            if (string.IsNullOrEmpty(xml)) throw new ArgumentException("xml is empty", nameof(xml));
+            if (args == null) throw new ArgumentNullException(nameof(args));
+            if (string.IsNullOrEmpty(args.FieldKey))
+                throw new ArgumentException("fieldKey is empty", "fieldKey");
+
+            var formMeta = _serializer.DeserializeFromString(xml)
+                ?? throw new InvalidOperationException("DeserializeFromString returned null");
+
+            var businessInfo = formMeta.GetType().GetProperty("BusinessInfo")?.GetValue(formMeta)
+                ?? throw new InvalidOperationException(
+                    $"input deserialized to {formMeta.GetType().FullName} which has no BusinessInfo");
+
+            var field = FindField(businessInfo, args.FieldKey)
+                ?? throw new InvalidOperationException(
+                    $"field with Key='{args.FieldKey}' not found in BusinessInfo (or has no UpdateActions property)");
+
+            var actionsList = GetOrCreateUpdateActions(field);
+
+            if (args.Services != null)
+            {
+                foreach (var svc in args.Services)
+                {
+                    if (svc == null) continue;
+                    if (string.IsNullOrEmpty(svc.ClassName))
+                        throw new ArgumentException("services[].className is empty");
+
+                    var svcType = ResolveServiceMetaType(svc.ClassName);
+                    var instance = Activator.CreateInstance(svcType)!;
+
+                    SetProp(instance, "Id", Guid.NewGuid().ToString("N"));
+                    SetProp(instance, "ActionId", svc.ActionId);
+
+                    if (svc.Parameters != null && svc.Parameters.Count > 0)
+                    {
+                        // FormBusinessService.Parameters is a string property
+                        // that internally re-parses a JSON array of assignment
+                        // strings (`[" F_X = 1 "]`). Serialize the user-given
+                        // string[] into that JSON shape; the wire-level recon
+                        // (`docs/recon/2026-05-04-business-rules-tier-b.md`
+                        // §1.1) shows BOS does NOT trim spaces inside the
+                        // assignment strings, so preserve them verbatim.
+                        SetProp(instance, "Parameters", JsonConvert.SerializeObject(svc.Parameters));
+                    }
+
+                    if (args.DisabledEvents != null)
+                    {
+                        foreach (var evt in args.DisabledEvents)
+                        {
+                            if (string.IsNullOrEmpty(evt)) continue;
+                            // SetProp uses ConvertValue which Enum.Parse'es
+                            // the string into ServiceRaiseMode.DisableRaise.
+                            // Property names are the 8 Raise* properties
+                            // documented at FormBusinessService.cs:259-371.
+                            SetProp(instance, evt, "DisableRaise");
+                        }
+                    }
+
+                    actionsList.Add(instance);
+                }
+            }
+
+            return _serializer.SerializeToString(formMeta, null);
+        }
+
+        /// <summary>
         /// Yield every Element exposed by the BusinessInfo. After full
         /// initialization (BusinessInfo.EndInit) entities live in <c>Entrys</c>
         /// and fields/forms in <c>_elements</c>; while DCXML is still being
@@ -488,6 +565,43 @@ namespace OpenDeploy.BosBridge
             return list;
         }
 
+        /// <summary>
+        /// Locate a Field in BusinessInfo by Key. Walks via
+        /// <see cref="EnumerateBusinessElements"/> and only matches elements
+        /// that expose <c>UpdateActions</c> — entities also have a Key but no
+        /// UpdateActions, so this filter avoids returning a HeadEntity when
+        /// the user passed an entity key by mistake.
+        /// </summary>
+        private static object? FindField(object businessInfo, string fieldKey)
+        {
+            foreach (var element in EnumerateBusinessElements(businessInfo))
+            {
+                if (element.GetType().GetProperty("UpdateActions") == null) continue;
+                var key = ReadStringProperty(element, "Key");
+                if (string.Equals(key, fieldKey, StringComparison.Ordinal)) return element;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Mirror of <see cref="GetOrCreateEntityServiceRules"/> for a Field's
+        /// <c>UpdateActions</c>. Field's ctor pre-inits the collection
+        /// (decompiled at .scratch/decompile/Field.cs:396 — `UpdateActions = new
+        /// List&lt;FormBusinessService&gt;()`), so the create-and-set-back path
+        /// is a defensive fallback for unfamiliar field subclasses.
+        /// </summary>
+        private static IList GetOrCreateUpdateActions(object field)
+        {
+            var prop = field.GetType().GetProperty("UpdateActions", BindingFlags.Public | BindingFlags.Instance)
+                ?? throw new InvalidOperationException(
+                    $"{field.GetType().FullName} has no UpdateActions property");
+            var list = prop.GetValue(field) as IList;
+            if (list != null) return list;
+            list = (IList)Activator.CreateInstance(prop.PropertyType)!;
+            prop.SetValue(field, list);
+            return list;
+        }
+
         // Process-lifetime, no invalidation. The BOS dll set is loaded once at
         // bridge startup (DllResolver) and the AppDomain stays alive for the
         // bridge's whole life — type identities and the subclass set don't move.
@@ -563,6 +677,35 @@ namespace OpenDeploy.BosBridge
 
             [JsonProperty("properties")]
             public Dictionary<string, object?>? Properties { get; set; }
+        }
+
+        // Task 2.3 uses a separate args/service DTO pair: services here carry
+        // a `Parameters: string[]` (JSON-serialized into FormBusinessService's
+        // string-typed Parameters property) instead of the dictionary-shaped
+        // Properties bag, and the field-level case adds top-level
+        // `disabledEvents: string[]` for ServiceRaiseMode overrides.
+        internal sealed class AddFieldUpdateActionArgs
+        {
+            [JsonProperty("fieldKey")]
+            public string FieldKey { get; set; } = string.Empty;
+
+            [JsonProperty("services")]
+            public List<FieldServiceArg>? Services { get; set; } = new List<FieldServiceArg>();
+
+            [JsonProperty("disabledEvents")]
+            public List<string>? DisabledEvents { get; set; }
+        }
+
+        internal sealed class FieldServiceArg
+        {
+            [JsonProperty("className")]
+            public string ClassName { get; set; } = string.Empty;
+
+            [JsonProperty("actionId")]
+            public long ActionId { get; set; }
+
+            [JsonProperty("parameters")]
+            public List<string>? Parameters { get; set; }
         }
     }
 }

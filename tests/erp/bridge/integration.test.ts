@@ -330,4 +330,74 @@ describeIfBridge('bos-bridge integration', () => {
       className: 'FormBusinessService',
     });
   });
+
+  // ── Plan 5.12.3b Task 2.3 — add_field_update_action ────────────────────
+  // Adds a FormBusinessService instance to a Field's UpdateActions
+  // collection (the field-level Calculate use case: fire when this field
+  // changes). Round-trip via list_business_rules to confirm the new action
+  // is detected with the right fieldKey + actionId + parameters substring.
+
+  it('add_field_update_action adds Calculate UpdateAction to a Field, list returns it', async () => {
+    const inputXml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/business-rules-no-rules.xml',
+      'utf8',
+    );
+
+    const { xml: patchedXml } = await client.send<{ xml: string }>('add_field_update_action', {
+      xml: inputXml,
+      // Fixture's only IntegerField — plan pseudocode said F_TestInt but
+      // the seeded fixture uses the project's actual prefix.
+      fieldKey: 'F_PAIJ_TestInt',
+      services: [
+        {
+          className: 'FormBusinessService',
+          actionId: 2,
+          parameters: [' F_TestDecimal = F_PAIJ_TestInt * 2 '],
+        },
+      ],
+      disabledEvents: ['RaiseValueChanged'],
+    });
+
+    expect(patchedXml).toMatch(/^<\?xml/);
+    // disabledEvents went through to wire — assert directly since the list
+    // summary doesn't surface RaiseEvent settings.
+    expect(patchedXml).toContain('<RaiseValueChanged>DisableRaise</RaiseValueChanged>');
+
+    const listed = await client.send<{
+      fieldUpdateActions: Array<{
+        fieldKey: string;
+        actionId: number;
+        className: string;
+        parameters?: string;
+      }>;
+    }>('list_business_rules', { xml: patchedXml });
+
+    const action = listed.fieldUpdateActions.find((a) => a.fieldKey === 'F_PAIJ_TestInt');
+    expect(action).toBeDefined();
+    expect(action!.actionId).toBe(2);
+    expect(action!.className).toBe('FormBusinessService');
+    // Parameters property serializes back as the JSON-string we set.
+    expect(action!.parameters).toContain('F_TestDecimal');
+    expect(action!.parameters).toContain('F_PAIJ_TestInt');
+  });
+
+  it('add_field_update_action rejects unknown fieldKey', async () => {
+    const inputXml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/business-rules-no-rules.xml',
+      'utf8',
+    );
+    await expect(
+      client.send('add_field_update_action', {
+        xml: inputXml,
+        fieldKey: 'F_DoesNotExist',
+        services: [
+          {
+            className: 'FormBusinessService',
+            actionId: 2,
+            parameters: [' F_X = 1 '],
+          },
+        ],
+      }),
+    ).rejects.toThrow(/F_DoesNotExist/);
+  });
 });

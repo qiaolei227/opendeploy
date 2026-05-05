@@ -163,6 +163,13 @@ namespace OpenDeploy.BosBridge
                         ?? throw new InvalidOperationException("failed to deserialize add_entity_service_rule args");
                     return new { xml = ctx.AddEntityServiceRule(xml, args) };
                 }
+                case "add_field_update_action":
+                {
+                    var xml = RequireString(req, "xml");
+                    var args = req.ToObject<BosContext.AddFieldUpdateActionArgs>()
+                        ?? throw new InvalidOperationException("failed to deserialize add_field_update_action args");
+                    return new { xml = ctx.AddFieldUpdateAction(xml, args) };
+                }
                 default:
                     throw new InvalidOperationException($"unknown op: {op}");
             }
