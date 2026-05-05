@@ -400,4 +400,84 @@ describeIfBridge('bos-bridge integration', () => {
       }),
     ).rejects.toThrow(/F_DoesNotExist/);
   });
+
+  // ── Plan 5.12.3b Task 2.4 — remove_business_rule ───────────────────────
+  // Scans entity-level EntityServiceRules first, then field-level
+  // UpdateActions. First Id match wins and is removed; result.location
+  // tells the caller which collection it came from. Throws with /not
+  // found/ when the ruleId matches nothing — agents need a clear error to
+  // surface to the user (silent no-op would be a bug).
+
+  it('remove_business_rule removes entity service rule by id, list confirms gone', async () => {
+    const inputXml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/business-rules-no-rules.xml',
+      'utf8',
+    );
+    const ruleId = '22222222-2222-2222-2222-222222222222';
+
+    const { xml: withRule } = await client.send<{ xml: string }>('add_entity_service_rule', {
+      xml: inputXml,
+      ruleId,
+      description: 'temp',
+      preCondition: 'True',
+      services: [
+        { className: 'GetInvStockBusinessServiceMeta', actionId: 67, properties: {} },
+      ],
+    });
+
+    const { xml: removed, location } = await client.send<{ xml: string; location: string }>(
+      'remove_business_rule',
+      { xml: withRule, ruleId },
+    );
+    expect(location).toBe('entity');
+
+    const listed = await client.send<{ entityRules: Array<{ ruleId: string }> }>(
+      'list_business_rules',
+      { xml: removed },
+    );
+    expect(listed.entityRules.find((r) => r.ruleId === ruleId)).toBeUndefined();
+  });
+
+  it('remove_business_rule removes field update action by id, location reports "field"', async () => {
+    const inputXml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/business-rules-no-rules.xml',
+      'utf8',
+    );
+
+    const { xml: withAction } = await client.send<{ xml: string }>('add_field_update_action', {
+      xml: inputXml,
+      // Same prefix correction as Task 2.3 — fixture uses F_PAIJ_TestInt
+      // (project namespace), not the F_TestInt that plan pseudocode shows.
+      fieldKey: 'F_PAIJ_TestInt',
+      services: [
+        {
+          className: 'FormBusinessService',
+          actionId: 2,
+          parameters: ['F_TestDecimal = 1'],
+        },
+      ],
+    });
+    const listed1 = await client.send<{ fieldUpdateActions: Array<{ serviceId: string }> }>(
+      'list_business_rules',
+      { xml: withAction },
+    );
+    const serviceId = listed1.fieldUpdateActions[0].serviceId;
+    expect(serviceId).toBeTruthy();
+
+    const { location } = await client.send<{ xml: string; location: string }>(
+      'remove_business_rule',
+      { xml: withAction, ruleId: serviceId },
+    );
+    expect(location).toBe('field');
+  });
+
+  it('remove_business_rule throws clearly when ruleId not found', async () => {
+    const inputXml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/business-rules-no-rules.xml',
+      'utf8',
+    );
+    await expect(
+      client.send('remove_business_rule', { xml: inputXml, ruleId: 'does-not-exist' }),
+    ).rejects.toThrow(/not found/);
+  });
 });

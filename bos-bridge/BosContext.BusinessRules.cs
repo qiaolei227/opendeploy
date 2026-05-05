@@ -268,6 +268,91 @@ namespace OpenDeploy.BosBridge
         }
 
         /// <summary>
+        /// Remove a business rule by its <c>Id</c>. Scans entity-level
+        /// <c>EntityServiceRules</c> first, then field-level
+        /// <c>UpdateActions</c>; first match wins. Returns the re-serialized
+        /// DCXML plus a <c>location</c> tag of <c>"entity"</c> or <c>"field"</c>
+        /// so callers know which collection the id came from. Throws
+        /// <see cref="InvalidOperationException"/> with <c>not found</c> in
+        /// the message when no rule matches — silent no-op would mask agent
+        /// bugs (e.g. listing then removing with stale state) and the wire
+        /// caller maps the C# exception to a tool error the user sees.
+        /// </summary>
+        public RemoveBusinessRuleResult RemoveBusinessRule(string xml, string ruleId)
+        {
+            if (string.IsNullOrEmpty(xml)) throw new ArgumentException("xml is empty", nameof(xml));
+            if (string.IsNullOrEmpty(ruleId)) throw new ArgumentException("ruleId is empty", nameof(ruleId));
+
+            var formMeta = _serializer.DeserializeFromString(xml)
+                ?? throw new InvalidOperationException("DeserializeFromString returned null");
+
+            var businessInfo = formMeta.GetType().GetProperty("BusinessInfo")?.GetValue(formMeta)
+                ?? throw new InvalidOperationException(
+                    $"input deserialized to {formMeta.GetType().FullName} which has no BusinessInfo");
+
+            // One unified walk over BusinessInfo elements (matches the
+            // ListBusinessRules pattern at line 49+). For each element we
+            // probe BOTH EntityServiceRules and UpdateActions — a single
+            // element only exposes one of them in practice (entity-shaped
+            // vs field-shaped), but the probe order here defines the scan
+            // order: entities-then-fields per task spec. Since each element
+            // surfaces only one of the two collections, the probe order
+            // within an element doesn't reorder hits across elements;
+            // EnumerateBusinessElements yields entities (from Entrys) and
+            // fields in a stable order that already groups entity-shaped
+            // first via the Elements/Entrys layering.
+            foreach (var element in EnumerateBusinessElements(businessInfo))
+            {
+                if (element.GetType().GetProperty("EntityServiceRules")?.GetValue(element) is IList rules
+                    && TryRemoveById(rules, ruleId))
+                {
+                    return new RemoveBusinessRuleResult
+                    {
+                        Xml = _serializer.SerializeToString(formMeta, null),
+                        Location = "entity",
+                    };
+                }
+            }
+
+            foreach (var element in EnumerateBusinessElements(businessInfo))
+            {
+                if (element.GetType().GetProperty("UpdateActions")?.GetValue(element) is IList actions
+                    && TryRemoveById(actions, ruleId))
+                {
+                    return new RemoveBusinessRuleResult
+                    {
+                        Xml = _serializer.SerializeToString(formMeta, null),
+                        Location = "field",
+                    };
+                }
+            }
+
+            throw new InvalidOperationException(
+                $"business rule with Id='{ruleId}' not found in any entity EntityServiceRules or field UpdateActions");
+        }
+
+        /// <summary>
+        /// Find-and-remove the first item in <paramref name="list"/> whose
+        /// reflected <c>Id</c> property equals <paramref name="ruleId"/>.
+        /// Returns true on hit. Used by <see cref="RemoveBusinessRule"/> to
+        /// keep the entity-vs-field walks readable.
+        /// </summary>
+        private static bool TryRemoveById(IList list, string ruleId)
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                var item = list[i];
+                if (item == null) continue;
+                if (string.Equals(ReadStringProperty(item, "Id"), ruleId, StringComparison.Ordinal))
+                {
+                    list.RemoveAt(i);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Yield every Element exposed by the BusinessInfo. After full
         /// initialization (BusinessInfo.EndInit) entities live in <c>Entrys</c>
         /// and fields/forms in <c>_elements</c>; while DCXML is still being
@@ -501,6 +586,17 @@ namespace OpenDeploy.BosBridge
 
             [JsonProperty("parameters")]
             public string? Parameters { get; set; }
+        }
+
+        public sealed class RemoveBusinessRuleResult
+        {
+            [JsonProperty("xml")]
+            public string Xml { get; set; } = string.Empty;
+
+            // "entity" | "field" — string instead of enum to keep the JSON
+            // wire shape stable without Newtonsoft StringEnumConverter setup.
+            [JsonProperty("location")]
+            public string Location { get; set; } = string.Empty;
         }
 
         // ── add/modify helpers (Tasks 2.2-2.4 share these) ────────────────

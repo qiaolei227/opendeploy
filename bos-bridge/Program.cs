@@ -170,6 +170,12 @@ namespace OpenDeploy.BosBridge
                         ?? throw new InvalidOperationException("failed to deserialize add_field_update_action args");
                     return new { xml = ctx.AddFieldUpdateAction(xml, args) };
                 }
+                case "remove_business_rule":
+                {
+                    var xml = RequireString(req, "xml");
+                    var ruleId = RequireString(req, "ruleId");
+                    return ctx.RemoveBusinessRule(xml, ruleId);
+                }
                 default:
                     throw new InvalidOperationException($"unknown op: {op}");
             }
