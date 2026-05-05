@@ -290,17 +290,14 @@ namespace OpenDeploy.BosBridge
                 ?? throw new InvalidOperationException(
                     $"input deserialized to {formMeta.GetType().FullName} which has no BusinessInfo");
 
-            // One unified walk over BusinessInfo elements (matches the
-            // ListBusinessRules pattern at line 49+). For each element we
-            // probe BOTH EntityServiceRules and UpdateActions — a single
-            // element only exposes one of them in practice (entity-shaped
-            // vs field-shaped), but the probe order here defines the scan
-            // order: entities-then-fields per task spec. Since each element
-            // surfaces only one of the two collections, the probe order
-            // within an element doesn't reorder hits across elements;
-            // EnumerateBusinessElements yields entities (from Entrys) and
-            // fields in a stable order that already groups entity-shaped
-            // first via the Elements/Entrys layering.
+            // Two passes — first sweeps every element's EntityServiceRules,
+            // second sweeps every element's UpdateActions. Globally entity-
+            // first regardless of how EnumerateBusinessElements interleaves
+            // entity-shaped and field-shaped objects (today the walker
+            // groups by Elements then Entrys+Fields, but that grouping
+            // isn't part of its docstring contract — keeping the scan
+            // order at this level locks the semantics: entity-level rules
+            // win over a field-level service that happens to share the Id).
             foreach (var element in EnumerateBusinessElements(businessInfo))
             {
                 if (element.GetType().GetProperty("EntityServiceRules")?.GetValue(element) is IList rules
