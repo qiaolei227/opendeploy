@@ -219,4 +219,78 @@ describeIfBridge('bos-bridge integration', () => {
   it('list_business_rules rejects empty xml', async () => {
     await expect(client.send('list_business_rules', { xml: '' })).rejects.toThrow(/xml is empty/);
   });
+
+  // ── Plan 5.12.3b Task 2.2 — add_entity_service_rule ────────────────────
+  // Adds an EntityServiceRule to BusinessInfo.HeadEntity.EntityServiceRules
+  // and re-serializes. Round-trip via list_business_rules to confirm the
+  // new rule is detected with the right ruleId, preCondition, and service
+  // class (GetInvStockBusinessServiceMeta @ ActionId=67).
+
+  it('add_entity_service_rule adds GetInvStock rule to HeadEntity, list returns it', async () => {
+    const inputXml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/business-rules-no-rules.xml',
+      'utf8',
+    );
+    const ruleId = '11111111-1111-1111-1111-111111111111';
+
+    const { xml: patchedXml } = await client.send<{ xml: string }>('add_entity_service_rule', {
+      xml: inputXml,
+      ruleId,
+      description: 'TS test - GetInvStock',
+      preCondition: " FBillTypeID.FNumber = '01.01'",
+      preConditionDesc: 'test',
+      entityKey: 'FBillHead',
+      services: [
+        {
+          className: 'GetInvStockBusinessServiceMeta',
+          actionId: 67,
+          properties: { StockQtyField: 'F_TestQty' },
+        },
+      ],
+    });
+
+    expect(patchedXml).toMatch(/^<\?xml/);
+
+    const listed = await client.send<{
+      entityRules: Array<{
+        ruleId: string;
+        entityKey: string;
+        preCondition: string;
+        services: Array<{ branch: string; actionId: number; className: string }>;
+      }>;
+    }>('list_business_rules', { xml: patchedXml });
+
+    const found = listed.entityRules.find((r) => r.ruleId === ruleId);
+    expect(found).toBeDefined();
+    expect(found!.entityKey).toBe('FBillHead');
+    expect(found!.preCondition).toContain("'01.01'");
+    expect(found!.services).toHaveLength(1);
+    expect(found!.services[0]).toMatchObject({
+      branch: 'whenTrue',
+      actionId: 67,
+      className: 'GetInvStockBusinessServiceMeta',
+    });
+  });
+
+  it('add_entity_service_rule rejects empty preCondition', async () => {
+    const inputXml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/business-rules-no-rules.xml',
+      'utf8',
+    );
+    await expect(
+      client.send('add_entity_service_rule', {
+        xml: inputXml,
+        ruleId: '22222222-2222-2222-2222-222222222222',
+        description: 'no precondition',
+        preCondition: '',
+        services: [
+          {
+            className: 'GetInvStockBusinessServiceMeta',
+            actionId: 67,
+            properties: {},
+          },
+        ],
+      }),
+    ).rejects.toThrow(/preCondition/i);
+  });
 });

@@ -151,6 +151,18 @@ namespace OpenDeploy.BosBridge
                 }
                 case "list_business_rules":
                     return ctx.ListBusinessRules(RequireString(req, "xml"));
+                case "add_entity_service_rule":
+                {
+                    var xml = RequireString(req, "xml");
+                    // Deserialize args from the same JObject — Newtonsoft
+                    // honors the [JsonProperty] camelCase mapping on
+                    // AddEntityServiceRuleArgs / ServiceArg so the wire keys
+                    // (ruleId, preCondition, services[].className, ...)
+                    // bind cleanly without manual JToken plumbing.
+                    var args = req.ToObject<BosContext.AddEntityServiceRuleArgs>()
+                        ?? throw new InvalidOperationException("failed to deserialize add_entity_service_rule args");
+                    return new { xml = ctx.AddEntityServiceRule(xml, args) };
+                }
                 default:
                     throw new InvalidOperationException($"unknown op: {op}");
             }
