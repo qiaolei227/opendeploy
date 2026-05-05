@@ -36,6 +36,15 @@
 - `k3cloud_rename_tab_page` — 改 TabPage 标题。
 - `k3cloud_rename_tab_control` — 改 TabControl 标题。
 
+**BOS 业务规则 写入**(Plan 5.12.3b — Calculate / GetInvStock):
+- `k3cloud_list_business_rules` — 列扩展上所有业务规则(实体级 EntityServiceRule + 字段级 UpdateAction)。**写规则前 / 写规则后闭环都用它**。
+- `k3cloud_describe_service_meta` — 查 ActionId 对应的 service 类参数 schema。v0.1 支持 `2`(Calculate / FormBusinessService)和 `67`(GetInvStock / GetInvStockBusinessServiceMeta)。**写规则前必查**,拿到 paras schema 才能正确填 service.paras。
+- `k3cloud_add_get_inv_stock_rule` — 加一条实体级 GetInvStock 规则(查可用库存,挂 HeadEntity)。`preCondition` 必填非空。
+- `k3cloud_add_calculate_rule` — 加一条 Calculate 规则(IronPython 赋值)。两种挂载点:
+  - `mountPoint.kind: 'field'` — 字段级 UpdateAction(最常见,字段值变化触发)
+  - `mountPoint.kind: 'entity'` — 实体级 EntityServiceRule(挂 HeadEntity,按 preCondition 触发,**preCondition 必填非空**)
+- `k3cloud_delete_business_rule` — 按 ruleId 删规则。**v0.1 限制**:字段级 UpdateAction 删除暂未实现(会抛 deferred-to-v0.2 错);实体级正常删。
+
 **v0.1 限制**:
 - DLL 插件注册暂不支持(只支持 Python 表单插件)
 - 多 locale 名称暂时只写中文(2052)
@@ -169,6 +178,39 @@ OpenDeploy 创建的扩展,**必须用 `k3cloud_delete_extension` 工具删**(�
 3. 反查异常 → **不要硬说"完成"**,告知用户写入失败,贴 messageDetail 让用户看
 4. 完成消息中提示用户 BOS Designer 工具栏刷新 + 客户端缓存关闭重登
 
+### 业务规则:写之前先查 schema,IronPython 别照搬 SQL
+
+加 / 改业务规则的 4 步:
+
+1. **`k3cloud_list_business_rules <extId>`** — 看扩展上现有规则,避免名字冲突 / 重复挂。
+2. **`k3cloud_describe_service_meta <actionId>`** — 拿 service 参数 schema(v0.1 仅 `2` Calculate / `67` GetInvStock 两种)。**这步不能跳** —— 不查 schema 直接写 paras 容易拼错字段名,服务端报错才发现。
+3. **`k3cloud_add_get_inv_stock_rule` / `k3cloud_add_calculate_rule`** 按 schema 填好后下发。
+4. 工具返回 `{found: false, errors, retryHint}`(预校验失败) → **按 retryHint 修正 IronPython 表达式后重试同一个工具**,不要换工具或绕开校验。
+
+**实体级规则 `preCondition` 必填非空** —— 服务端无 preCondition 的实体规则会**每次单据保存都触发**,客户场景几乎从不需要这种行为。常用 preCondition(IronPython 布尔表达式,可访问 BOS 上下文 helper 如 `OperationStatus()`):
+
+```python
+OperationStatus() == 'Add'           # 仅新增时触发
+FBillTypeID.FNumber == '01.01'       # 指定单据类型
+FAmount > 1000000                    # 金额阈值
+True                                 # 永远触发(几乎只用于 demo,生产慎用)
+```
+
+**IronPython 2.7 vs SQL —— 常见翻译错(Calculate validator 已硬拦,但你也别自己提议)**:
+
+| 错(SQL 风格) | 对(IronPython) |
+|---|---|
+| `ROUND(x, 2)` | `round(x, 2)`(全小写) |
+| `IIF(a > 0, 1, 0)` | `1 if a > 0 else 0`(三目) |
+| `CONCAT(a, b)` | `a + b`(字符串相加) |
+| `DATEADD('d', 7, FDate)` | `FDate.AddDays(7)`(.NET 实例方法) |
+| `ISNULL(FCustId, 0)` | `0 if FCustId is None else FCustId`(`is None` 判空) |
+| `LEN(s)` / `SUBSTR(s, 1, 3)` | `len(s)` / `s[0:3]`(Python 内置) |
+
+**v0.1 不支持的 ActionId** —— `3` / `23` / `42` / `70`。客户场景需要这些动作(数据校验 / 复杂联动 / 自定义服务)→ 用 `k3cloud_register_python_plugins` 写表单插件实现,**不要硬塞 Calculate**。客户问"这个能不能用业务规则做" → 不在 v0.1 支持的 2 / 67 内就老实说"v0.1 业务规则只覆盖 Calculate 和 GetInvStock 两种,你这个用 Python 表单插件实现"。
+
+写完成功后,提示用户:**BOS Designer 工具栏刷新 + 客户端关闭重登**(规则也走元数据缓存,详见 memory `bos_client_cache_relogin`)。
+
 ### 写入后的闭环——必做反查
 
 base-system 硬规则要求"写完必须验证才能说完成"。K/3 Cloud 的具体闭环:
@@ -180,6 +222,10 @@ base-system 硬规则要求"写完必须验证才能说完成"。K/3 Cloud 的�
    | `k3cloud_create_extension` | `k3cloud_list_extensions <parentFormId>` | 列表里有新 extId + 名称对得上 |
    | `k3cloud_add_fields` | `k3cloud_get_extension_fields <extId>` | 列表里**所有**新 key + caption 都对得上,count = 你刚加的数量 |
    | `k3cloud_register_python_plugins` | `k3cloud_list_form_plugins <extId>` | 列表里**所有**新 className + `type=python` + pyScript 不为空 |
+   | `k3cloud_add_get_inv_stock_rule` | `k3cloud_list_business_rules <extId>` | `entityRules` 里有新 ruleId + description 对得上 + `services[0].actionId === 67` |
+   | `k3cloud_add_calculate_rule` (field) | `k3cloud_list_business_rules <extId>` | `fieldUpdateActions` 里有新 serviceId + fieldKey 对得上 + `actionId === 2` |
+   | `k3cloud_add_calculate_rule` (entity) | `k3cloud_list_business_rules <extId>` | `entityRules` 里有新 ruleId + preCondition 对得上 + `services[0].actionId === 2` |
+   | `k3cloud_delete_business_rule` | `k3cloud_list_business_rules <extId>` | 列表里**没有**那个 ruleId |
 
    **千万别用 `k3cloud_get_fields` 验扩展字段** —— 它只看父对象原厂字段,扩展字段永远查不到,会让你误以为写入失败。
 
