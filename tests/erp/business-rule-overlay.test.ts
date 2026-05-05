@@ -17,6 +17,7 @@ import {
   injectOverlay,
   extractHeadEntityOid,
   buildFieldUpdateActionOverlay,
+  inlineFieldUpdateActionInExt,
   extractFieldOid,
   type EntityServiceRuleArgs,
   type FieldUpdateActionService,
@@ -134,6 +135,75 @@ describe('buildAddEntityRuleOverlay', () => {
     expect(xml).toContain('<PreConditionDesc>满足任意时</PreConditionDesc>');
     expect(xml).toContain('<StockQtyField>FStockQty</StockQtyField>');
     expect(xml).toContain('<BaseUnitField>FBaseUnit</BaseUnitField>');
+  });
+
+  it('falls back to BOS-Designer-default service description when caller omits it (otherwise rule editor renders blank service row)', () => {
+    // 2026-05-05 demo bug: GetInvStock rule appeared in BOS Designer's
+    // "执行以下服务" list as a blank row — double-clicking showed all the
+    // fields were intact. recon req-120 captured BOS Designer's own wire
+    // shipping <Description>获取即时库存信息</Description> (per className)
+    // even when the user never typed one. We mirror the default so the row
+    // gets a visible label.
+    const xmlGetInvStock = buildAddEntityRuleOverlay(PARENT_HEAD_OID, {
+      ruleId: RULE_ID,
+      description: 'rule label',
+      preCondition: 'True',
+      services: [
+        { className: 'GetInvStockBusinessServiceMeta', actionId: 67, id: SVC_ID },
+      ],
+    });
+    expect(xmlGetInvStock).toContain('<Description>获取即时库存信息</Description>');
+
+    const xmlCalc = buildAddEntityRuleOverlay(PARENT_HEAD_OID, {
+      ruleId: RULE_ID,
+      description: 'rule label',
+      preCondition: 'True',
+      services: [{ className: 'FormBusinessService', actionId: 2, id: SVC_ID }],
+    });
+    expect(xmlCalc).toContain('<Description>计算定义公式的值并填写到指定列</Description>');
+  });
+
+  it('explicit service.description overrides the className default fallback', () => {
+    const xml = buildAddEntityRuleOverlay(PARENT_HEAD_OID, {
+      ruleId: RULE_ID,
+      description: 'rule label',
+      preCondition: 'True',
+      services: [
+        {
+          className: 'GetInvStockBusinessServiceMeta',
+          actionId: 67,
+          id: SVC_ID,
+          description: 'custom service label',
+        },
+      ],
+    });
+    expect(xml).toContain('<Description>custom service label</Description>');
+    expect(xml).not.toContain('<Description>获取即时库存信息</Description>');
+  });
+
+  it('camelCase property keys are emitted as PascalCase wire elements (BOS server requires PascalCase or silently drops)', () => {
+    const args: EntityServiceRuleArgs = {
+      ruleId: RULE_ID,
+      description: 'GetInvStock with camelCase props',
+      preCondition: 'True',
+      services: [
+        {
+          className: 'GetInvStockBusinessServiceMeta',
+          actionId: 67,
+          id: SVC_ID,
+          properties: {
+            stockQtyField: 'F_TestStock',
+            availableQtyField: 'FAvbQty',
+          },
+        },
+      ],
+    };
+    const xml = buildAddEntityRuleOverlay(PARENT_HEAD_OID, args);
+    // Capitalized first letter; rest of name preserved.
+    expect(xml).toContain('<StockQtyField>F_TestStock</StockQtyField>');
+    expect(xml).toContain('<AvailableQtyField>FAvbQty</AvailableQtyField>');
+    // Lowercase tag must NOT appear — that's the bug we just fixed.
+    expect(xml).not.toContain('<stockQtyField>');
   });
 });
 
@@ -413,6 +483,79 @@ describe('buildFieldUpdateActionOverlay', () => {
     });
     expect(xml).toContain('<FormBusinessService>');
     expect(xml).not.toContain('<ClassName>');
+  });
+});
+
+describe('inlineFieldUpdateActionInExt', () => {
+  // Realistic ext FKERNELXML shape — mirrors what k3cloud_add_fields emits
+  // (per dcxml.ts:renderFieldElement) and what BOS server stores after
+  // a successful Save. Inline path rewrites this in place.
+  const EXT_FIELD_OID = '4e703fa5bcab45279b71029d3db17174';
+  const EXT_KERNEL_XML =
+    '<FormMetadata><BusinessInfo><BusinessInfo><Elements>' +
+    '<Form action="edit" oid="BOS_BillModel" ElementType="100" ElementStyle="0">' +
+    '<Id>extId</Id><Name>OpenDeploy demo</Name>' +
+    '</Form>' +
+    '<DecimalField ElementType="2" ElementStyle="0">' +
+    '<ConditionType>0</ConditionType>' +
+    '<FieldScale>2</FieldScale>' +
+    '<FieldPrecision>23</FieldPrecision>' +
+    '<PropertyName>F_TestQty</PropertyName>' +
+    '<FieldName>F_TESTQTY</FieldName>' +
+    '<ListTabIndex>9000</ListTabIndex>' +
+    '<Name>数量</Name>' +
+    `<Id>${EXT_FIELD_OID}</Id>` +
+    '<Key>F_TestQty</Key>' +
+    '</DecimalField>' +
+    '</Elements></BusinessInfo></BusinessInfo></FormMetadata>';
+
+  const SVC: FieldUpdateActionService = {
+    actionId: 2,
+    id: 'afc25ea1-5732-4803-9f54-516a22fb0b09',
+    parameters: ['F_TestAmount = F_TestQty * F_TestPrice'],
+    disabledEvents: ['ValueChanged', 'ItemReset', 'Reset'],
+  };
+
+  it('inserts FireUpdateEvent before PropertyName + UpdateActions after FieldName (capture req-120 ordering)', () => {
+    const result = inlineFieldUpdateActionInExt(EXT_KERNEL_XML, 'DecimalField', EXT_FIELD_OID, SVC);
+    // FireUpdateEvent immediately before <PropertyName>
+    expect(result).toContain('<FieldPrecision>23</FieldPrecision><FireUpdateEvent>1</FireUpdateEvent><PropertyName>F_TestQty</PropertyName>');
+    // UpdateActions immediately after </FieldName>
+    expect(result).toContain('<FieldName>F_TESTQTY</FieldName><UpdateActions><FormBusinessService>');
+    // Payload preserved
+    expect(result).toContain('<Parameters>["F_TestAmount = F_TestQty * F_TestPrice"]</Parameters>');
+    expect(result).toContain('<ActionId>2</ActionId>');
+    expect(result).toContain('<RaiseValueChanged>DisableRaise</RaiseValueChanged>');
+    expect(result).toContain('<Id>afc25ea1-5732-4803-9f54-516a22fb0b09</Id>');
+    // Tail of field block intact (Name/Id/Key in original order, AFTER UpdateActions)
+    expect(result).toContain('</UpdateActions><ListTabIndex>9000</ListTabIndex><Name>数量</Name>');
+  });
+
+  it('throws when the field block is missing in extension XML', () => {
+    expect(() =>
+      inlineFieldUpdateActionInExt(EXT_KERNEL_XML, 'DecimalField', 'wrong-oid-xx', SVC),
+    ).toThrow(/not found in extension XML/);
+  });
+
+  it('throws when UpdateActions already present (v0.1: one Calculate per field)', () => {
+    const xmlWithExisting = EXT_KERNEL_XML.replace(
+      '<FieldName>F_TESTQTY</FieldName>',
+      '<FieldName>F_TESTQTY</FieldName><UpdateActions><FormBusinessService><Id>x</Id></FormBusinessService></UpdateActions>',
+    );
+    expect(() =>
+      inlineFieldUpdateActionInExt(xmlWithExisting, 'DecimalField', EXT_FIELD_OID, SVC),
+    ).toThrow(/already has <UpdateActions>/);
+  });
+
+  it('does not re-emit FireUpdateEvent when already present (idempotent on that flag)', () => {
+    const xmlWithFire = EXT_KERNEL_XML.replace(
+      '<PropertyName>F_TestQty</PropertyName>',
+      '<FireUpdateEvent>1</FireUpdateEvent><PropertyName>F_TestQty</PropertyName>',
+    );
+    const result = inlineFieldUpdateActionInExt(xmlWithFire, 'DecimalField', EXT_FIELD_OID, SVC);
+    // Exactly one FireUpdateEvent, not two
+    expect(result.match(/<FireUpdateEvent>1<\/FireUpdateEvent>/g)?.length).toBe(1);
+    expect(result).toContain('<FieldName>F_TESTQTY</FieldName><UpdateActions>');
   });
 });
 

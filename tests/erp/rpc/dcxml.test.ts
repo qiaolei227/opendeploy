@@ -26,6 +26,35 @@ describe('rpc/dcxml emitter', () => {
     expect(xml).toContain('</FormMetadata>');
   });
 
+  it('emits Form <Name> child from extension.name[zh-CN] (probe 2026-05-05: BOS server reads metadata.Name from DCXML, not paras.Name)', () => {
+    const xml = buildDcxmlSource({
+      extension: { ...baselineExt, name: [{ localeId: 2052, value: 'OpenDeploy 业务规则 demo' }] },
+      isNew: true,
+      layoutInfoOid: 'L1',
+    });
+    expect(xml).toMatch(
+      /<Form action="edit" oid="BOS_BillModel" ElementType="100" ElementStyle="0"><Id>[0-9a-f]+<\/Id><Name>OpenDeploy 业务规则 demo<\/Name><\/Form>/,
+    );
+  });
+
+  it('xml-escapes special chars in Form <Name>', () => {
+    const xml = buildDcxmlSource({
+      extension: { ...baselineExt, name: [{ localeId: 2052, value: 'A & B <test>' }] },
+      isNew: true,
+      layoutInfoOid: 'L1',
+    });
+    expect(xml).toContain('<Name>A &amp; B &lt;test&gt;</Name>');
+  });
+
+  it('omits Form <Name> when no zh-CN locale present (defensive)', () => {
+    const xml = buildDcxmlSource({
+      extension: { ...baselineExt, name: [{ localeId: 1033, value: 'English only' }] },
+      isNew: true,
+      layoutInfoOid: 'L1',
+    });
+    expect(xml).not.toContain('<Name>');
+  });
+
   it('emits TextField with baseline 7 children and uppercase FieldName', () => {
     const xml = buildDcxmlSource({
       extension: baselineExt,
@@ -153,7 +182,7 @@ describe('rpc/dcxml emitter', () => {
     // Plugin must be INSIDE <Form>...</Form> (between Id and the closing tag),
     // wrapped by <FormPlugins>.
     expect(xml).toMatch(
-      /<Form action="edit"[^>]*>\s*<Id>[^<]+<\/Id>\s*<FormPlugins>\s*<PlugIn /,
+      /<Form action="edit"[^>]*>\s*<Id>[^<]+<\/Id>\s*(<Name>[^<]*<\/Name>\s*)?<FormPlugins>\s*<PlugIn /,
     );
     expect(xml).toContain('<PlugIn ElementType="0" ElementStyle="0">');
     expect(xml).toContain('<ClassName>smoke_test_plugin</ClassName>');

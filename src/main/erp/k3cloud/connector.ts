@@ -84,6 +84,7 @@ import {
   buildAddEntityRuleOverlay,
   buildRemoveEntityRuleOverlay,
   buildFieldUpdateActionOverlay,
+  inlineFieldUpdateActionInExt,
   injectOverlay,
   extractHeadEntityOid,
   extractFieldOid,
@@ -91,6 +92,10 @@ import {
   type FieldUpdateActionService,
 } from './rpc/business-rule-overlay';
 import type { SaveExtensionResult } from './rpc/types';
+import {
+  parseBusinessRules,
+  type ListBusinessRulesResult,
+} from './rpc/business-rule-parser';
 import { getBridge } from './bridge';
 import type { KdSession } from './rpc/http-client';
 import type {
@@ -767,28 +772,14 @@ export class K3CloudConnector implements ErpConnector {
    * because the FKERNELXML the server returns to us already contains the
    * HeadEntity collection.
    */
-  async listBusinessRules(extensionFid: string): Promise<{
-    entityRules: Array<{
-      ruleId: string;
-      entityKey: string;
-      preCondition: string;
-      preConditionDesc?: string;
-      description?: string;
-      seq?: number;
-      services: Array<{ branch: string; actionId: number; className: string; serviceId: string }>;
-    }>;
-    fieldUpdateActions: Array<{
-      fieldKey: string;
-      actionId: number;
-      className: string;
-      serviceId: string;
-      parameters?: string;
-    }>;
-  }> {
+  async listBusinessRules(extensionFid: string): Promise<ListBusinessRulesResult> {
     const xml = await this.getKernelXml(extensionFid);
     if (!xml) throw new Error(`扩展 ${extensionFid} 无 FKERNELXML — 不存在或未持久化`);
-    const bridge = await getBridge();
-    return bridge.send('list_business_rules', { xml });
+    // Pure-TS parse — bridge.ListBusinessRules can't see <HeadEntity
+    // action="edit"> overlays because BOS DcxmlSerializer drops them as
+    // delta markers when no baseline metadata is loaded (bridge runs offline).
+    // See `business-rule-parser.ts` header for the wire shapes we handle.
+    return parseBusinessRules(xml);
   }
 
   /**
@@ -969,10 +960,23 @@ export class K3CloudConnector implements ErpConnector {
       throw new Error(`父对象 ${ext.baseObjectId} 无 FKERNELXML — 无法定位字段 oid`);
     }
 
-    const located = extractFieldOid(parentXml, args.fieldKey);
-    if (!located) {
+    // Two field-source paths with different wire formats:
+    //   (1) Parent original field — overlay path: `<XField action="edit" oid=...>
+    //       <UpdateActions>...</UpdateActions></XField>` appended to extension XML.
+    //       The oid only exists in the parent's FKERNELXML.
+    //   (2) Extension's own field (added via k3cloud_add_fields) — inline path:
+    //       rewrite the field's existing block in extension XML to include
+    //       `<FireUpdateEvent>1</FireUpdateEvent>` + `<UpdateActions>...</UpdateActions>`
+    //       inside the field body. Capture req-120 (2026-05-04 recon) is the
+    //       reference for this shape.
+    // Wrong path → BOS server response_error "未能找到 XField 对应的数据类型"
+    // (overlay path on extension field → server can't find the oid in base
+    // metadata to merge into).
+    const parentLocated = extractFieldOid(parentXml, args.fieldKey);
+    const extLocated = parentLocated ? null : extractFieldOid(extXml, args.fieldKey);
+    if (!parentLocated && !extLocated) {
       throw new Error(
-        `字段 ${args.fieldKey} 在父对象 ${ext.baseObjectId} 上未找到 — 无法挂载字段级 UpdateAction`,
+        `字段 ${args.fieldKey} 在父对象 ${ext.baseObjectId} 或扩展 ${args.extensionFid} 上都未找到 — 无法挂载字段级 UpdateAction`,
       );
     }
 
@@ -985,8 +989,23 @@ export class K3CloudConnector implements ErpConnector {
       description: svc.description,
       disabledEvents: svc.disabledEvents,
     };
-    const overlay = buildFieldUpdateActionOverlay(located.fieldType, located.oid, overlayService);
-    const patchedXml = injectOverlay(extXml, overlay);
+
+    let patchedXml: string;
+    if (parentLocated) {
+      const overlay = buildFieldUpdateActionOverlay(
+        parentLocated.fieldType,
+        parentLocated.oid,
+        overlayService,
+      );
+      patchedXml = injectOverlay(extXml, overlay);
+    } else {
+      patchedXml = inlineFieldUpdateActionInExt(
+        extXml,
+        extLocated!.fieldType,
+        extLocated!.oid,
+        overlayService,
+      );
+    }
 
     const meta = await this.buildSaveExtensionRawMeta(session, args.extensionFid, ext);
     const result = await saveExtensionRaw(session, meta, patchedXml);

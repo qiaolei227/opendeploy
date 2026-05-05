@@ -77,6 +77,7 @@ function child(out: XmlWriter, tag: string, value: string | number | undefined):
 function renderFormRoot(
   out: XmlWriter,
   formId: string,
+  formName: string | undefined,
   plugins: BosPluginElement[] | undefined,
   existingPluginsRaw: string[] | undefined,
   formOperations: BosFormOperationElement[] | undefined,
@@ -84,6 +85,15 @@ function renderFormRoot(
 ): void {
   out.push(`<Form action="edit" oid="BOS_BillModel" ElementType="100" ElementStyle="0">`);
   out.push(`<Id>${formId}</Id>`);
+  // BOS server reads metadata.Name from this element, NOT from paras.Name —
+  // omitting it makes the server fall back to the parent object's Name on
+  // every save (so the extension shows up as "销售订单" instead of the
+  // user-given "OpenDeploy 业务规则 demo"). Empirical evidence:
+  // .scratch/probe-form-name.ts (2026-05-05). Skip when caller doesn't
+  // know the name (rare; only old call sites that didn't pre-load it).
+  if (formName) {
+    out.push(`<Name>${xmlEscape(formName)}</Name>`);
+  }
   const hasExistingOps = existingFormOperationsRaw && existingFormOperationsRaw.length > 0;
   const hasNewOps = formOperations && formOperations.length > 0;
   if (hasExistingOps || hasNewOps) {
@@ -597,9 +607,11 @@ export function buildDcxmlSource(req: SaveExtensionRequest): string {
   out.push(`<?xml version="1.0" encoding="utf-16"?>`);
   out.push(`<FormMetadata>`);
   out.push(`<BusinessInfo><BusinessInfo><Elements>`);
+  const zhName = req.extension.name.find((n) => n.localeId === 2052)?.value;
   renderFormRoot(
     out,
     req.extension.formId,
+    zhName,
     req.addPlugins,
     req.existingPluginsRaw,
     req.addFormOperations,

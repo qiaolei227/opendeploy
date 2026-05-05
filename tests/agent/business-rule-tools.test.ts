@@ -257,7 +257,7 @@ describe('addGetInvStockRuleTool', () => {
     expect(parsed.found).toBe(true);
     expect(parsed.ruleId).toBe('rule-guid-from-server');
     expect(parsed.serviceId).toMatch(/^[0-9a-f]{32}$/); // 32-hex no dashes
-    expect(parsed.message).toMatch(/重登/); // BOS cache hint
+    expect(parsed.message).toMatch(/BOS Designer/); // success hint mentions BOS Designer
 
     expect(addEntityServiceRule).toHaveBeenCalledTimes(1);
     const call = addEntityServiceRule.mock.calls[0][0];
@@ -507,7 +507,7 @@ describe('addCalculateRuleTool', () => {
     expect(parsed.found).toBe(true);
     expect(parsed.fieldKey).toBe('F单价');
     expect(parsed.serviceId).toBe('svc-from-server');
-    expect(parsed.message).toMatch(/重登/);
+    expect(parsed.message).toMatch(/BOS Designer/); // success hint mentions BOS Designer
 
     expect(addFieldUpdateAction).toHaveBeenCalledTimes(1);
     const call = addFieldUpdateAction.mock.calls[0][0];
@@ -606,7 +606,7 @@ describe('addCalculateRuleTool', () => {
     expect(parsed.found).toBe(true);
     expect(parsed.ruleId).toBe('rule-from-server');
     expect(parsed.serviceId).toMatch(/^[0-9a-f]{32}$/); // 32-hex no dashes
-    expect(parsed.message).toMatch(/重登/);
+    expect(parsed.message).toMatch(/BOS Designer/); // success hint mentions BOS Designer
 
     expect(addEntityServiceRule).toHaveBeenCalledTimes(1);
     const call = addEntityServiceRule.mock.calls[0][0];

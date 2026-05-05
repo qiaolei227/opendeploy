@@ -134,14 +134,29 @@ export function buildAddEntityRuleOverlay(
   const servicesXml = rule.services
     .map((svc) => {
       assertElementName(svc.className, 'buildAddEntityRuleOverlay: service className');
-      const descElement = svc.description
-        ? `<Description>${xmlEscape(svc.description)}</Description>`
+      // BOS Designer renders the rule editor's service list using <Description>
+      // as the row label; missing → blank row (cosmetic). Fall back to the
+      // BOS-Designer-default text for known classes, else omit (unknown class
+      // shouldn't be in v0.1 anyway — schema covers 2 + 67).
+      const description =
+        svc.description ?? DEFAULT_SERVICE_DESCRIPTION_BY_CLASSNAME[svc.className];
+      const descElement = description
+        ? `<Description>${xmlEscape(description)}</Description>`
         : '';
+      // Property keys are agent-facing camelCase (per business-rule-schemas.ts
+      // contract). BOS server reflection on SimpleProperty expects PascalCase
+      // wire elements (`<StockQtyField>` not `<stockQtyField>`); a lowercase
+      // tag is silently dropped during deserialization, so the property
+      // value never reaches the persisted metadata. Capitalize the first
+      // character at the boundary. Empirical: 2026-05-05 demo scenario 3 —
+      // F_TestStock supplied as stockQtyField was missing entirely from
+      // T_META_OBJECTTYPE.FKERNELXML after Save.
       const propsXml = svc.properties
         ? Object.entries(svc.properties)
             .map(([k, v]) => {
               assertElementName(k, 'buildAddEntityRuleOverlay: service property name');
-              return `<${k}>${xmlEscape(v)}</${k}>`;
+              const wireKey = k.charAt(0).toUpperCase() + k.slice(1);
+              return `<${wireKey}>${xmlEscape(v)}</${wireKey}>`;
             })
             .join('')
         : '';
@@ -294,6 +309,18 @@ const KNOWN_RAISE_EVENTS = new Set([
 const DEFAULT_CALC_DESCRIPTION = '计算定义公式的值并填写到指定列';
 
 /**
+ * BOS Designer's rule editor renders the service list using each service's
+ * `<Description>` text as the row label — when omitted, the row appears
+ * blank (cosmetic only; double-click into edit shows the data is there).
+ * recon req-120 captured the BOS-Designer-default text per className; we
+ * fall back to it when the tool layer doesn't pass an explicit description.
+ */
+const DEFAULT_SERVICE_DESCRIPTION_BY_CLASSNAME: Record<string, string> = {
+  FormBusinessService: '计算定义公式的值并填写到指定列',
+  GetInvStockBusinessServiceMeta: '获取即时库存信息',
+};
+
+/**
  * Build a `<{FieldType} action="edit" oid="...">` overlay that adds one
  * Calculate UpdateAction to a field. Caller injects via `injectOverlay`.
  *
@@ -309,41 +336,47 @@ export function buildFieldUpdateActionOverlay(
   if (!fieldType) throw new Error('buildFieldUpdateActionOverlay: fieldType is empty');
   assertElementName(fieldType, 'buildFieldUpdateActionOverlay: fieldType');
   if (!fieldOid) throw new Error('buildFieldUpdateActionOverlay: fieldOid is empty');
-  if (!service.id) throw new Error('buildFieldUpdateActionOverlay: service.id is empty');
+  validateService(service, 'buildFieldUpdateActionOverlay');
+
+  return (
+    `<${fieldType} action="edit" oid="${xmlEscape(fieldOid)}">` +
+    buildUpdateActionsBlock(service) +
+    `</${fieldType}>`
+  );
+}
+
+function validateService(service: FieldUpdateActionService, fnName: string): void {
+  if (!service.id) throw new Error(`${fnName}: service.id is empty`);
   if (!Array.isArray(service.parameters) || service.parameters.length < 1) {
     throw new Error(
-      'buildFieldUpdateActionOverlay: service.parameters must contain at least one IronPython assignment',
+      `${fnName}: service.parameters must contain at least one IronPython assignment`,
     );
   }
-
   const className = service.className ?? 'FormBusinessService';
-  assertElementName(className, 'buildFieldUpdateActionOverlay: service className');
-
+  assertElementName(className, `${fnName}: service className`);
   const disabled = service.disabledEvents ?? [];
   for (const evt of disabled) {
     if (!KNOWN_RAISE_EVENTS.has(evt)) {
       throw new Error(
-        `buildFieldUpdateActionOverlay: unknown Raise event '${evt}' — known: ${[...KNOWN_RAISE_EVENTS].join(', ')}`,
+        `${fnName}: unknown Raise event '${evt}' — known: ${[...KNOWN_RAISE_EVENTS].join(', ')}`,
       );
     }
   }
+}
 
+function buildUpdateActionsBlock(service: FieldUpdateActionService): string {
+  const className = service.className ?? 'FormBusinessService';
+  const disabled = service.disabledEvents ?? [];
   // JSON.stringify first (so quotes / brackets get JSON-encoded), then
-  // xml-escape the structurally significant chars (<, >, &) so any
-  // metacharacters in the user's IronPython source (e.g. `F_X < F_Y`)
-  // can't break out of the element. Recon req-120 shows BOS preserves
-  // raw double-quotes inside element text — we don't escape `"` for the
-  // <Parameters> body (only attribute values need that). xmlEscapeText
-  // matches BOS's serialization shape.
+  // xml-escape structurally significant chars. Recon req-120 shows BOS
+  // preserves raw double-quotes inside element text — we don't escape `"`
+  // for <Parameters> body (only attribute values need that).
   const parametersJson = JSON.stringify(service.parameters);
   const description = service.description ?? DEFAULT_CALC_DESCRIPTION;
-
   const raiseElements = disabled
     .map((evt) => `<Raise${evt}>DisableRaise</Raise${evt}>`)
     .join('');
-
   return (
-    `<${fieldType} action="edit" oid="${xmlEscape(fieldOid)}">` +
     `<UpdateActions>` +
     `<${className}>` +
     `<Parameters>${xmlEscapeText(parametersJson)}</Parameters>` +
@@ -352,8 +385,121 @@ export function buildFieldUpdateActionOverlay(
     raiseElements +
     `<Id>${xmlEscape(service.id)}</Id>` +
     `</${className}>` +
-    `</UpdateActions>` +
-    `</${fieldType}>`
+    `</UpdateActions>`
+  );
+}
+
+/**
+ * Inject a Calculate UpdateAction directly into an extension's own field
+ * declaration block in its FKERNELXML. Returns the full new FKERNELXML.
+ *
+ * Why this and not the `<XField action="edit" oid=...>` overlay: extension
+ * fields don't exist in the parent's base metadata, so a `action="edit"`
+ * delta has no oid to merge into — BOS server fails deserialization with
+ * "未能找到 {FieldType} 对应的数据类型". Capture req-120 (2026-05-04 recon)
+ * shows BOS Designer's wire format for extension fields: UpdateActions sits
+ * **inside** the field's own definition, alongside `<FireUpdateEvent>1</...>`
+ * which is the marker that flips the field into "fire UpdateActions on
+ * value change" mode. Both are absent from a freshly-emitted extension
+ * field, so this function adds them by rewriting the field's body.
+ *
+ * Idempotence: throws if `<UpdateActions>` is already present in the
+ * targeted field block — v0.1 supports one Calculate per field. Append /
+ * overwrite is left for v0.2 when we have a real client request shape.
+ *
+ * Empirical position rules (from req-120 IntegerField sample):
+ *   - `<FireUpdateEvent>1</FireUpdateEvent>` immediately before `<PropertyName>`
+ *   - `<UpdateActions>` immediately after `</FieldName>`
+ */
+export function inlineFieldUpdateActionInExt(
+  extKernelXml: string,
+  fieldType: string,
+  fieldOid: string,
+  service: FieldUpdateActionService,
+): string {
+  if (!fieldType) throw new Error('inlineFieldUpdateActionInExt: fieldType is empty');
+  assertElementName(fieldType, 'inlineFieldUpdateActionInExt: fieldType');
+  if (!fieldOid) throw new Error('inlineFieldUpdateActionInExt: fieldOid is empty');
+  validateService(service, 'inlineFieldUpdateActionInExt');
+
+  // Locate the <{fieldType}>...</{fieldType}> block whose top-level <Id>
+  // matches fieldOid. Walk with the shared tag tokenizer to handle nested
+  // elements correctly (e.g. <DefValue><FunctionDefaultValue>...</...> inside
+  // a field body).
+  const stack: Array<{ tag: string; tagEnd: number; bodyStart: number } | null> = [];
+  let blockStart = -1;
+  let blockBodyStart = -1;
+  let blockBodyEnd = -1;
+  let blockEnd = -1;
+  for (const tk of iterateTagTokens(extKernelXml)) {
+    if (tk.isSelfClose) continue;
+    if (!tk.isClose) {
+      const isField = tk.tag === fieldType;
+      stack.push(isField ? { tag: tk.tag, tagEnd: tk.end, bodyStart: tk.end } : null);
+      continue;
+    }
+    const frame = stack.pop();
+    if (!frame) continue;
+    const body = extKernelXml.substring(frame.bodyStart, tk.start);
+    const id = findLastTopLevelChildText(body, 'Id');
+    if (id !== fieldOid) continue;
+    blockStart = frame.tagEnd - extKernelXml.substring(0, frame.tagEnd).match(/<[^>]+>$/)![0].length;
+    blockBodyStart = frame.bodyStart;
+    blockBodyEnd = tk.start;
+    blockEnd = tk.end;
+    break;
+  }
+  if (blockBodyStart < 0) {
+    throw new Error(
+      `inlineFieldUpdateActionInExt: ${fieldType} block with oid="${fieldOid}" not found in extension XML`,
+    );
+  }
+
+  const body = extKernelXml.substring(blockBodyStart, blockBodyEnd);
+
+  if (body.includes('<UpdateActions>')) {
+    throw new Error(
+      `inlineFieldUpdateActionInExt: field oid="${fieldOid}" already has <UpdateActions> — v0.1 supports one Calculate per field`,
+    );
+  }
+
+  // Inject FireUpdateEvent before <PropertyName> (capture req-120 ordering)
+  // unless already present.
+  let newBody = body;
+  if (!newBody.includes('<FireUpdateEvent>')) {
+    const propMatch = newBody.match(/<PropertyName>/);
+    if (!propMatch) {
+      throw new Error(
+        `inlineFieldUpdateActionInExt: field block missing <PropertyName> — unexpected wire shape`,
+      );
+    }
+    newBody =
+      newBody.substring(0, propMatch.index!) +
+      `<FireUpdateEvent>1</FireUpdateEvent>` +
+      newBody.substring(propMatch.index!);
+  }
+
+  // Inject <UpdateActions> immediately after </FieldName> (capture req-120
+  // ordering). FieldName is mandatory on real fields, but BasePropertyField
+  // doesn't have it — UpdateActions on BasePropertyField isn't supported in
+  // v0.1 (no real-world demand surfaced).
+  const fieldNameClose = '</FieldName>';
+  const fnIdx = newBody.indexOf(fieldNameClose);
+  if (fnIdx < 0) {
+    throw new Error(
+      `inlineFieldUpdateActionInExt: field block missing </FieldName> — type ${fieldType} may not support inline UpdateActions in v0.1`,
+    );
+  }
+  const insertAt = fnIdx + fieldNameClose.length;
+  newBody =
+    newBody.substring(0, insertAt) +
+    buildUpdateActionsBlock(service) +
+    newBody.substring(insertAt);
+
+  return (
+    extKernelXml.substring(0, blockBodyStart) +
+    newBody +
+    extKernelXml.substring(blockBodyEnd)
   );
 }
 

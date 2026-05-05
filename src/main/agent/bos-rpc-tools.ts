@@ -684,8 +684,7 @@ function deleteExtensionTool(projectId: string, sessionMgr: SessionMgrLike): Too
           ok: true,
           extId,
           reminder:
-            '扩展已从服务端删除。客户端 BOS Designer 中的扩展列表需点工具栏刷新按钮才能更新;' +
-            '已打开的客户端表单缓存可能需关闭客户端重登才能消失。',
+            '扩展已从服务端删除。BOS Designer 扩展列表需点工具栏刷新按钮才能更新。',
         },
         null,
         2,
@@ -1387,7 +1386,7 @@ function addFieldsTool(
             caption: f.caption,
           })),
           reminder:
-            '所有字段已一次性写入。BOS Designer 里需点扩展工具栏的刷新按钮才能看到;客户端表单缓存可能需要关闭客户端重登才会更新。' +
+            '所有字段已一次性写入。BOS Designer 工具栏点刷新按钮即可看到。' +
             '**字段已自动排版**:贴在原厂字段最右边界右侧一列,纵向顺排;之后再加字段会接着排到下方,无需拖动。如视觉位置不理想用户可在 BOS Designer 中手动微调。' +
             '验证全部字段已落库:调 k3cloud_get_extension_fields(不是 k3cloud_get_fields)。',
         },
@@ -1444,7 +1443,7 @@ function registerPythonPluginsTool(
         '\n\n每个 plugin 的字段:' +
         '\n- `className`:插件标识,小写蛇形(`[a-z0-9_]+`),例 `credit_warn` / `material_validator`。BOS Designer 表单插件列表里显示这个。' +
         '\n- `pyBody`:**完整** IronPython 2.7 源码,含 `from Kingdee.BOS... import AbstractDynamicFormPlugIn` + 至少一个继承自它的类。脚本里随便用 `<` / `>` / `&` / 引号 — 工具用 CDATA 包裹,无需手动转义。' +
-        '\n\n**写入后**:用户需在 BOS Designer 中刷新扩展(工具栏刷新按钮),且**关闭客户端重登**才能让客户端缓存到新插件(详见 memory `bos_client_cache_relogin`)。',
+        '\n\n**写入后**:用户在 BOS Designer 中点扩展工具栏刷新按钮即可看到新插件。',
       parameters: {
         type: 'object',
         properties: {
@@ -1533,8 +1532,8 @@ function registerPythonPluginsTool(
             scriptLength: p.pyBody.length,
           })),
           reminder:
-            '所有插件已一次性挂到扩展。BOS Designer 中需点扩展工具栏刷新按钮才能在「表单插件」节点看到;' +
-            '**客户端的运行时缓存里没有新插件 — 用户必须关闭 K/3 Cloud 客户端重登,新单据上才会执行新脚本**(只 F5 刷新表单不够,详见 memory `bos_client_cache_relogin`)。',
+            '所有插件已一次性挂到扩展。BOS Designer 工具栏点刷新即可在「表单插件」节点看到。' +
+            '若用户报告新单据上插件未执行(罕见,登录方式相关),让用户关 K/3 Cloud 客户端重登清运行时缓存。',
         },
         null,
         2,
@@ -2158,7 +2157,7 @@ function createEntryTool(
           reminder:
             '单据体已建。加字段到该 entry:`k3cloud_add_fields(extId, fields=[{...container="' +
             entryKey +
-            '"}])`,工具会自动走 entry-field 路径。BOS Designer 中需点工具栏刷新按钮才能看到;客户端缓存可能需要关闭重登。',
+            '"}])`,工具会自动走 entry-field 路径。BOS Designer 工具栏点刷新即可看到。',
         },
         null,
         2,
@@ -2246,7 +2245,7 @@ function deleteEntryTool(
           extId,
           entryKey,
           reminder:
-            '单据体已删除(连带级联清理了该 entry 下的扩展字段)。BOS Designer 中需点工具栏刷新按钮;客户端缓存可能需关闭重登。',
+            '单据体已删除(连带级联清理了该 entry 下的扩展字段)。BOS Designer 工具栏点刷新即可。',
         },
         null,
         2,

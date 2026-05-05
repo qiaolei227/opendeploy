@@ -162,7 +162,7 @@ export function addGetInvStockRuleTool(c: K3CloudConnector): ToolHandler {
         '\n\n**规则前提**：BOS Designer 强制实体服务规则必须有非空 preCondition（IronPython 布尔表达式，决定何时触发）。' +
         '\n\n**字段映射**：默认值与原厂表字段一致（FInvQty / FAwaitQty / FAvbQty / FSTOCKID / FMATERIALID 等）。仅在用户用了非默认字段名（多见于扩展自建库存字段）时显式传新值——参数描述里有默认值标注。' +
         '\n\n**字段存在校验**：工具会反查扩展自身的 delta 字段 + 父对象原厂字段，agent 传的所有字符串字段必须真实存在；不存在则返回 `{found: false, errors: [{field, suggestions}]}`，suggestions 是 Levenshtein 最近匹配。' +
-        '\n\n**写路径**：通过 SaveForIDEV9 落库，扩展会被服务端校验。**保存成功后**：请让用户关闭客户端整个重登才能看到新规则触发（BOS 客户端有缓存）。',
+        '\n\n**写路径**：通过 SaveForIDEV9 落库，扩展会被服务端校验。保存成功后，BOS Designer 工具栏点刷新即可看到新规则；如客户端运行时未生效（罕见，登录方式相关），可让用户关客户端重登。',
       parameters: {
         type: 'object',
         properties: {
@@ -314,8 +314,7 @@ export function addGetInvStockRuleTool(c: K3CloudConnector): ToolHandler {
           ruleId: result.ruleId,
           serviceId,
           message:
-            `GetInvStock 规则已添加（ruleId=${result.ruleId}）。` +
-            '请让用户关闭客户端整个重登以确认（BOS 客户端有缓存）。'
+            `GetInvStock 规则已添加（ruleId=${result.ruleId}）。BOS Designer 工具栏点刷新即可看到。`
         },
         null,
         2
@@ -360,7 +359,7 @@ export function addCalculateRuleTool(c: K3CloudConnector): ToolHandler {
         '\n- `mountPoint.kind: "field"` — 字段级 UpdateAction，绑定到某字段（fieldKey），值变化时触发。最常见用法。' +
         '\n- `mountPoint.kind: "entity"` — 实体级 EntityServiceRule，挂在 HeadEntity 上，按 preCondition 触发。**preCondition 必填非空**。' +
         '\n\n**actions**: IronPython 赋值数组，每条形如 `"F金额 = F数量 * F单价"`。工具会跑 IronPython AST 校验（`validateCalculateRule`）和字段存在校验。校验失败返回 `{found: false, errors: [...], retryHint}`，agent 应根据 errors 修正后重试。' +
-        '\n\n**写路径**: SaveForIDEV9。成功后请让用户关闭客户端整个重登才能看到规则触发。',
+        '\n\n**写路径**: SaveForIDEV9。成功后 BOS Designer 工具栏点刷新即可看到。',
       parameters: {
         type: 'object',
         properties: {
@@ -529,7 +528,7 @@ export function addCalculateRuleTool(c: K3CloudConnector): ToolHandler {
             serviceId: result.serviceId,
             message:
               `字段级 Calculate 规则已添加到字段 ${fieldKey}（serviceId=${result.serviceId}）。` +
-              '请让用户关闭客户端整个重登以确认（BOS 客户端有缓存）。'
+              'BOS Designer 工具栏点刷新即可看到。'
           },
           null,
           2
@@ -578,8 +577,7 @@ export function addCalculateRuleTool(c: K3CloudConnector): ToolHandler {
           ruleId: result.ruleId,
           serviceId,
           message:
-            `实体级 Calculate 规则已添加（ruleId=${result.ruleId}）。` +
-            '请让用户关闭客户端整个重登以确认（BOS 客户端有缓存）。'
+            `实体级 Calculate 规则已添加（ruleId=${result.ruleId}）。BOS Designer 工具栏点刷新即可看到。`
         },
         null,
         2

@@ -176,7 +176,7 @@ OpenDeploy 创建的扩展,**必须用 `k3cloud_delete_extension` 工具删**(�
    - `k3cloud_create_tab_page` → tabs 列表里有新 tabPageKey
    - rename → 对应 entry / tab 的 caption / name 已改成新值
 3. 反查异常 → **不要硬说"完成"**,告知用户写入失败,贴 messageDetail 让用户看
-4. 完成消息中提示用户 BOS Designer 工具栏刷新 + 客户端缓存关闭重登
+4. 完成消息提示用户**点 BOS Designer 工具栏刷新**即可看到。仅当用户反馈"运行时仍未生效"时再建议关客户端重登(罕见,与登录方式相关)
 
 ### 业务规则:写之前先查 schema,IronPython 别照搬 SQL
 
@@ -209,7 +209,7 @@ True                                 # 永远触发(几乎只用于 demo,生产�
 
 **v0.1 不支持的 ActionId** —— `3` / `23` / `42` / `70`。客户场景需要这些动作(数据校验 / 复杂联动 / 自定义服务)→ 用 `k3cloud_register_python_plugins` 写表单插件实现,**不要硬塞 Calculate**。客户问"这个能不能用业务规则做" → 不在 v0.1 支持的 2 / 67 内就老实说"v0.1 业务规则只覆盖 Calculate 和 GetInvStock 两种,你这个用 Python 表单插件实现"。
 
-写完成功后,提示用户:**BOS Designer 工具栏刷新 + 客户端关闭重登**(规则也走元数据缓存,详见 memory `bos_client_cache_relogin`)。
+写完成功后,提示用户**点 BOS Designer 工具栏刷新**即可看到规则。仅当用户反馈"规则没触发"时再建议关客户端重登(罕见,与登录方式相关)。
 
 ### 写入后的闭环——必做反查
 
@@ -233,9 +233,7 @@ base-system 硬规则要求"写完必须验证才能说完成"。K/3 Cloud 的�
 
 3. **任一写工具调用 `ok: false`** → 把 `messageTitle` / `messageDetail` 转述给用户,**不要硬往下走**。常见原因:字段 key 重复 / 同名插件已存在 / 父对象不存在 / 当前用户无权限。
 
-4. **完成消息中必须包含两条提示**(给用户看的话):
-   - **BOS Designer 中点扩展工具栏的刷新按钮**才能看到新字段 / 插件
-   - **如果挂了插件**:用户必须**关闭 K/3 Cloud 客户端重登**,新单据上才会执行新插件(只 F5 刷新表单不够;详见 memory `bos_client_cache_relogin`)。这条**不要省略**——跳过这条提示是 P1 用户体验 bug,客户会以为"插件没生效"。
+4. **完成消息中必须包含**: **BOS Designer 中点扩展工具栏的刷新按钮**才能看到新字段 / 插件 / 规则。仅当用户反馈"运行时仍未生效"时再建议关客户端重登(部分登录方式有运行时缓存,主流登录方式无此问题)。
 
 ### BOS 环境未初始化
 
