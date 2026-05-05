@@ -37,4 +37,20 @@ describe('ironpython-ast extraction', () => {
     expect(result.ok).toBe(true);
     expect(result.target).toBe('F金额');
   });
+
+  it('does not mis-classify .upper() as function call', () => {
+    const result = extractCallsAndFields('F备注 = F摘要.upper()');
+    expect(result.functions).toEqual([]);
+  });
+
+  it('does not mis-classify chained method calls', () => {
+    const result = extractCallsAndFields('F日期 = F日期2.AddDays(1).ToString()');
+    expect(result.functions).toEqual([]);
+  });
+
+  it('handles 3-level dotted chains as single token', () => {
+    const result = extractCallsAndFields('F备注 = FCustId.FBaseData.FName');
+    expect(result.fields).toContain('FCustId');
+    expect(result.fields).not.toContain('FName');
+  });
 });

@@ -9,8 +9,15 @@
  *   - 单行赋值 <Field> = <Expression>
  */
 
-const FIELD_PATTERN = /\bF[\p{Script=Han}A-Za-z0-9_]+(?:\.F?[A-Za-z][A-Za-z0-9_]*)?/gu;
-const FUNCTION_PATTERN = /\b([A-Za-z][A-Za-z0-9_]*)\s*\(/g;
+// Suffix uses `*` (not `?`) so chained dotted access like
+// `FCustId.FBaseProperty.FName` lands as one token; head extraction below
+// only checks the head against schema. K/3 base-data lookups commonly chain
+// 3+ levels.
+const FIELD_PATTERN = /\bF[\p{Script=Han}A-Za-z0-9_]+(?:\.F?[A-Za-z][A-Za-z0-9_]*)*/gu;
+// Lookbehind `(?<![\w.])` excludes attribute method calls like `x.upper()` —
+// otherwise `upper` would land in `functions` and SQL_STYLE_FUNCS['UPPER']
+// would falsely reject legitimate IronPython string methods.
+const FUNCTION_PATTERN = /(?<![\w.])([A-Za-z][A-Za-z0-9_]*)\s*\(/g;
 const GET_FIELD_VALUE_PATTERN = /GetFieldValue\(\s*["']([^"']+)["']\s*\)/g;
 const ASSIGNMENT_PATTERN = /^\s*(F[\p{Script=Han}A-Za-z0-9_]+)\s*=\s*(.+?)\s*$/u;
 

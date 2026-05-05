@@ -65,4 +65,12 @@ describe('calculate-rule validator', () => {
     expect(result.ok).toBe(false);
     expect(result.errors![0].line).toBe(2);
   });
+
+  it('accepts IronPython .upper() / .ToString() method calls', () => {
+    const schema = { fields: ['F备注', 'F摘要', 'F日期', 'F日期2'] };
+    const r1 = validateCalculateRule(['F备注 = F摘要.upper()'], schema);
+    expect(r1.ok).toBe(true);
+    const r2 = validateCalculateRule(['F日期 = F日期2.AddDays(1).ToString()'], schema);
+    expect(r2.ok).toBe(true);
+  });
 });
