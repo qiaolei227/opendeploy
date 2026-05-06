@@ -1090,10 +1090,6 @@ export class K3CloudConnector implements ErpConnector {
       pyBody: args.pyBody,
       operationObjectKey: args.operationObjectKey,
       expressValue: args.expressValue,
-      // Freshly-created extensions ship FKERNELXML with no <Form> overlay
-      // until the first child element is written. Bridge synthesizes the
-      // overlay using ext.id when it can't locate an existing Form.
-      extensionFormId: ext.id,
     });
 
     const meta = await this.buildSaveExtensionRawMeta(session, args.extensionFid, ext);
