@@ -96,6 +96,7 @@ import {
   parseBusinessRules,
   type ListBusinessRulesResult,
 } from './rpc/business-rule-parser';
+import type { ListOperationsResult } from './rpc/operation-types';
 import { getBridge } from './bridge';
 import type { KdSession } from './rpc/http-client';
 import type {
@@ -1015,6 +1016,212 @@ export class K3CloudConnector implements ErpConnector {
       );
     }
     return { serviceId: svc.id };
+  }
+
+  // ─── Operations + toolbar buttons (Plan 5.12.6 Phase 3) ────────────
+  // These wrappers feed the Phase 4 agent tools (k3cloud_list_operations /
+  // _add_custom_operation / _remove_operation / _add_toolbar_button /
+  // _remove_toolbar_button). Pattern mirrors the 5.12.3b business-rule
+  // wrappers above:
+  //   1. requireSession() / getObject(extensionFid) / getKernelXml(...)
+  //   2. bridge.send('<op>', { xml, ...args })  ← bridge owns the DCXML
+  //      reflection + pre-flight validation (dup keys, bound-op exists, ...).
+  //   3. buildSaveExtensionRawMeta + saveExtensionRaw to ship via SaveForIDEV9.
+  // listOperations is read-only — step 1 + 2 only, no save.
+
+  /**
+   * Enumerate FormOperations + toolbar BarButtonItems on an extension.
+   *
+   * Read path: bridge `list_operations` deserializes the FKERNELXML using
+   * BOS's DcxmlSerializer + LayoutInfo walker, the same pipeline BOS Designer
+   * uses to render the operations panel + toolbar tree. Pure-TS parsing
+   * (like business-rule-parser.ts) isn't viable here because BarItemLink ↔
+   * BarButtonItem cross-collection wiring lives in BOS's strongly-typed
+   * model — the XML alone doesn't tell you which appearance owns which
+   * button after EndInit() rewires.
+   */
+  async listOperations(extensionFid: string): Promise<ListOperationsResult> {
+    const xml = await this.getKernelXml(extensionFid);
+    if (!xml) {
+      throw new Error(`扩展 ${extensionFid} 无 FKERNELXML — 不存在或未持久化`);
+    }
+    const bridge = await getBridge();
+    return bridge.send<ListOperationsResult>('list_operations', { xml });
+  }
+
+  /**
+   * Append a custom FormOperation (default OperationId=45 / 自定义) to an
+   * extension. When `pluginClassName` is non-empty the bridge also injects a
+   * ServicePlugins/PlugIn entry (PlugInType=1, IronPython) carrying the
+   * inline `pyBody` as ScriptString — this is the wire shape BOS uses to
+   * persist a Python operation plugin without the customer running C# (recon
+   * §3.3, capture req-96).
+   *
+   * `operationParameterId` is a caller-generated 32-hex GUID for the operation's
+   * parameter slot; agents are expected to mint a UUID per call.
+   */
+  async addCustomOperation(args: {
+    extensionFid: string;
+    operationKey: string;
+    operationName: string;
+    operationParameterId: string;
+    operationId?: number;
+    pluginClassName?: string;
+    pyBody?: string;
+    operationObjectKey?: string;
+    expressValue?: string;
+  }): Promise<{ operationKey: string }> {
+    const session = this.requireSession();
+
+    const ext = await this.getObject(args.extensionFid);
+    if (!ext) throw new Error(`扩展 ${args.extensionFid} 不存在`);
+
+    const extXml = await this.getKernelXml(args.extensionFid);
+    if (!extXml) throw new Error(`扩展 ${args.extensionFid} 无 FKERNELXML`);
+
+    const bridge = await getBridge();
+    const { xml: patchedXml } = await bridge.send<{ xml: string }>('add_custom_operation', {
+      xml: extXml,
+      operationKey: args.operationKey,
+      operationName: args.operationName,
+      operationParameterId: args.operationParameterId,
+      operationId: args.operationId ?? 45,
+      pluginClassName: args.pluginClassName,
+      pyBody: args.pyBody,
+      operationObjectKey: args.operationObjectKey,
+      expressValue: args.expressValue,
+    });
+
+    const meta = await this.buildSaveExtensionRawMeta(session, args.extensionFid, ext);
+    const result = await saveExtensionRaw(session, meta, patchedXml);
+    if (!result.isSuccess) {
+      throw new Error(
+        `添加自定义操作失败：${result.messageTitle ?? ''} ${result.messageDetail ?? '<no detail>'}`,
+      );
+    }
+    return { operationKey: args.operationKey };
+  }
+
+  /**
+   * Remove a FormOperation by operationKey. Bridge throws when no match —
+   * the caller surfaces "不存在" verbatim.
+   */
+  async removeOperation(extensionFid: string, operationKey: string): Promise<void> {
+    const session = this.requireSession();
+
+    const ext = await this.getObject(extensionFid);
+    if (!ext) throw new Error(`扩展 ${extensionFid} 不存在`);
+
+    const extXml = await this.getKernelXml(extensionFid);
+    if (!extXml) throw new Error(`扩展 ${extensionFid} 无 FKERNELXML`);
+
+    const bridge = await getBridge();
+    const { xml: patchedXml } = await bridge.send<{ xml: string }>('remove_operation', {
+      xml: extXml,
+      operationKey,
+    });
+
+    const meta = await this.buildSaveExtensionRawMeta(session, extensionFid, ext);
+    const result = await saveExtensionRaw(session, meta, patchedXml);
+    if (!result.isSuccess) {
+      throw new Error(
+        `删除操作失败：${result.messageTitle ?? ''} ${result.messageDetail ?? '<no detail>'}`,
+      );
+    }
+  }
+
+  /**
+   * Add a BarButtonItem (+ matching BarItemLink) to a form-level or
+   * entry-level toolbar, bound to an existing FormOperation via
+   * ActionId=23 / FormBusinessService.Parameters=["<opKey>"].
+   *
+   * `target.kind === 'form'` mounts on the FormAppearance; `'entry'`
+   * requires an `entityKey` and mounts on the matching EntryEntityAppearance.
+   * Bridge enforces:
+   *   - boundOperationKey must reference an existing FormOperation
+   *   - buttonKey must be unique across ALL appearances (matches BOS Designer)
+   * Failures bubble as Chinese error messages from the bridge.
+   *
+   * `barDataManagerId` / `formBusinessServiceId` / `barItemLinkId` are
+   * caller-generated GUIDs — BOS expects callers to supply ids for every
+   * new metadata node within an overlay (no server-side auto-id).
+   */
+  async addToolbarButton(args: {
+    extensionFid: string;
+    target: { kind: 'form' } | { kind: 'entry'; entityKey: string };
+    buttonKey: string;
+    buttonId: string;
+    caption: string;
+    seq: number;
+    boundOperationKey: string;
+    boundOperationName: string;
+    toolbarKey: string;
+    barDataManagerId: string;
+    formBusinessServiceId: string;
+    barItemLinkId: string;
+  }): Promise<{ buttonKey: string }> {
+    const session = this.requireSession();
+
+    const ext = await this.getObject(args.extensionFid);
+    if (!ext) throw new Error(`扩展 ${args.extensionFid} 不存在`);
+
+    const extXml = await this.getKernelXml(args.extensionFid);
+    if (!extXml) throw new Error(`扩展 ${args.extensionFid} 无 FKERNELXML`);
+
+    const bridge = await getBridge();
+    const { xml: patchedXml } = await bridge.send<{ xml: string }>('add_toolbar_button', {
+      xml: extXml,
+      target: args.target,
+      buttonKey: args.buttonKey,
+      buttonId: args.buttonId,
+      caption: args.caption,
+      seq: args.seq,
+      boundOperationKey: args.boundOperationKey,
+      boundOperationName: args.boundOperationName,
+      toolbarKey: args.toolbarKey,
+      barDataManagerId: args.barDataManagerId,
+      formBusinessServiceId: args.formBusinessServiceId,
+      barItemLinkId: args.barItemLinkId,
+    });
+
+    const meta = await this.buildSaveExtensionRawMeta(session, args.extensionFid, ext);
+    const result = await saveExtensionRaw(session, meta, patchedXml);
+    if (!result.isSuccess) {
+      throw new Error(
+        `添加按钮失败：${result.messageTitle ?? ''} ${result.messageDetail ?? '<no detail>'}`,
+      );
+    }
+    return { buttonKey: args.buttonKey };
+  }
+
+  /**
+   * Remove a BarButtonItem (and its paired BarItemLink) by buttonKey.
+   * Bridge walks every appearance's Menu/BarDataManager so the caller
+   * doesn't have to know whether the button lived on form-level vs
+   * entry-level toolbar.
+   */
+  async removeToolbarButton(extensionFid: string, buttonKey: string): Promise<void> {
+    const session = this.requireSession();
+
+    const ext = await this.getObject(extensionFid);
+    if (!ext) throw new Error(`扩展 ${extensionFid} 不存在`);
+
+    const extXml = await this.getKernelXml(extensionFid);
+    if (!extXml) throw new Error(`扩展 ${extensionFid} 无 FKERNELXML`);
+
+    const bridge = await getBridge();
+    const { xml: patchedXml } = await bridge.send<{ xml: string }>('remove_toolbar_button', {
+      xml: extXml,
+      buttonKey,
+    });
+
+    const meta = await this.buildSaveExtensionRawMeta(session, extensionFid, ext);
+    const result = await saveExtensionRaw(session, meta, patchedXml);
+    if (!result.isSuccess) {
+      throw new Error(
+        `删除按钮失败：${result.messageTitle ?? ''} ${result.messageDetail ?? '<no detail>'}`,
+      );
+    }
   }
 
   /**
