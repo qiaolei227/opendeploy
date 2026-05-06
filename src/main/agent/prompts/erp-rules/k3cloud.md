@@ -45,6 +45,13 @@
   - `mountPoint.kind: 'entity'` — 实体级 EntityServiceRule(挂 HeadEntity,按 preCondition 触发,**preCondition 必填非空**)
 - `k3cloud_delete_business_rule` — 按 ruleId 删规则。**v0.1 限制**:字段级 UpdateAction 删除暂未实现(会抛 deferred-to-v0.2 错);实体级正常删。
 
+**BOS 操作 + 工具栏按钮**(Plan 5.12.6 — FormOperation + BarButtonItem):
+- `k3cloud_list_operations` — 列扩展上自定义操作(FormOperation)+ 工具栏按钮(BarButtonItem)。返回 `{ operations[], toolbarButtons[] }`;`toolbarButtons[i].boundOperationKey` 指向触发的操作;`operations[i].servicePlugins[].hasPyScript=true` 表示该操作 inline 了 IronPython 源码。**加按钮前 / 写完闭环必用**。
+- `k3cloud_add_custom_operation` — 加一个 FormOperation。**可选 `pluginClassName` + `pyBody`** → IronPython 源码 inline 到该操作的 `<ServicePlugins>`,点按钮就跑这段脚本。`operationId` 默认 45=DoNothing(自定义);也可指定内置 id(2=Copy / 4=DeleteEntry 等)做内置操作变体。同一扩展 `operationKey` 必须唯一。
+- `k3cloud_delete_operation` — 按 operationKey 删操作。**注意**:不连带删按钮;调前必先 `list_operations` 看 `toolbarButtons[].boundOperationKey` 是否还有引用,有引用先删按钮再删操作(否则按钮变"无效引用"空壳)。
+- `k3cloud_add_toolbar_button` — 在指定位置的工具栏加按钮,绑已存在 `boundOperationKey` 的 FormOperation。`target.kind='form'` 加到 form 顶层主工具栏;`target.kind='entry'` 加到指定 entry 的工具栏(必传 `entityKey`)。`toolbarKey` 是父级 ToolBar 的 Key,**v0.1 由 agent 从 `list_operations` 现有按钮借用**;若 list 拿不到任何按钮(entry 还没初始化工具栏)→ 提示用户在 BOS Designer 手工加临时按钮初始化工具栏后再删。
+- `k3cloud_delete_toolbar_button` — 按 buttonKey 删按钮(连带删 BarItemLink)。
+
 **v0.1 限制**:
 - DLL 插件注册暂不支持(只支持 Python 表单插件)
 - 多 locale 名称暂时只写中文(2052)
@@ -211,6 +218,34 @@ True                                 # 永远触发(几乎只用于 demo,生产�
 
 写完成功后,提示用户**点 BOS Designer 工具栏刷新**即可看到规则。仅当用户反馈"规则没触发"时再建议关客户端重登(罕见,与登录方式相关)。
 
+### 操作 + 工具栏按钮:Python 双挂载点决策
+
+K/3 BOS 把 IronPython 源码 inline 到 form 元数据里有**两个挂载点**(wire 同形,只是包裹层 tag 不同):
+
+| 挂载点 | 工具 | wire 节点 | 触发时机 | 适合场景 |
+|---|---|---|---|---|
+| **ServicePlugins**(操作的服务插件)| `k3cloud_add_custom_operation` 的 `pyBody` 参数 | FormOperation 子节点 `<ServicePlugins>` | 点该按钮触发对应 FormOperation 时跑 | **单按钮单一逻辑**(点了打折 / 点了反审 / 点了导出 etc.),逻辑独立 |
+| **FormPlugins**(form 生命周期)| `k3cloud_register_python_plugins` | Form 子节点 `<FormPlugins>` | 监听 `OnInitialize` / `AfterDoOperation` 等事件 | **跨多按钮共享逻辑**(任何按钮触发都先校验信用额度 / `AfterDoOperation` 按 operationKey 路由) |
+
+**决策规则**:
+1. 客户场景"点这个按钮做这件事"+ 逻辑跟其他按钮无关 → ServicePlugins(`add_custom_operation` 直接传 `pyBody`,1 步搞定)
+2. 客户场景"点任意按钮触发前都要先 X" / "3 个按钮共享一段校验" → FormPlugins(`register_python_plugins` + `AfterDoOperation` 按 `operationKey` 路由 if/elif)
+3. **绝不要两边同时挂同一逻辑** —— 会执行两次,而且 BOS Designer 也不知道哪个是真的
+
+**自定义按钮的标准流程(ServicePlugins 路径,最常见)**:
+1. `k3cloud_add_custom_operation`(传 `pluginClassName` + `pyBody`)→ 同时创建 FormOperation 操作壳子 + inline 该按钮要跑的 IronPython
+2. `k3cloud_list_operations`(取现有 toolbarButtons[0].toolbarKey)→ 拿这个 entry 或 form 已经存在的 ToolBar 的 Key
+3. `k3cloud_add_toolbar_button`(`boundOperationKey` 用步骤 1 的 operationKey,`toolbarKey` 用步骤 2 的)→ 按钮加上,绑操作
+
+**FormPlugins 路径(共享逻辑)**:
+1. `k3cloud_add_custom_operation`(**不**传 `pyBody`)→ 操作壳子
+2. `k3cloud_register_python_plugins`(写 form-level plugin 含 `def AfterDoOperation(self, e): if e.OperationName == 'XOp': do_x()`)→ 路由
+3. `k3cloud_add_toolbar_button` → 按钮
+
+**OperationId 默认 45=DoNothing(自定义)** —— 99% 场景就用默认。要做内置操作变体(如 `2=Copy + ExpressValue=IsCopyLinkEntry:0` 复制时不带链接表)才显式传 `operationId`。客户问"能否用复制按钮但跳过某些表"这种 → 可以走 OperationId=2 + `expressValue` 参数,**别新建 FormOperation**。
+
+写完成功后提示用户**重启客户端登出登回**才能看到新按钮(Plan 5.12.6 e2e 实证:按钮缓存比字段缓存更顽固,F5 刷新和重开扩展都不够,必须重登)。
+
 ### 写入后的闭环——必做反查
 
 base-system 硬规则要求"写完必须验证才能说完成"。K/3 Cloud 的具体闭环:
@@ -226,6 +261,10 @@ base-system 硬规则要求"写完必须验证才能说完成"。K/3 Cloud 的�
    | `k3cloud_add_calculate_rule` (field) | `k3cloud_list_business_rules <extId>` | `fieldUpdateActions` 里有新 serviceId + fieldKey 对得上 + `actionId === 2` |
    | `k3cloud_add_calculate_rule` (entity) | `k3cloud_list_business_rules <extId>` | `entityRules` 里有新 ruleId + preCondition 对得上 + `services[0].actionId === 2` |
    | `k3cloud_delete_business_rule` | `k3cloud_list_business_rules <extId>` | 列表里**没有**那个 ruleId |
+   | `k3cloud_add_custom_operation` | `k3cloud_list_operations <extId>` | `operations` 里有新 `operationKey` + `operationName` 对得上;若传了 `pyBody` 则 `servicePlugins[0].hasPyScript === true` + `servicePlugins[0].className === pluginClassName` |
+   | `k3cloud_add_toolbar_button` | `k3cloud_list_operations <extId>` | `toolbarButtons` 里有新 `buttonKey` + `caption` 对得上 + `boundOperationKey` 指向 step 1 创的操作 |
+   | `k3cloud_delete_operation` | `k3cloud_list_operations <extId>` | `operations` 列表里**没有**那个 `operationKey` |
+   | `k3cloud_delete_toolbar_button` | `k3cloud_list_operations <extId>` | `toolbarButtons` 列表里**没有**那个 `buttonKey` |
 
    **千万别用 `k3cloud_get_fields` 验扩展字段** —— 它只看父对象原厂字段,扩展字段永远查不到,会让你误以为写入失败。
 
