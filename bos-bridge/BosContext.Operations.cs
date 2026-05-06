@@ -342,6 +342,47 @@ namespace OpenDeploy.BosBridge
         }
 
         /// <summary>
+        /// Get-or-create the Form element. Newly created extensions ship a
+        /// minimal baseline-diff FKERNELXML with no Form overlay (the Form
+        /// node is only emitted once the extension actually adds elements
+        /// inside Form's collections). The first time bridge writes a
+        /// FormOperation / BarButtonItem, we synthesize the Form overlay
+        /// using the extension's own form id (the "ext.id" the connector
+        /// passes via <paramref name="extensionFormId"/>). DcxmlSerializer
+        /// emits Action="edit" + Oid="BOS_BillModel" + Id=&lt;ext-form-id&gt;
+        /// on serialize, matching the wire shape register_python_plugins
+        /// uses for its first-write path (verified by capture req-96 +
+        /// the live req-212 baseline).
+        /// </summary>
+        private object EnsureFormElement(object businessInfo, string? extensionFormId)
+        {
+            var existing = FindFormElement(businessInfo);
+            if (existing != null) return existing;
+            if (string.IsNullOrEmpty(extensionFormId))
+            {
+                throw new InvalidOperationException(
+                    "Form element not found in BusinessInfo, and no extensionFormId supplied to synthesize one. "
+                  + "This is typical of a freshly-created extension that hasn't had any element written yet — "
+                  + "pass extensionFormId (the ext FID, dashed or compact GUID) so bridge can synthesize the Form overlay.");
+            }
+            var formType = ResolveType("Kingdee.BOS.Core.Metadata.FormElement.Form");
+            var form = Activator.CreateInstance(formType)
+                ?? throw new InvalidOperationException("Failed to instantiate Form via reflection");
+            // Action="edit" tells DcxmlSerializer this is a baseline overlay
+            // (vs adding a brand-new Form). Oid="BOS_BillModel" matches the
+            // BillModel root parent every business-info form descends from.
+            SetProp(form, "Action", "edit");
+            SetProp(form, "Oid", "BOS_BillModel");
+            // Form.Id is Guid; coerce dashed-or-compact string into Guid.
+            SetProp(form, "Id", new Guid(extensionFormId));
+            // Append to BusinessInfo.Elements (IList<BusinessInfoElement>).
+            var elements = businessInfo.GetType().GetProperty("Elements")?.GetValue(businessInfo) as IList
+                ?? throw new InvalidOperationException("BusinessInfo.Elements is not an IList — cannot append synthesized Form");
+            elements.Add(form);
+            return form;
+        }
+
+        /// <summary>
         /// Append a custom <c>FormOperation</c> to <c>Form.FormOperations</c>.
         /// Defaults <c>OperationId</c> to 45 (DoNothing / 自定义) per recon
         /// §3.3 — agents can override for variants like OperationId=2 (复制
@@ -380,8 +421,9 @@ namespace OpenDeploy.BosBridge
                 ?? throw new InvalidOperationException(
                     $"input deserialized to {formMeta.GetType().FullName} which has no BusinessInfo");
 
-            var form = FindFormElement(businessInfo)
-                ?? throw new InvalidOperationException("Form element not found in BusinessInfo");
+            // Get-or-create — freshly-created extensions have no Form overlay
+            // until the first element is written (this is that first element).
+            var form = EnsureFormElement(businessInfo, args.ExtensionFormId);
 
             // Form.FormOperations is `List<FormOperation>` (decompiled at
             // bos-core-full.cs:177854). DcxmlSerializer ctors leave it
@@ -1210,6 +1252,16 @@ namespace OpenDeploy.BosBridge
             // (BOS Designer also accepts this — class-name-only plugin shell).
             [JsonProperty("pyBody")]
             public string? PyBody { get; set; }
+
+            // Optional — extension's form id (ext.id, dashed or compact GUID).
+            // Required when the source XML has no Form overlay (typical of a
+            // freshly-created extension that hasn't yet had any element
+            // written). Bridge synthesizes Form action="edit" oid="BOS_BillModel"
+            // with this Id when it can't find an existing Form. Connector
+            // wrappers always pass this; legacy callers (or fixture tests
+            // with full baseline) can omit and bridge falls back to FindForm.
+            [JsonProperty("extensionFormId")]
+            public string? ExtensionFormId { get; set; }
         }
 
         // ── add_toolbar_button args DTO (Plan 5.12.6 Task 2.4) ────────────
@@ -1275,6 +1327,10 @@ namespace OpenDeploy.BosBridge
 
             [JsonProperty("barItemLinkId")]
             public string BarItemLinkId { get; set; } = string.Empty;
+
+            // Optional — see AddCustomOperationArgs.ExtensionFormId.
+            [JsonProperty("extensionFormId")]
+            public string? ExtensionFormId { get; set; }
         }
 
         internal sealed class ToolbarButtonTarget
