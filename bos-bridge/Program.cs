@@ -195,6 +195,15 @@ namespace OpenDeploy.BosBridge
                     var operationKey = RequireString(req, "operationKey");
                     return new { xml = ctx.RemoveOperation(xml, operationKey) };
                 }
+                case "add_toolbar_button":
+                {
+                    // Newtonsoft binds the [JsonProperty] camelCase keys
+                    // (target, buttonKey, boundOperationKey, …) — same
+                    // pattern as add_custom_operation / add_entity_service_rule.
+                    var args = req.ToObject<BosContext.AddToolbarButtonArgs>()
+                        ?? throw new InvalidOperationException("failed to deserialize add_toolbar_button args");
+                    return new { xml = ctx.AddToolbarButton(args) };
+                }
                 default:
                     throw new InvalidOperationException($"unknown op: {op}");
             }

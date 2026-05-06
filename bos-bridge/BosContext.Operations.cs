@@ -247,6 +247,12 @@ namespace OpenDeploy.BosBridge
                 if (linksByKey.TryGetValue(key, out var link))
                 {
                     btn.BarItemLinkId = ReadStringProperty(link, "Id");
+                    // BarItemLink.ParentKey is the toolbar key the link
+                    // attaches to (defaults to "ToolBar" per BarItemLink ctor
+                    // at bos-core-full.cs:253045). Surface it so callers can
+                    // distinguish "uses default ToolBar" from "uses custom
+                    // UNW_ToolBar"; null when the property is unreadable.
+                    btn.ToolbarKey = ReadStringProperty(link, "ParentKey");
                 }
                 sink.Add(btn);
             }
@@ -572,6 +578,363 @@ namespace OpenDeploy.BosBridge
             return list;
         }
 
+        /// <summary>
+        /// Append a <c>BarButtonItem</c> to the target Appearance's
+        /// <c>Menu.BarItems</c> + <c>Menu.BarItemLinks</c>, with
+        /// <c>ClickActions/FormBusinessService</c> bound to an existing
+        /// <c>Form.FormOperations</c> entry via <c>ActionId=23</c> (调用表单操作)
+        /// + <c>Parameters="[\"<opKey>\"]"</c>. Wire shape verified by capture
+        /// req-96 (`docs/recon/2026-05-06-operations-spike.md` §4):
+        /// <code>
+        ///   &lt;BarButtonItem ElementType="2005" ElementStyle="1"&gt;
+        ///     &lt;ImageKey /&gt;&lt;Shortcut /&gt;&lt;Seq&gt;...&lt;/Seq&gt;
+        ///     &lt;Description&gt;按钮&lt;/Description&gt;
+        ///     &lt;IsShowTitle&gt;True&lt;/IsShowTitle&gt;
+        ///     &lt;ClickActions&gt;&lt;FormBusinessService&gt;...
+        ///       &lt;Parameters&gt;["TESTCopy"]&lt;/Parameters&gt;
+        ///       &lt;ActionId&gt;23&lt;/ActionId&gt;...
+        ///     &lt;/FormBusinessService&gt;&lt;/ClickActions&gt;
+        ///     &lt;Caption&gt;按钮&lt;/Caption&gt;
+        ///     &lt;Id&gt;...&lt;/Id&gt;&lt;Key&gt;UNW_tbButton&lt;/Key&gt;
+        ///   &lt;/BarButtonItem&gt;
+        ///   &lt;BarItemLink&gt;&lt;Id&gt;...&lt;/Id&gt;
+        ///     &lt;BarItemKey&gt;UNW_tbButton&lt;/BarItemKey&gt;
+        ///     &lt;ParentKey&gt;UNW_ToolBar&lt;/ParentKey&gt;
+        ///   &lt;/BarItemLink&gt;
+        /// </code>
+        /// Pre-flight checks: (1) <paramref name="args.BoundOperationKey"/>
+        /// must already exist in <c>Form.FormOperations</c> (matches BOS
+        /// Designer's "操作不存在" save validation); (2)
+        /// <paramref name="args.ButtonKey"/> must be unique across ALL
+        /// Appearances' BarItems collections (BOS keys must be globally
+        /// unique within a form). v0.1 does not auto-create the toolbar (the
+        /// agent's tool docs require the user to seed it via BOS Designer
+        /// first); we just stamp <c>BarItemLink.ParentKey</c> with the
+        /// caller-supplied <paramref name="args.ToolbarKey"/>.
+        /// </summary>
+        public string AddToolbarButton(AddToolbarButtonArgs args)
+        {
+            if (args == null) throw new ArgumentNullException(nameof(args));
+            if (string.IsNullOrEmpty(args.Xml)) throw new ArgumentException("xml is empty", "xml");
+            if (args.Target == null) throw new ArgumentException("target is required", "target");
+            if (string.IsNullOrEmpty(args.Target.Kind))
+                throw new ArgumentException("target.kind is required", "target.kind");
+            if (args.Target.Kind != "form" && args.Target.Kind != "entry")
+                throw new ArgumentException(
+                    $"target.kind must be 'form' or 'entry' (got '{args.Target.Kind}')", "target.kind");
+            if (args.Target.Kind == "entry" && string.IsNullOrEmpty(args.Target.EntityKey))
+                throw new ArgumentException(
+                    "target.entityKey is required when target.kind='entry'", "target.entityKey");
+            if (string.IsNullOrEmpty(args.ButtonKey))
+                throw new ArgumentException("buttonKey is required", "buttonKey");
+            if (string.IsNullOrEmpty(args.ButtonId))
+                throw new ArgumentException("buttonId is required", "buttonId");
+            if (string.IsNullOrEmpty(args.Caption))
+                throw new ArgumentException("caption is required", "caption");
+            if (string.IsNullOrEmpty(args.BoundOperationKey))
+                throw new ArgumentException("boundOperationKey is required", "boundOperationKey");
+            if (string.IsNullOrEmpty(args.ToolbarKey))
+                throw new ArgumentException("toolbarKey is required", "toolbarKey");
+            if (string.IsNullOrEmpty(args.BarDataManagerId))
+                throw new ArgumentException("barDataManagerId is required", "barDataManagerId");
+            if (string.IsNullOrEmpty(args.FormBusinessServiceId))
+                throw new ArgumentException("formBusinessServiceId is required", "formBusinessServiceId");
+            if (string.IsNullOrEmpty(args.BarItemLinkId))
+                throw new ArgumentException("barItemLinkId is required", "barItemLinkId");
+
+            var formMeta = _serializer.DeserializeFromString(args.Xml)
+                ?? throw new InvalidOperationException("DeserializeFromString returned null");
+
+            // Pre-flight 1: bound op must exist on Form.FormOperations.
+            // Skipped silently if the FormMetadata has no BusinessInfo (which
+            // shouldn't happen for any real BOS-saved input); the bound-op
+            // check then re-throws the canonical "boundOperationKey ... 不存在".
+            var businessInfo = formMeta.GetType().GetProperty("BusinessInfo")?.GetValue(formMeta);
+            var form = businessInfo != null ? FindFormElement(businessInfo) : null;
+            if (form == null || !FormHasOperationKey(form, args.BoundOperationKey))
+            {
+                throw new InvalidOperationException(
+                    $"boundOperationKey \"{args.BoundOperationKey}\" 不存在");
+            }
+
+            // Resolve target Appearance (form-level FormAppearance OR
+            // entry-level EntryEntityAppearance keyed by entity key).
+            var layoutInfos = formMeta.GetType().GetProperty("LayoutInfos")?.GetValue(formMeta) as IEnumerable
+                ?? throw new InvalidOperationException(
+                    "FormMetadata.LayoutInfos missing — cannot place toolbar button without an appearance container");
+            var appearance = FindTargetAppearance(layoutInfos, args.Target.Kind, args.Target.EntityKey);
+            if (appearance == null)
+            {
+                throw new InvalidOperationException(
+                    args.Target.Kind == "form"
+                        ? "FormAppearance 未找到 — form 顶层 layout 不存在"
+                        : $"entityKey \"{args.Target.EntityKey}\" 对应的 EntryEntityAppearance 未找到");
+            }
+
+            // Pre-flight 2: button key must be globally unique across all
+            // BarItems collections (form + every entry-level appearance).
+            // Matches BOS Designer's own "按钮 X 已存在" save-time validation.
+            foreach (var ap in EnumerateAppearances(layoutInfos))
+            {
+                var existingBdm = GetMenuBarDataManager(ap);
+                if (existingBdm == null) continue;
+                if (existingBdm.GetType().GetProperty("BarItems")?.GetValue(existingBdm) is IEnumerable items)
+                {
+                    foreach (var item in items)
+                    {
+                        if (item == null) continue;
+                        if (item.GetType().Name != "BarButtonItem") continue;
+                        if (string.Equals(ReadStringProperty(item, "Key"), args.ButtonKey, StringComparison.Ordinal))
+                            throw new InvalidOperationException($"按钮 {args.ButtonKey} 已存在");
+                    }
+                }
+            }
+
+            // Get-or-create the BarDataManager on the target appearance.
+            // FormAppearance.Menu / EntryEntityAppearance.Menu are both typed
+            // BarDataManager (decompiled at bos-core-full.cs:291621 / :55114).
+            // No intermediate Menu wrapper — the property name is Menu and the
+            // type IS BarDataManager.
+            var bdm = GetOrCreateMenuBarDataManager(appearance, args.BarDataManagerId);
+
+            // BarItems mutation: DcxmlSerializer calls EndInit() on every
+            // ISupportInitialize after deserialization
+            // (DcxmlSerializerReadImplement.cs:530-541). Post-EndInit,
+            // BarDataManager.BarItems getter (decompiled
+            // C:/.../Kingdee.BOS.Core.dll → BarDataManager) returns a
+            // **fresh copy** of `_allBarItems.Values` rather than a backing
+            // list — Adding to that copy is a silent no-op for the next
+            // SerializeToString. Use the public AddBarItem(BarItem) method
+            // which mutates the underlying `_allBarItems` dictionary
+            // directly (decompile shows `_allBarItems[barItem.Name] = barItem`).
+            //
+            // BarItemLinks getter returns the backing `_barItemLinks` list
+            // directly when not _isIniting, so Add() on the IList works —
+            // but we use the public AddBarItemLink(BarItemLink) for symmetry
+            // and to honor any future BOS-side mutation hooks.
+
+            // ── Build BarButtonItem ──────────────────────────────────────
+            // BarButtonItem ctor sets ElementType=2005 + Style=BarButtonItem
+            // automatically (bos-core-full.cs:272813). BarItem ctor (line
+            // 216247) pre-initializes ClickActions = new List<FormBusinessService>(),
+            // ToolTip = new LocaleValue(), Description = new LocaleValue() —
+            // we override Description / Caption with the caller-supplied
+            // strings via SetProp's LocaleValue(string) ctor coercion.
+            var barButtonType = ResolveType("Kingdee.BOS.Core.Metadata.BarElement.BarButtonItem")
+                ?? throw new InvalidOperationException(
+                    "Kingdee.BOS.Core.Metadata.BarElement.BarButtonItem not found in BOS Core");
+            var btn = Activator.CreateInstance(barButtonType)!;
+            // Wire-order subnodes per recon §4.2 — the underlying types are:
+            //   ImageKey/Shortcut: string (BarItem) — left at default empty
+            //   Seq: int — caller-supplied
+            //   Description: LocaleValue — coerced from string ctor
+            //   IsShowTitle: bool — true (button visible w/ caption)
+            //   ClickActions: List<FormBusinessService> — pre-init'd by ctor
+            //   Caption: LocaleValue — coerced from string ctor
+            //   Id: string (Appearance.Id GUID, no dashes per req-96)
+            //   Key: string — caller-supplied, must be ISV-prefixed
+            SetProp(btn, "Key", args.ButtonKey);
+            SetProp(btn, "Id", args.ButtonId);
+            SetProp(btn, "Seq", args.Seq);
+            // BarItem.Description is LocaleValue (216208); req-96 ships
+            // <Description>按钮</Description> inline — LocaleValue's
+            // single-string-arg ctor wraps the value via ConvertValue's
+            // LocaleValue-detection path. Default to "按钮" matching the
+            // canonical Designer-emitted value when caller omits it.
+            SetProp(btn, "Description", string.IsNullOrEmpty(args.Description) ? "按钮" : args.Description);
+            SetProp(btn, "IsShowTitle", true);
+            SetProp(btn, "Caption", args.Caption);
+
+            // ClickActions: bind to existing FormOperation via
+            // FormBusinessService(ActionId=23, Parameters=["<opKey>"]).
+            // ClickActions list is already non-null per BarItem ctor; pull
+            // and append rather than re-creating.
+            var clickActions = btn.GetType().GetProperty("ClickActions")?.GetValue(btn) as IList
+                ?? throw new InvalidOperationException("BarItem.ClickActions getter returned null");
+            var fbsType = ResolveType("Kingdee.BOS.Core.Metadata.FormElement.FormBusinessService")
+                ?? throw new InvalidOperationException(
+                    "Kingdee.BOS.Core.Metadata.FormElement.FormBusinessService not found in BOS Core");
+            var fbs = Activator.CreateInstance(fbsType)!;
+            SetProp(fbs, "Id", args.FormBusinessServiceId);
+            // ActionId is `long` on FormBusinessService (consistent with
+            // 5.12.3b's add_entity_service_rule path which sets long ActionId).
+            // 23 = "调用表单操作" — recon §4.4 + capture req-96.
+            SetProp(fbs, "ActionId", 23L);
+            // Parameters is a string holding a JSON array; the Parameters
+            // accessor re-encodes on get. Inline-stringify the JSON to match
+            // wire `<Parameters>["TESTCopy"]</Parameters>` exactly.
+            SetProp(fbs, "Parameters", $"[\"{args.BoundOperationKey}\"]");
+            // Description is LocaleValue (FormBusinessService); template
+            // matches BOS Designer's auto-generated "调用表单操作--{operationName}"
+            // per recon §4.4. Caller-supplied operationName falls back to
+            // operationKey (BOS Designer also accepts that).
+            var displayName = string.IsNullOrEmpty(args.BoundOperationName)
+                ? args.BoundOperationKey
+                : args.BoundOperationName;
+            SetProp(fbs, "Description", $"调用表单操作--{displayName}");
+            clickActions.Add(fbs);
+
+            // Mutate `_allBarItems` via public AddBarItem (see comment above).
+            // Reflection invoke to avoid taking a compile-time dep on
+            // BarDataManager / BarItem types in the bridge csproj.
+            var addBarItem = bdm.GetType().GetMethod("AddBarItem", new[] { ResolveType("Kingdee.BOS.Core.Metadata.BarElement.BarItem")! })
+                ?? throw new InvalidOperationException(
+                    "BarDataManager.AddBarItem(BarItem) not found");
+            addBarItem.Invoke(bdm, new object[] { btn });
+
+            // ── Build BarItemLink ────────────────────────────────────────
+            // BarItemLink ctor defaults ParentKey="ToolBar" (bos-core-full.cs:253045)
+            // — we override with the caller's toolbarKey. Id is a dashed GUID
+            // string per wire shape (`<Id>3cce5895-faf8-44af-b1d6-b7f8ac607378</Id>`);
+            // BarItemKey references the BarButtonItem.Key.
+            var linkType = ResolveType("Kingdee.BOS.Core.Metadata.BarElement.BarItemLink")
+                ?? throw new InvalidOperationException(
+                    "Kingdee.BOS.Core.Metadata.BarElement.BarItemLink not found in BOS Core");
+            var link = Activator.CreateInstance(linkType)!;
+            SetProp(link, "Id", args.BarItemLinkId);
+            SetProp(link, "BarItemKey", args.ButtonKey);
+            SetProp(link, "ParentKey", args.ToolbarKey);
+            // BarDataManager.AddBarItemLink(link) silently returns false when
+            // `_allBarItems[link.ParentKey]` is missing — i.e. when the
+            // toolbar BarItem itself isn't in the appearance's menu (which
+            // is the v0.1 reality: the toolbar lives on the parent form,
+            // not in the extension's appearance copy). We bypass that guard
+            // by mutating the backing `_barItemLinks` list directly via the
+            // BarItemLinks getter, which post-EndInit returns the underlying
+            // List<BarItemLink> reference (not a copy — verified by IL of
+            // BarDataManager getter at `_isIniting=false` branch:
+            // `return _barItemLinks;`). Wire-correctness is what matters
+            // for our v0.1 contract; the runtime "link → topology" tracking
+            // AddBarItemLink does is only relevant for the BOS Designer's
+            // in-memory tree which we don't run.
+            var barItemLinksList = bdm.GetType()
+                .GetProperty("BarItemLinks", BindingFlags.Public | BindingFlags.Instance)
+                ?.GetValue(bdm) as IList
+                ?? throw new InvalidOperationException(
+                    $"{bdm.GetType().FullName}.BarItemLinks getter returned null");
+            barItemLinksList.Add(link);
+
+            return _serializer.SerializeToString(formMeta, null);
+        }
+
+        /// <summary>
+        /// Walk every Appearance across every LayoutInfo. Used by both
+        /// pre-flight checks (cross-appearance dup buttonKey scan) and the
+        /// resolve-target-appearance helper. LayoutInfos enumeration mirrors
+        /// the read-side <see cref="ListOperations"/> implementation so the
+        /// list / add paths walk the same elements.
+        /// </summary>
+        private static IEnumerable<object> EnumerateAppearances(IEnumerable layoutInfos)
+        {
+            foreach (var li in layoutInfos)
+            {
+                if (li == null) continue;
+                var apsRaw = li.GetType().GetProperty("Appearances")?.GetValue(li) as IEnumerable;
+                if (apsRaw == null) continue;
+                foreach (var ap in apsRaw)
+                {
+                    if (ap == null) continue;
+                    yield return ap;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Resolve the target Appearance for a button placement. For
+        /// <c>kind="form"</c> the first FormAppearance wins (a FormMetadata
+        /// has exactly one form-level layout in practice — the user-facing
+        /// "form 顶层 toolbar"). For <c>kind="entry"</c> we match by Key on
+        /// EntryEntityAppearance (entry key, e.g. "FEntity"). Returns null
+        /// when no match — caller throws a 中文 not-found error.
+        /// </summary>
+        private static object? FindTargetAppearance(IEnumerable layoutInfos, string kind, string? entityKey)
+        {
+            foreach (var ap in EnumerateAppearances(layoutInfos))
+            {
+                var typeName = ap.GetType().Name;
+                if (kind == "form" && typeName == "FormAppearance") return ap;
+                if (kind == "entry" && typeName == "EntryEntityAppearance"
+                    && string.Equals(ReadStringProperty(ap, "Key"), entityKey, StringComparison.Ordinal))
+                    return ap;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Read the appearance's <c>Menu</c> BarDataManager without creating
+        /// it. Used for the cross-appearance dup-key scan — appearances
+        /// without a Menu have no buttons to clash, so we skip them.
+        /// </summary>
+        private static object? GetMenuBarDataManager(object appearance)
+        {
+            return appearance.GetType()
+                .GetProperty("Menu", BindingFlags.Public | BindingFlags.Instance)
+                ?.GetValue(appearance);
+        }
+
+        /// <summary>
+        /// Get-or-create the appearance's <c>Menu</c> BarDataManager and
+        /// stamp its <c>Id</c> when blank. FormAppearance.Menu /
+        /// EntryEntityAppearance.Menu are both typed
+        /// <c>Kingdee.BOS.Core.Metadata.BarElement.BarDataManager</c> with
+        /// public setters (decompiled at bos-core-full.cs:291621 / :55114),
+        /// so we can Activator.CreateInstance + SetValue when the menu was
+        /// previously absent (e.g. extension didn't ship its own LayoutInfo
+        /// menu — fixture operations-no-ops.xml is the canonical case;
+        /// however that fixture has no LayoutInfos at all, so this path is
+        /// only exercised for partially-shipped fixtures in the wild).
+        /// </summary>
+        private static object GetOrCreateMenuBarDataManager(object appearance, string barDataManagerId)
+        {
+            var menuProp = appearance.GetType().GetProperty("Menu", BindingFlags.Public | BindingFlags.Instance)
+                ?? throw new InvalidOperationException(
+                    $"{appearance.GetType().FullName} has no Menu property");
+            var bdm = menuProp.GetValue(appearance);
+            if (bdm == null)
+            {
+                var bdmType = ResolveType("Kingdee.BOS.Core.Metadata.BarElement.BarDataManager")
+                    ?? throw new InvalidOperationException(
+                        "Kingdee.BOS.Core.Metadata.BarElement.BarDataManager not found in BOS Core");
+                bdm = Activator.CreateInstance(bdmType)!;
+                // BarDataManager has _isIniting=false by default. Calling
+                // BeginInit() flips it to true so the BarItems / BarItemLinks
+                // getters lazy-build their `_serXxx` lists from `_allBarItems`
+                // / `_barItemLinks`. Without this, the getter returns the
+                // null backing field (line 282260 IL_0095 path), and Add()
+                // would NRE.
+                var beginInit = bdmType.GetMethod("BeginInit", Type.EmptyTypes);
+                beginInit?.Invoke(bdm, null);
+                menuProp.SetValue(appearance, bdm);
+            }
+            // Stamp Id when blank — the property has a Guid.NewGuid()
+            // fallback in its getter (bos-core-full.cs:282200), but emitting
+            // the caller-supplied id keeps round-trips byte-stable.
+            if (string.IsNullOrEmpty(ReadStringProperty(bdm, "Id")))
+                SetProp(bdm, "Id", barDataManagerId);
+            return bdm;
+        }
+
+        /// <summary>
+        /// Test whether the given Form's <c>FormOperations</c> collection
+        /// contains an entry with <c>Operation == operationKey</c>. Used by
+        /// <see cref="AddToolbarButton"/>'s pre-flight validation — BOS
+        /// Designer rejects "click action references a missing operation"
+        /// at save time so we mirror that contract.
+        /// </summary>
+        private static bool FormHasOperationKey(object form, string operationKey)
+        {
+            var opsRaw = form.GetType().GetProperty("FormOperations", BindingFlags.Public | BindingFlags.Instance)
+                ?.GetValue(form);
+            if (!(opsRaw is IEnumerable ops)) return false;
+            foreach (var op in ops)
+            {
+                if (op == null) continue;
+                if (string.Equals(ReadStringProperty(op, "Operation"), operationKey, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
         // ── Result DTOs ────────────────────────────────────────────────
         // JsonProperty annotations force camelCase wire names — JToken.FromObject
         // otherwise uses C# property casing (PascalCase) which mismatches the
@@ -655,6 +1018,15 @@ namespace OpenDeploy.BosBridge
 
             [JsonProperty("barItemLinkId")]
             public string? BarItemLinkId { get; set; }
+
+            // The toolbar key this button attaches to (BarItemLink.ParentKey).
+            // BarItemLink ctor defaults this to "ToolBar"; callers can
+            // override via add_toolbar_button's `toolbarKey` arg. Null when
+            // no matching BarItemLink exists (orphan BarButtonItem case;
+            // 5.12.6 v0.1 always pairs button + link, but a future "create
+            // shell button" path could leave links empty).
+            [JsonProperty("toolbarKey")]
+            public string? ToolbarKey { get; set; }
         }
 
         // ── add-op args DTO (deserialized from Program.cs Dispatch) ───────
@@ -702,6 +1074,80 @@ namespace OpenDeploy.BosBridge
             // (BOS Designer also accepts this — class-name-only plugin shell).
             [JsonProperty("pyBody")]
             public string? PyBody { get; set; }
+        }
+
+        // ── add_toolbar_button args DTO (Plan 5.12.6 Task 2.4) ────────────
+        // The Newtonsoft pattern mirrors AddCustomOperationArgs above; agents
+        // pass a JSON object with camelCase keys (target, buttonKey, …) and
+        // the Dispatch path binds via req.ToObject<AddToolbarButtonArgs>().
+
+        internal sealed class AddToolbarButtonArgs
+        {
+            [JsonProperty("xml")]
+            public string Xml { get; set; } = string.Empty;
+
+            // Required: { kind: 'form' | 'entry', entityKey?: string }.
+            // entityKey is required when kind='entry'; ignored otherwise.
+            [JsonProperty("target")]
+            public ToolbarButtonTarget Target { get; set; } = new ToolbarButtonTarget();
+
+            [JsonProperty("buttonKey")]
+            public string ButtonKey { get; set; } = string.Empty;
+
+            // 32-hex GUID string (no dashes) per req-96 wire shape.
+            [JsonProperty("buttonId")]
+            public string ButtonId { get; set; } = string.Empty;
+
+            [JsonProperty("caption")]
+            public string Caption { get; set; } = string.Empty;
+
+            // Defaults to "按钮" matching BOS Designer's default Description
+            // value (req-96 ships <Description>按钮</Description>). Callers
+            // can override with a richer description if needed.
+            [JsonProperty("description")]
+            public string? Description { get; set; }
+
+            // BarItem.Seq is `int`; default 1 if caller omits.
+            [JsonProperty("seq")]
+            public int Seq { get; set; } = 1;
+
+            // The Form.FormOperations.Operation key this button calls when
+            // clicked. Pre-flight checked: must already exist in the form.
+            [JsonProperty("boundOperationKey")]
+            public string BoundOperationKey { get; set; } = string.Empty;
+
+            // The bound operation's display name — interpolated into
+            // FormBusinessService.Description as "调用表单操作--{operationName}".
+            // Falls back to BoundOperationKey when null/empty (still valid).
+            [JsonProperty("boundOperationName")]
+            public string? BoundOperationName { get; set; }
+
+            // The toolbar this button attaches to (BarItemLink.ParentKey).
+            // v0.1 assumes the toolbar already exists (user seeds via BOS
+            // Designer); the bridge does not auto-create a ToolBar.
+            [JsonProperty("toolbarKey")]
+            public string ToolbarKey { get; set; } = string.Empty;
+
+            // Caller-provided GUIDs for idempotent re-runs — same uuid =
+            // byte-stable diff. Dashed UUIDs for managers / services / links;
+            // 32-hex (no dashes) for buttonId per wire shape.
+            [JsonProperty("barDataManagerId")]
+            public string BarDataManagerId { get; set; } = string.Empty;
+
+            [JsonProperty("formBusinessServiceId")]
+            public string FormBusinessServiceId { get; set; } = string.Empty;
+
+            [JsonProperty("barItemLinkId")]
+            public string BarItemLinkId { get; set; } = string.Empty;
+        }
+
+        internal sealed class ToolbarButtonTarget
+        {
+            [JsonProperty("kind")]
+            public string Kind { get; set; } = string.Empty;
+
+            [JsonProperty("entityKey")]
+            public string? EntityKey { get; set; }
         }
     }
 }

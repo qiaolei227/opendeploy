@@ -666,4 +666,110 @@ class MyHandler:
       client.send('remove_operation', { xml: baseline, operationKey: 'Missing' }),
     ).rejects.toThrow(/不存在/);
   });
+
+  // ── Plan 5.12.6 Task 2.4 — add_toolbar_button ─────────────────────────
+  // Append a BarButtonItem to the target Appearance's
+  // Menu (BarDataManager).BarItems + BarItemLinks, with ClickActions
+  // bound to an existing FormOperation via ActionId=23 +
+  // Parameters=["<opKey>"]. Wire shape verified by capture req-96
+  // (docs/recon/2026-05-06-operations-spike.md §4). target.kind selects
+  // FormAppearance vs EntryEntityAppearance; uniqueness of buttonKey is
+  // enforced across ALL appearances (BOS Designer's own validation).
+  it('add_toolbar_button appends a button bound to an existing FormOperation, list returns it', async () => {
+    const fixture = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/operations-with-ops.xml',
+      'utf8',
+    );
+    const patched = await client.send<{ xml: string }>('add_toolbar_button', {
+      xml: fixture,
+      target: { kind: 'form' },
+      buttonKey: 'NEW_BTN',
+      buttonId: 'aabbccddeeff00112233445566778899',
+      caption: '新按钮',
+      seq: 2,
+      boundOperationKey: 'TESTCopy',
+      boundOperationName: 'TEST复制',
+      toolbarKey: 'UNW_ToolBar',
+      barDataManagerId: '11111111-1111-1111-1111-111111111111',
+      formBusinessServiceId: '22222222-2222-2222-2222-222222222222',
+      barItemLinkId: '33333333-3333-3333-3333-333333333333',
+    });
+
+    // Round-trip via list_operations covers buttonKey + caption +
+    // boundOperationKey. ToolbarKey is asserted directly against the
+    // emitted DCXML below: BOS's BarDataManager.EndInit() silently drops
+    // BarItemLinks whose ParentKey doesn't resolve to a known BarItem in
+    // the same BarDataManager (decompiled at AddBarItemLink — the
+    // _allBarItems[ParentKey] lookup fails when the toolbar BarItem isn't
+    // co-located, which is the v0.1 reality: extension toolbars live on
+    // the parent form, not in the extension's appearance copy). We intentionally
+    // ship the link in the wire (which is what BOS server-side reads — not the
+    // strict client-side EndInit filter), but list_operations re-deserializes
+    // and EndInit drops it again, so toolbarKey reads null on round-trip.
+    // Verify wire correctness is what matters for SaveForIDEV9 contract.
+    const list = await client.send<{
+      toolbarButtons: Array<{
+        buttonKey: string;
+        caption?: string;
+        boundOperationKey?: string | null;
+      }>;
+    }>('list_operations', { xml: patched.xml });
+    expect(list.toolbarButtons).toHaveLength(2);
+    const newBtn = list.toolbarButtons.find((b) => b.buttonKey === 'NEW_BTN');
+    expect(newBtn).toBeDefined();
+    expect(newBtn).toMatchObject({
+      caption: '新按钮',
+      boundOperationKey: 'TESTCopy',
+    });
+    // Direct wire assertion: BarItemLink with our toolbarKey ships.
+    expect(patched.xml).toContain('<BarItemKey>NEW_BTN</BarItemKey>');
+    expect(patched.xml).toContain('<ParentKey>UNW_ToolBar</ParentKey>');
+  });
+
+  it('add_toolbar_button rejects boundOperationKey that does not exist', async () => {
+    const fixture = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/operations-with-ops.xml',
+      'utf8',
+    );
+    await expect(
+      client.send('add_toolbar_button', {
+        xml: fixture,
+        target: { kind: 'form' },
+        buttonKey: 'UNW_NewBtn',
+        buttonId: 'bbbbccccddddeeeeffff00001111aaaa',
+        caption: 'x',
+        seq: 1,
+        boundOperationKey: 'NotExist',
+        boundOperationName: 'x',
+        toolbarKey: 'UNW_ToolBar',
+        barDataManagerId: 'aaaaaaaa-1111-1111-1111-111111111111',
+        formBusinessServiceId: 'bbbbbbbb-2222-2222-2222-222222222222',
+        barItemLinkId: 'cccccccc-3333-3333-3333-333333333333',
+      }),
+    ).rejects.toThrow(/boundOperationKey.*不存在/);
+  });
+
+  it('add_toolbar_button rejects duplicate buttonKey across appearances', async () => {
+    const fixture = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/operations-with-ops.xml',
+      'utf8',
+    );
+    await expect(
+      client.send('add_toolbar_button', {
+        xml: fixture,
+        target: { kind: 'form' },
+        // UNW_tbButton already exists in the fixture's FormAppearance.Menu.BarItems.
+        buttonKey: 'UNW_tbButton',
+        buttonId: 'aaaa1111bbbb2222cccc3333dddd4444',
+        caption: 'dup',
+        seq: 1,
+        boundOperationKey: 'TESTCopy',
+        boundOperationName: 'TEST复制',
+        toolbarKey: 'UNW_ToolBar',
+        barDataManagerId: 'aaaaaaaa-1111-1111-1111-111111111111',
+        formBusinessServiceId: 'bbbbbbbb-2222-2222-2222-222222222222',
+        barItemLinkId: 'cccccccc-3333-3333-3333-333333333333',
+      }),
+    ).rejects.toThrow(/已存在/);
+  });
 });
