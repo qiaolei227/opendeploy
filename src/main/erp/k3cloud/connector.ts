@@ -104,6 +104,7 @@ import {
   buildRemoveToolbarButtonOverlay,
   extractFormAppearanceLocation,
   extractEntryEntityAppearanceLocation,
+  injectIntoForm,
 } from './rpc/operation-overlay';
 import { getBridge } from './bridge';
 import type { KdSession } from './rpc/http-client';
@@ -1104,7 +1105,25 @@ export class K3CloudConnector implements ErpConnector {
       operationObjectKey: args.operationObjectKey,
       expressValue: args.expressValue,
     });
-    const patchedXml = injectOverlay(extXml, overlay);
+    // Splice into existing Form node (added by create_extension) rather than
+    // appending a duplicate Form sibling — server applies only the first
+    // Form with a given oid, so a second one silently drops everything.
+    const patchedXml = injectIntoForm(extXml, ext.id, overlay);
+    // TEMP DIAG (Plan 5.12.6 e2e silent-drop hunt 2026-05-07) — dump
+    // pre/post overlay XML so we can compare against the proven
+    // register_python_plugins wire format. Remove once wire is validated.
+    try {
+      const fs = await import('node:fs/promises');
+      const path = await import('node:path');
+      const dir = path.join(process.cwd(), '.scratch', 'ship-debug');
+      await fs.mkdir(dir, { recursive: true });
+      const ts = Date.now();
+      await fs.writeFile(path.join(dir, `${ts}-add_custom_operation-extXml.xml`), extXml, 'utf8');
+      await fs.writeFile(path.join(dir, `${ts}-add_custom_operation-overlay.xml`), overlay, 'utf8');
+      await fs.writeFile(path.join(dir, `${ts}-add_custom_operation-patched.xml`), patchedXml, 'utf8');
+    } catch (_err) {
+      // best-effort diag, never break the actual save path
+    }
 
     const meta = await this.buildSaveExtensionRawMeta(session, args.extensionFid, ext);
     const result = await saveExtensionRaw(session, meta, patchedXml);
@@ -1129,8 +1148,8 @@ export class K3CloudConnector implements ErpConnector {
     const extXml = await this.getKernelXml(extensionFid);
     if (!extXml) throw new Error(`扩展 ${extensionFid} 无 FKERNELXML`);
 
-    const overlay = buildRemoveOperationOverlay(ext.id, operationKey);
-    const patchedXml = injectOverlay(extXml, overlay);
+    const overlay = buildRemoveOperationOverlay(operationKey);
+    const patchedXml = injectIntoForm(extXml, ext.id, overlay);
 
     const meta = await this.buildSaveExtensionRawMeta(session, extensionFid, ext);
     const result = await saveExtensionRaw(session, meta, patchedXml);

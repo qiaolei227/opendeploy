@@ -19,6 +19,40 @@ import { injectOverlay } from './business-rule-overlay';
 
 export { injectOverlay };
 
+/**
+ * Inject a Form-children overlay (e.g. `<FormOperations>...</FormOperations>`)
+ * into the extension's existing `<Form action="edit" oid="BOS_BillModel">`
+ * node. Necessary because `create_extension` already ships a Form node
+ * (carrying `<Id>` + `<Name>`); a naive `injectOverlay` would create a
+ * second Form and the BOS server only applies the first, silently dropping
+ * everything in the second. (Confirmed via .scratch/ship-debug capture
+ * 2026-05-07: two `<Form action="edit" oid="BOS_BillModel">` siblings →
+ * `list_operations` saw zero ops post-save.)
+ *
+ * Falls back to `injectOverlay` (full Form wrapper) when no Form exists yet,
+ * matching `register_python_plugins` first-write behavior.
+ *
+ * `formChildXml`: the inner content to splice into the Form, e.g.
+ *   `<FormOperations><FormOperation>...</FormOperation></FormOperations>`
+ * (no `<Form>` wrapper, no `<Id>`).
+ */
+export function injectIntoForm(extKernelXml: string, extensionFormId: string, formChildXml: string): string {
+  const formId = extensionFormId.replace(/-/g, '');
+  // Match the entire `<Form action="edit" oid="BOS_BillModel" ...>...</Form>`
+  // block. BOS_BillModel form has at most one of these per ext XML.
+  const re = /(<Form\b[^>]*\boid="BOS_BillModel"[^>]*>)([\s\S]*?)(<\/Form>)/;
+  if (re.test(extKernelXml)) {
+    return extKernelXml.replace(re, `$1$2${formChildXml}$3`);
+  }
+  // No existing Form — wrap and inject as a new Form into Elements.
+  const wrapper =
+    `<Form action="edit" oid="BOS_BillModel" ElementType="100" ElementStyle="0">` +
+      `<Id>${formId}</Id>` +
+      formChildXml +
+    `</Form>`;
+  return injectOverlay(extKernelXml, wrapper);
+}
+
 /* ---------- Common ---------- */
 
 const C_IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -68,17 +102,19 @@ export interface AddCustomOperationArgs {
 }
 
 /**
- * Build a `<Form action="edit" oid="BOS_BillModel">` overlay carrying one
- * new `<FormOperation>` (and optionally a `<ServicePlugins>` entry).
- * Caller splices via `injectOverlay(extXml, overlay)` then ships.
+ * Build the FORM-CHILDREN fragment (`<FormOperations><FormOperation>...
+ * </FormOperation></FormOperations>` + optional `<ServicePlugins>`) to be
+ * spliced INTO an existing `<Form action="edit" oid="BOS_BillModel">` via
+ * `injectIntoForm()`. We don't wrap our own Form here — `create_extension`
+ * already ships a Form node (with `<Name>` etc.), and a duplicate Form
+ * sibling causes the BOS server to silently drop our additions
+ * (verified 2026-05-07 .scratch/ship-debug capture).
  */
 export function buildAddCustomOperationOverlay(args: AddCustomOperationArgs): string {
   if (!args.extensionFormId) throw new Error('buildAddCustomOperationOverlay: extensionFormId required');
   assertCIdent(args.operationKey, 'buildAddCustomOperationOverlay: operationKey');
   if (!args.operationName) throw new Error('buildAddCustomOperationOverlay: operationName required');
   if (!args.operationParameterId) throw new Error('buildAddCustomOperationOverlay: operationParameterId required');
-  // Form.Id wire = compact 32-hex per BOS Designer convention; strip dashes.
-  const formId = args.extensionFormId.replace(/-/g, '');
   const opId = args.operationId ?? 45;
 
   // OperationParameter children — only emit non-empty siblings.
@@ -106,29 +142,26 @@ export function buildAddCustomOperationOverlay(args: AddCustomOperationArgs): st
   }
 
   return (
-    `<Form action="edit" oid="BOS_BillModel" ElementType="100" ElementStyle="0">` +
-      `<Id>${xmlEscape(formId)}</Id>` +
-      `<FormOperations>` +
-        `<FormOperation>` +
-          `<Id>${xmlEscape(args.operationKey)}</Id>` +
-          `<Operation>${xmlEscape(args.operationKey)}</Operation>` +
-          `<BeforeOpAlterInfo />` +
-          `<AfterOpAlterInfo />` +
-          `<AfterOpFailedInfo action="setnull" />` +
-          `<OperationId>${opId}</OperationId>` +
-          `<OperationName>${xmlEscape(args.operationName)}</OperationName>` +
-          `<Parmeter>` + // typo preserved per recon §3.2
-            `<OperationParameter>` +
-              `<Id>${xmlEscape(args.operationParameterId)}</Id>` +
-              objectKey +
-              expressValue +
-            `</OperationParameter>` +
-          `</Parmeter>` +
-          `<LoadKeys>${xmlEscape(args.loadKeys ?? '[]')}</LoadKeys>` +
-          servicePluginsXml +
-        `</FormOperation>` +
-      `</FormOperations>` +
-    `</Form>`
+    `<FormOperations>` +
+      `<FormOperation>` +
+        `<Id>${xmlEscape(args.operationKey)}</Id>` +
+        `<Operation>${xmlEscape(args.operationKey)}</Operation>` +
+        `<BeforeOpAlterInfo />` +
+        `<AfterOpAlterInfo />` +
+        `<AfterOpFailedInfo action="setnull" />` +
+        `<OperationId>${opId}</OperationId>` +
+        `<OperationName>${xmlEscape(args.operationName)}</OperationName>` +
+        `<Parmeter>` + // typo preserved per recon §3.2
+          `<OperationParameter>` +
+            `<Id>${xmlEscape(args.operationParameterId)}</Id>` +
+            objectKey +
+            expressValue +
+          `</OperationParameter>` +
+        `</Parmeter>` +
+        `<LoadKeys>${xmlEscape(args.loadKeys ?? '[]')}</LoadKeys>` +
+        servicePluginsXml +
+      `</FormOperation>` +
+    `</FormOperations>`
   );
 }
 
@@ -140,17 +173,12 @@ export function buildAddCustomOperationOverlay(args: AddCustomOperationArgs): st
  * declarative removal on collection elements (5.12.3b business-rule
  * remove path uses identical pattern).
  */
-export function buildRemoveOperationOverlay(extensionFormId: string, operationKey: string): string {
-  if (!extensionFormId) throw new Error('buildRemoveOperationOverlay: extensionFormId required');
+export function buildRemoveOperationOverlay(operationKey: string): string {
   assertCIdent(operationKey, 'buildRemoveOperationOverlay: operationKey');
-  const formId = extensionFormId.replace(/-/g, '');
   return (
-    `<Form action="edit" oid="BOS_BillModel" ElementType="100" ElementStyle="0">` +
-      `<Id>${xmlEscape(formId)}</Id>` +
-      `<FormOperations>` +
-        `<FormOperation action="remove" oid="${xmlEscape(operationKey)}" />` +
-      `</FormOperations>` +
-    `</Form>`
+    `<FormOperations>` +
+      `<FormOperation action="remove" oid="${xmlEscape(operationKey)}" />` +
+    `</FormOperations>`
   );
 }
 
