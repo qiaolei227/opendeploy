@@ -189,6 +189,12 @@ namespace OpenDeploy.BosBridge
                         ?? throw new InvalidOperationException("failed to deserialize add_custom_operation args");
                     return new { xml = ctx.AddCustomOperation(args) };
                 }
+                case "remove_operation":
+                {
+                    var xml = RequireString(req, "xml");
+                    var operationKey = RequireString(req, "operationKey");
+                    return new { xml = ctx.RemoveOperation(xml, operationKey) };
+                }
                 default:
                     throw new InvalidOperationException($"unknown op: {op}");
             }

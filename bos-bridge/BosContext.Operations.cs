@@ -473,6 +473,69 @@ namespace OpenDeploy.BosBridge
         }
 
         /// <summary>
+        /// Remove a <c>FormOperation</c> from <c>Form.FormOperations</c> by its
+        /// <c>Operation</c> key. The wire is declarative (recon §2): once the
+        /// node is gone from the strongly-typed model, <see cref="DcxmlSerializer.SerializeToString"/>
+        /// simply does not emit a child for it — there is no <c>action="remove"</c>
+        /// marker on the FormOperation itself. Throws
+        /// <see cref="InvalidOperationException"/> with a Chinese "不存在" message
+        /// when no match is found, matching the symmetry with
+        /// <see cref="AddCustomOperation"/>'s "已存在" duplicate guard so the
+        /// agent-facing tool surfaces consistent error wording. Returns the
+        /// re-serialized DCXML.
+        /// </summary>
+        public string RemoveOperation(string xml, string operationKey)
+        {
+            if (string.IsNullOrEmpty(xml)) throw new ArgumentException("xml is empty", nameof(xml));
+            if (string.IsNullOrEmpty(operationKey))
+                throw new ArgumentException("operationKey is empty", nameof(operationKey));
+
+            var formMeta = _serializer.DeserializeFromString(xml)
+                ?? throw new InvalidOperationException("DeserializeFromString returned null");
+
+            var businessInfo = formMeta.GetType().GetProperty("BusinessInfo")?.GetValue(formMeta)
+                ?? throw new InvalidOperationException(
+                    $"input deserialized to {formMeta.GetType().FullName} which has no BusinessInfo");
+
+            var form = FindFormElement(businessInfo)
+                ?? throw new InvalidOperationException("Form element not found in BusinessInfo");
+
+            // Reach for the existing collection rather than GetOrCreate — when
+            // FormOperations is null the input XML had no <FormOperations>
+            // block, which means the requested key cannot exist. Surface the
+            // same not-found error rather than allocating an empty list and
+            // falling through (avoids confusing the caller with an "操作 X 不存在"
+            // when the underlying issue is "this form has no operations at all").
+            var formOpsRaw = form.GetType()
+                .GetProperty("FormOperations", BindingFlags.Public | BindingFlags.Instance)
+                ?.GetValue(form);
+            if (!(formOpsRaw is IList formOpsList) || formOpsList.Count == 0)
+                throw new InvalidOperationException($"操作 {operationKey} 不存在");
+
+            // First-match wins. AddCustomOperation's duplicate guard ensures
+            // there's only ever one FormOperation per key — but iterating then
+            // calling IList.Remove(target) outside the foreach is the safe
+            // pattern even if the collection is BindingList<FormOperation> or
+            // a raw List<FormOperation>: foreach + collection-mutation throws
+            // InvalidOperationException on enumeration invalidation.
+            object? target = null;
+            foreach (var op in formOpsList)
+            {
+                if (op == null) continue;
+                if (string.Equals(ReadStringProperty(op, "Operation"), operationKey, StringComparison.Ordinal))
+                {
+                    target = op;
+                    break;
+                }
+            }
+            if (target == null)
+                throw new InvalidOperationException($"操作 {operationKey} 不存在");
+
+            formOpsList.Remove(target);
+            return _serializer.SerializeToString(formMeta, null);
+        }
+
+        /// <summary>
         /// Pull (or, defensively, create) the Form's FormOperations collection.
         /// FormMetadata DCXML deserialization can leave this null when the
         /// source XML has no <c>&lt;FormOperations&gt;</c> block (the

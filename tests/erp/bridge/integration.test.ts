@@ -632,4 +632,38 @@ class MyHandler:
       }),
     ).rejects.toThrow(/已存在/);
   });
+
+  // ── Plan 5.12.6 Task 2.3 — remove_operation ───────────────────────────
+  // Reverse of add_custom_operation. Locate the FormOperation on
+  // Form.FormOperations whose Operation key matches the request, IList.Remove
+  // it, and re-serialize. Per recon §2 + Task 2.3 spec the wire is declarative
+  // (the removed FormOperation simply does not ship in the next DCXML
+  // baseline), so the serializer naturally drops the node once it's gone
+  // from the strongly-typed model. Throws a Chinese "不存在" message when no
+  // matching key is found — matching the duplicate guard's "已存在" symmetry
+  // and matches the contract surfaced through the agent-facing tool error.
+  it('remove_operation removes a FormOperation by operationKey', async () => {
+    const baseline = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/operations-with-ops.xml',
+      'utf8',
+    );
+    const patched = await client.send<{ xml: string }>('remove_operation', {
+      xml: baseline,
+      operationKey: 'TESTCopy',
+    });
+    const list = await client.send<{ operations: unknown[] }>('list_operations', {
+      xml: patched.xml,
+    });
+    expect(list.operations).toEqual([]);
+  });
+
+  it('remove_operation throws when operationKey not found', async () => {
+    const baseline = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/operations-no-ops.xml',
+      'utf8',
+    );
+    await expect(
+      client.send('remove_operation', { xml: baseline, operationKey: 'Missing' }),
+    ).rejects.toThrow(/不存在/);
+  });
 });
