@@ -79,7 +79,10 @@ import {
 } from './rpc/convert-rule-state';
 import { buildPatchBaseXml } from './rpc/build-patch-base-xml';
 import { transformPatchedToExtensionWire } from './rpc/transform-extension-wire';
-import { saveExtensionRaw, type SaveExtensionRawMeta } from './rpc/save-for-ide';
+import { saveExtension, saveExtensionRaw, type SaveExtensionRawMeta } from './rpc/save-for-ide';
+import { extractLayoutInfoOid } from './rpc/layout-discovery';
+import { extractExistingExtensionElements } from './rpc/existing-elements';
+import type { BosFormOperationElement, SaveExtensionRequest } from './rpc/types';
 import {
   buildAddEntityRuleOverlay,
   buildRemoveEntityRuleOverlay,
@@ -1094,39 +1097,64 @@ export class K3CloudConnector implements ErpConnector {
     // BOS DcxmlSerializer needs byte-exact primary-key match against parent
     // baseline; spike #2 surfaced the parent-element-wipe risk. See plan §
     // technical-debt notes + memory `followup_operation_overlay_to_bridge`.
-    const overlay = buildAddCustomOperationOverlay({
-      extensionFormId: ext.id,
-      operationKey: args.operationKey,
-      operationName: args.operationName,
-      operationParameterId: args.operationParameterId,
-      operationId: args.operationId ?? 45,
-      pluginClassName: args.pluginClassName,
-      pyBody: args.pyBody,
-      operationObjectKey: args.operationObjectKey,
-      expressValue: args.expressValue,
-    });
-    // Splice into existing Form node (added by create_extension) rather than
-    // appending a duplicate Form sibling — server applies only the first
-    // Form with a given oid, so a second one silently drops everything.
-    const patchedXml = injectIntoForm(extXml, ext.id, overlay);
-    // TEMP DIAG (Plan 5.12.6 e2e silent-drop hunt 2026-05-07) — dump
-    // pre/post overlay XML so we can compare against the proven
-    // register_python_plugins wire format. Remove once wire is validated.
-    try {
-      const fs = await import('node:fs/promises');
-      const path = await import('node:path');
-      const dir = path.join(process.cwd(), '.scratch', 'ship-debug');
-      await fs.mkdir(dir, { recursive: true });
-      const ts = Date.now();
-      await fs.writeFile(path.join(dir, `${ts}-add_custom_operation-extXml.xml`), extXml, 'utf8');
-      await fs.writeFile(path.join(dir, `${ts}-add_custom_operation-overlay.xml`), overlay, 'utf8');
-      await fs.writeFile(path.join(dir, `${ts}-add_custom_operation-patched.xml`), patchedXml, 'utf8');
-    } catch (_err) {
-      // best-effort diag, never break the actual save path
+    // Path A inject overlay was a dead end — fresh extension's FKERNELXML
+    // lacks `<LayoutInfos>`, server silently drops adds that don't ship the
+    // full envelope. Switching to the saveExtension(SaveExtensionRequest)
+    // path register_python_plugins uses (production-verified): rebuild a
+    // complete wire from existing-elements + new deltas via buildDcxmlSource.
+    if (!ext.baseObjectId) {
+      throw new Error(`扩展 ${args.extensionFid} 缺少 BaseObjectId — 无法 add_custom_operation`);
     }
+    if (ext.modelTypeId == null || ext.subsystemId == null) {
+      throw new Error(
+        `扩展 ${args.extensionFid} 元数据不完整(modelTypeId=${ext.modelTypeId}, subsystemId=${ext.subsystemId})`,
+      );
+    }
+    const parentXml = await this.getKernelXml(ext.baseObjectId);
+    if (!parentXml) {
+      throw new Error(`父对象 ${ext.baseObjectId} 无 FKERNELXML — 无法 add_custom_operation`);
+    }
+    const layoutInfoOid = extractLayoutInfoOid(parentXml);
+    if (!layoutInfoOid) {
+      throw new Error(`父对象 ${ext.baseObjectId} FKERNELXML 中未找到 layoutInfoOid`);
+    }
+    const existing = extractExistingExtensionElements(extXml);
 
-    const meta = await this.buildSaveExtensionRawMeta(session, args.extensionFid, ext);
-    const result = await saveExtensionRaw(session, meta, patchedXml);
+    const newOp: BosFormOperationElement = {
+      service: args.operationKey,
+      operationId: args.operationId ?? 45,
+      operationName: args.operationName,
+      entryKey: args.operationObjectKey, // optional
+      operationParameterId: args.operationParameterId,
+      expressValue: args.expressValue,
+      servicePlugin: args.pluginClassName
+        ? { className: args.pluginClassName, pyBody: args.pyBody }
+        : undefined,
+    };
+
+    const req: SaveExtensionRequest = {
+      extension: {
+        formId: ext.id,
+        baseObjectId: ext.baseObjectId,
+        modelTypeId: ext.modelTypeId,
+        subSystemId: ext.subsystemId,
+        name: [{ localeId: 2052, value: ext.name }],
+        isv: { devCode: this.config.devCode },
+      },
+      isNew: false,
+      layoutInfoOid,
+      existingFieldsRaw: existing.fields,
+      existingAppearancesRaw: existing.appearances,
+      existingPluginsRaw: existing.plugins,
+      existingEntriesRaw: existing.entries,
+      existingEntryAppearancesRaw: existing.entryAppearances,
+      existingTabPagesRaw: existing.tabPages,
+      existingTabControlsRaw: existing.tabControls,
+      existingFormOperationsRaw: existing.formOperations,
+      addFormOperations: [newOp],
+    };
+
+    const result = await saveExtension(session, req);
     if (!result.isSuccess) {
       throw new Error(
         `添加自定义操作失败：${result.messageTitle ?? ''} ${result.messageDetail ?? '<no detail>'}`,

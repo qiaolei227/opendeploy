@@ -415,14 +415,27 @@ export interface BosPluginElement {
 export interface BosFormOperationElement {
   /** Service name. Same string used as Parameters[0] in the BarButton ClickActions. */
   service: string;
-  /** Built-in OperationId — 19 for 新增记录, 4 for 删除记录. */
+  /** Built-in OperationId — 19=插入分录, 4=删除分录, 45=DoNothing 自定义. */
   operationId: number;
   /** Human-readable name shown in BOS Designer (中文). */
   operationName: string;
-  /** Entry key the operation acts on (lands in OperationParameter.OperationObjectKey). */
-  entryKey: string;
-  /** Element type id — 35 for EntryEntity. */
+  /** Entry key the operation acts on (lands in OperationParameter.OperationObjectKey).
+   *  Optional for header-level ops like custom OperationId=45. */
+  entryKey?: string;
+  /** Element type id — 35 for EntryEntity. Optional for non-entry ops. */
   operEleIds?: number;
+  /** Optional caller-supplied OperationParameter.Id (dashed UUID).
+   *  Defaults to a fresh GUID. Pass when caller wants byte-stable output. */
+  operationParameterId?: string;
+  /** Optional ExpressValue on OperationParameter (e.g. "IsCopyLinkEntry:0"). */
+  expressValue?: string;
+  /** Optional inline Python plugin attached to this operation's
+   *  ServicePlugins. When set, renderFormOperation emits
+   *  `<ServicePlugins><PlugIn>` with PlugInType=1 + PyScript CDATA. */
+  servicePlugin?: {
+    className: string;
+    pyBody?: string;
+  };
 }
 
 /** Top-level shape of one SaveForIDEV9 invocation. */

@@ -131,12 +131,33 @@ function renderFormOperation(out: XmlWriter, op: BosFormOperationElement): void 
   child(out, 'OperationName', op.operationName);
   out.push(`<Parmeter>`);
   out.push(`<OperationParameter>`);
-  child(out, 'Id', newDashedGuid());
-  child(out, 'OperationObjectKey', op.entryKey);
+  child(out, 'Id', op.operationParameterId ?? newDashedGuid());
+  if (op.entryKey) child(out, 'OperationObjectKey', op.entryKey);
+  if (op.expressValue) child(out, 'ExpressValue', op.expressValue);
   out.push(`</OperationParameter>`);
   out.push(`</Parmeter>`);
-  child(out, 'OperEleIds', op.operEleIds ?? 35);
+  // OperEleIds is entry-level metadata — emit only for entry ops; absent
+  // on header-level custom operations (recon req-212 OperationId=45 ship
+  // ships an empty OperEleIds, BOS Designer treats absence equivalently).
+  if (op.operEleIds !== undefined || op.entryKey) {
+    child(out, 'OperEleIds', op.operEleIds ?? 35);
+  }
   child(out, 'LoadKeys', '[]');
+  // ServicePlugins — inline IronPython plugin attached to this op
+  // (recon §3.4 / capture req-212). Order: inside FormOperation, after
+  // LoadKeys per BOS Designer wire.
+  if (op.servicePlugin) {
+    out.push(`<ServicePlugins>`);
+    out.push(`<PlugIn ElementType="0" ElementStyle="0">`);
+    child(out, 'ClassName', op.servicePlugin.className);
+    out.push(`<PlugInType>1</PlugInType>`);
+    if (op.servicePlugin.pyBody) {
+      const safe = op.servicePlugin.pyBody.replace(/]]>/g, ']]]]><![CDATA[>');
+      out.push(`<PyScript><![CDATA[${safe}]]></PyScript>`);
+    }
+    out.push(`</PlugIn>`);
+    out.push(`</ServicePlugins>`);
+  }
   out.push(`</FormOperation>`);
 }
 
