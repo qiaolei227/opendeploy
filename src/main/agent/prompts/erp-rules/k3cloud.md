@@ -222,15 +222,78 @@ True                                 # 永远触发(几乎只用于 demo,生产�
 
 K/3 BOS 把 IronPython 源码 inline 到 form 元数据里有**两个挂载点**(wire 同形,只是包裹层 tag 不同):
 
-| 挂载点 | 工具 | wire 节点 | 触发时机 | 适合场景 |
+| 挂载点 | 默认首选 | 工具 | wire 节点 | 适合场景 |
 |---|---|---|---|---|
-| **ServicePlugins**(操作的服务插件)| `k3cloud_add_custom_operation` 的 `pyBody` 参数 | FormOperation 子节点 `<ServicePlugins>` | 点该按钮触发对应 FormOperation 时跑 | **单按钮单一逻辑**(点了打折 / 点了反审 / 点了导出 etc.),逻辑独立 |
-| **FormPlugins**(form 生命周期)| `k3cloud_register_python_plugins` | Form 子节点 `<FormPlugins>` | 监听 `OnInitialize` / `AfterDoOperation` 等事件 | **跨多按钮共享逻辑**(任何按钮触发都先校验信用额度 / `AfterDoOperation` 按 operationKey 路由) |
+| **ServicePlugins**(操作的服务插件)| ✅ **默认走这条** | `k3cloud_add_custom_operation` 的 `pyBody` 参数 | FormOperation 子节点 `<ServicePlugins>` | **单按钮单一逻辑**(点了打折 / 点了反审 / 点了改字段值 / 点了显示消息 etc.) — **超过 90% 的"加按钮做事"场景**都走这里 |
+| **FormPlugins**(form 生命周期)| ⚠️ 仅特殊场景 | `k3cloud_register_python_plugins` | Form 子节点 `<FormPlugins>` | **仅当**跨多按钮共享逻辑(任何按钮触发都先校验 / 3 个按钮路由到一段校验)**或**监听非操作事件(DataChanged / OnLoad / BeforeF7Select 等表单生命周期事件) |
 
-**决策规则**:
-1. 客户场景"点这个按钮做这件事"+ 逻辑跟其他按钮无关 → ServicePlugins(`add_custom_operation` 直接传 `pyBody`,1 步搞定)
-2. 客户场景"点任意按钮触发前都要先 X" / "3 个按钮共享一段校验" → FormPlugins(`register_python_plugins` + `AfterDoOperation` 按 `operationKey` 路由 if/elif)
-3. **绝不要两边同时挂同一逻辑** —— 会执行两次,而且 BOS Designer 也不知道哪个是真的
+**决策规则(简单不要想多)**:
+1. 用户原话是"加一个按钮做 X" → **ServicePlugins** + 一步 add_custom_operation 传 pyBody
+2. 用户原话是"3 个按钮都要先做 X" / "保存前先校验" / "字段变化时联动" → FormPlugins
+3. 第 1 步默认 95% 能解决,**不要先去 FormPlugins**;不确定就走 ServicePlugins
+4. **绝不要两边同时挂同一逻辑** —— 会执行两次
+
+### IronPython 表单插件标准范式(ServicePlugins / FormPlugins 通用)
+
+**重要**:K/3 BOS 表单插件**只支持** `AbstractDynamicFormPlugIn` 子类 + 几个特定 event 方法。**不要瞎编 event 方法名** —— 下面这些是 .NET DLL 插件 API(`BarItemClick` / `BarItemKey`),IronPython 表单插件**完全不支持**,写了静默不触发:
+
+❌ **禁用**(.NET DLL API,不是 IronPython 表单插件 API):
+- `def BarItemClick(self, e): if e.BarItemKey == "X"` —— 不存在
+- `def OnButtonClick(...)` —— 不存在
+- 任何带 `BarItem` / `Button` 字眼的方法 —— 都不是表单插件 API
+
+✅ **正确**(`AbstractDynamicFormPlugIn` 真实 event):
+- `AfterDoOperation(self, e)` —— **绑按钮的事件,首选**;`e.Operation.Operation` 是 operationKey
+- `BeforeDoOperation(self, e)` —— 操作前(可阻止)
+- `OnLoad(self, e)` —— 表单加载完成
+- `DataChanged(self, e)` —— 字段值变化(`e.Field.Key`)
+- `BeforeF7Select(self, e)` —— F7 弹窗前(过滤基础资料下拉)
+
+**ServicePlugins 路径标准范式**(打 8 折场景):
+
+```python
+import clr
+clr.AddReference('Kingdee.BOS.Core')
+from Kingdee.BOS.Core.DynamicForm.PlugIn import AbstractDynamicFormPlugIn
+
+class DiscountPlugin(AbstractDynamicFormPlugIn):
+    def AfterDoOperation(self, e):
+        # 路由:e.Operation.Operation 等于 add_custom_operation 时传的 operationKey
+        if e.Operation.Operation != "Discount80Op":
+            return
+
+        # 拿当前 entry 选中行(单据体场景)
+        entity_key = "FSaleOrderEntry"
+        rows = self.View.Model.GetEntryRowCount(entity_key)
+        current_row = self.View.Model.GetEntryCurrentRowIndex(entity_key)
+        if current_row is None or current_row < 0:
+            self.View.ShowWarnningMessage("请先选中一行明细")
+            return
+
+        # 改字段值 — 用 SetValue(fieldKey, value, rowIndex)
+        old_price = self.View.Model.GetValue("FTaxPrice", current_row)
+        if old_price and old_price > 0:
+            self.View.Model.SetValue("FTaxPrice", float(old_price) * 0.8, current_row)
+            self.View.ShowMessage("已打 8 折")
+```
+
+**关键 API**(参考客户实战代码 idiom,memory `reference_customer_k3_plugin_projects`):
+- 类必须继承 `AbstractDynamicFormPlugIn`
+- override `AfterDoOperation(self, e)` 接 FormOperation 触发
+- 路由用 `e.Operation.Operation == "operationKey"`(string 比较,大小写敏感)
+- 改字段:`self.View.Model.SetValue("FFieldKey", value, rowIndex)`(rowIndex 单据头传 0,单据体传当前行)
+- 拿值:`self.View.Model.GetValue("FFieldKey", rowIndex)`
+- 提示:`self.View.ShowMessage(text)` / `ShowWarnningMessage` / `ShowErrMessage`
+- 阻止操作(在 `BeforeDoOperation`):`e.Cancel = True`
+
+**FormPlugins 路径**(共享逻辑场景)用同样范式 + `register_python_plugins` 工具,只是脚本路由多个 operationKey:
+```python
+def AfterDoOperation(self, e):
+    op = e.Operation.Operation
+    if op == "Discount80Op": discount_eight(self.View)
+    elif op == "Discount90Op": discount_nine(self.View)
+    # ...
+```
 
 **自定义按钮的标准流程(ServicePlugins 路径,最常见)**:
 1. `k3cloud_add_custom_operation`(传 `pluginClassName` + `pyBody`)→ 同时创建 FormOperation 操作壳子 + inline 该按钮要跑的 IronPython
