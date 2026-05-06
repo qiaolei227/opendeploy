@@ -204,6 +204,12 @@ namespace OpenDeploy.BosBridge
                         ?? throw new InvalidOperationException("failed to deserialize add_toolbar_button args");
                     return new { xml = ctx.AddToolbarButton(args) };
                 }
+                case "remove_toolbar_button":
+                {
+                    var xml = RequireString(req, "xml");
+                    var buttonKey = RequireString(req, "buttonKey");
+                    return new { xml = ctx.RemoveToolbarButton(xml, buttonKey) };
+                }
                 default:
                     throw new InvalidOperationException($"unknown op: {op}");
             }

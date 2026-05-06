@@ -818,6 +818,142 @@ namespace OpenDeploy.BosBridge
         }
 
         /// <summary>
+        /// Remove a <c>BarButtonItem</c> from the target Appearance's
+        /// <c>Menu</c> (BarDataManager) by its <c>Key</c>, plus the matching
+        /// <c>BarItemLink</c> entry whose <c>BarItemKey</c> equals the same
+        /// key. Walks every Appearance across every LayoutInfo (the button
+        /// could live on either the form-level FormAppearance or any
+        /// EntryEntityAppearance) — first match wins. Throws
+        /// <see cref="InvalidOperationException"/> with a 中文 "不存在" message
+        /// when no match is found, matching the symmetry with
+        /// <see cref="AddToolbarButton"/>'s "已存在" duplicate guard so the
+        /// agent-facing tool surfaces consistent error wording.
+        ///
+        /// Mutation strategy: the public <c>BarDataManager.RemoveBarItem</c>
+        /// method exists (decompiled at properties/BarDataManager.cs:526),
+        /// but its body walks <c>BarItem.GetParent()</c> and conditionally
+        /// chains through several <c>EnumBarItemStyle</c> branches that only
+        /// behave correctly when the BarItem has a wired-up parent graph.
+        /// In v0.1's reality, our extension's BarDataManager doesn't contain
+        /// the parent ToolBar (which lives on the parent form's appearance
+        /// copy), so <c>GetParent()</c> returns an empty list and the
+        /// logic's switch-case can take unintended paths. Avoid the public
+        /// API; reach for the underlying <c>_allBarItems</c> dictionary +
+        /// <c>_barItemLinks</c> list directly via reflection. This is a
+        /// mirror of how Task 2.4 mutated <c>_barItemLinks</c> directly
+        /// (the BarItemLinks getter post-EndInit returns the live ref) —
+        /// and `_allBarItems` removal is symmetric: BarItems getter in
+        /// post-EndInit mode returns a fresh copy, but the next
+        /// SerializeToString triggers BeginInit which lazy-rebuilds
+        /// `_serBarItems` from `_allBarItems` (line 76-93 of BarDataManager
+        /// decompile), so direct dictionary mutation is what reaches the
+        /// wire.
+        /// </summary>
+        public string RemoveToolbarButton(string xml, string buttonKey)
+        {
+            if (string.IsNullOrEmpty(xml)) throw new ArgumentException("xml is empty", nameof(xml));
+            if (string.IsNullOrEmpty(buttonKey))
+                throw new ArgumentException("buttonKey is empty", nameof(buttonKey));
+
+            var formMeta = _serializer.DeserializeFromString(xml)
+                ?? throw new InvalidOperationException("DeserializeFromString returned null");
+
+            // FormMetadata may legitimately have no LayoutInfos (the
+            // operations-no-ops fixture is an example) — that's a fast-path
+            // "not found" since there's nowhere a button could live.
+            var layoutInfos = formMeta.GetType().GetProperty("LayoutInfos")?.GetValue(formMeta) as IEnumerable;
+            if (layoutInfos == null)
+                throw new InvalidOperationException($"按钮 {buttonKey} 不存在");
+
+            foreach (var ap in EnumerateAppearances(layoutInfos))
+            {
+                var bdm = GetMenuBarDataManager(ap);
+                if (bdm == null) continue;
+
+                // Locate the BarButtonItem by Key in `_allBarItems`. Use
+                // the public BarItems getter (which post-EndInit returns
+                // a fresh List<BarItem> copy) only as a search index —
+                // the actual remove operation goes against the underlying
+                // dictionary.
+                var barItemsRaw = bdm.GetType().GetProperty("BarItems")?.GetValue(bdm) as IEnumerable;
+                if (barItemsRaw == null) continue;
+
+                object? targetBtn = null;
+                foreach (var item in barItemsRaw)
+                {
+                    if (item == null) continue;
+                    if (item.GetType().Name != "BarButtonItem") continue;
+                    if (string.Equals(ReadStringProperty(item, "Key"), buttonKey, StringComparison.Ordinal))
+                    {
+                        targetBtn = item;
+                        break;
+                    }
+                }
+                if (targetBtn == null) continue;
+
+                // Reflect-mutate `_allBarItems` directly. The dictionary's
+                // key is BarItem.Name (decompile line 133, line 346:
+                // `_allBarItems[barItem.Name] = barItem`). BarItem.Name
+                // == BarItem.Key by default per BarItem ctor (216247),
+                // and Designer never deviates — but read Name explicitly
+                // to be safe rather than assuming Key==Name.
+                var allBarItemsField = bdm.GetType().GetField(
+                    "_allBarItems",
+                    BindingFlags.NonPublic | BindingFlags.Instance);
+                if (allBarItemsField == null)
+                    throw new InvalidOperationException(
+                        $"{bdm.GetType().FullName} has no _allBarItems field");
+                if (!(allBarItemsField.GetValue(bdm) is IDictionary allBarItems))
+                    throw new InvalidOperationException(
+                        $"{bdm.GetType().FullName}._allBarItems is null or non-dictionary");
+
+                var barItemName = ReadStringProperty(targetBtn, "Name") ?? buttonKey;
+                if (allBarItems.Contains(barItemName))
+                {
+                    allBarItems.Remove(barItemName);
+                }
+                else if (allBarItems.Contains(buttonKey))
+                {
+                    // Defensive fallback when Name and Key diverged. Should
+                    // be unreachable in practice — BarItem.Name getter
+                    // returns Key when the underlying field is empty
+                    // (decompile bos-core-full.cs:216293) — but keep the
+                    // path tight so a stale `_allBarItems` entry can still
+                    // be evicted by either lookup.
+                    allBarItems.Remove(buttonKey);
+                }
+
+                // Mirror the BarItemLink remove. BarItemLinks getter
+                // post-EndInit returns the live `_barItemLinks` list ref
+                // (decompile line 168), so List<T>.Remove(target) actually
+                // mutates the backing collection. Delete the FIRST link
+                // whose BarItemKey matches — Task 2.4's add path created
+                // exactly one link per button so first-match-wins is safe.
+                var barItemLinksList = bdm.GetType()
+                    .GetProperty("BarItemLinks", BindingFlags.Public | BindingFlags.Instance)
+                    ?.GetValue(bdm) as IList;
+                if (barItemLinksList != null)
+                {
+                    object? targetLink = null;
+                    foreach (var link in barItemLinksList)
+                    {
+                        if (link == null) continue;
+                        if (string.Equals(ReadStringProperty(link, "BarItemKey"), buttonKey, StringComparison.Ordinal))
+                        {
+                            targetLink = link;
+                            break;
+                        }
+                    }
+                    if (targetLink != null) barItemLinksList.Remove(targetLink);
+                }
+
+                return _serializer.SerializeToString(formMeta, null);
+            }
+
+            throw new InvalidOperationException($"按钮 {buttonKey} 不存在");
+        }
+
+        /// <summary>
         /// Walk every Appearance across every LayoutInfo. Used by both
         /// pre-flight checks (cross-appearance dup buttonKey scan) and the
         /// resolve-target-appearance helper. LayoutInfos enumeration mirrors

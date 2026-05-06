@@ -772,4 +772,43 @@ class MyHandler:
       }),
     ).rejects.toThrow(/已存在/);
   });
+
+  // ── Plan 5.12.6 Task 2.5 — remove_toolbar_button ────────────────────────
+  // Counterpart to add_toolbar_button. Walks every Appearance's
+  // Menu (BarDataManager), finds the BarButtonItem whose Key matches and
+  // removes both the button (from _allBarItems) and the matching
+  // BarItemLink (from _barItemLinks). Wire is declarative — once gone from
+  // the strongly-typed model, DcxmlSerializer.SerializeToString simply does
+  // not emit it (mirrors RemoveBusinessRule / RemoveOperation discipline).
+  it('remove_toolbar_button removes BarButtonItem and corresponding BarItemLink', async () => {
+    const fixture = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/operations-with-ops.xml',
+      'utf8',
+    );
+    const patched = await client.send<{ xml: string }>('remove_toolbar_button', {
+      xml: fixture,
+      buttonKey: 'UNW_tbButton',
+    });
+    // Round-trip via list_operations: with the only BarButtonItem removed,
+    // toolbarButtons should be empty.
+    const list = await client.send<{ toolbarButtons: unknown[] }>('list_operations', {
+      xml: patched.xml,
+    });
+    expect(list.toolbarButtons).toEqual([]);
+    // Wire-level assert: neither the BarButtonItem nor its BarItemLink
+    // should ship. Mirrors the wire-assert pattern Task 2.4 used to bypass
+    // BOS BarDataManager.EndInit() quirks.
+    expect(patched.xml).not.toContain('<Key>UNW_tbButton</Key>');
+    expect(patched.xml).not.toContain('<BarItemKey>UNW_tbButton</BarItemKey>');
+  });
+
+  it('remove_toolbar_button throws when buttonKey not found', async () => {
+    const baseline = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/operations-no-ops.xml',
+      'utf8',
+    );
+    await expect(
+      client.send('remove_toolbar_button', { xml: baseline, buttonKey: 'Missing' }),
+    ).rejects.toThrow(/不存在/);
+  });
 });
