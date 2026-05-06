@@ -176,6 +176,8 @@ namespace OpenDeploy.BosBridge
                     var ruleId = RequireString(req, "ruleId");
                     return ctx.RemoveBusinessRule(xml, ruleId);
                 }
+                case "list_operations":
+                    return ctx.ListOperations(RequireString(req, "xml"));
                 default:
                     throw new InvalidOperationException($"unknown op: {op}");
             }

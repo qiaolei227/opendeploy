@@ -480,4 +480,62 @@ describeIfBridge('bos-bridge integration', () => {
       client.send('remove_business_rule', { xml: inputXml, ruleId: 'does-not-exist' }),
     ).rejects.toThrow(/not found/);
   });
+
+  // ── Plan 5.12.6 Task 2.1 — list_operations ───────────────────────────
+  // Read-only walk over a FormMetadata DCXML — enumerates Form.FormOperations
+  // (custom operations like TESTCopy / OperationId=2 复制 variant or
+  // OperationId=45 自定义) and LayoutInfo's BarDataManager.BarItems
+  // (toolbar BarButtonItem nodes, optionally bound to an operation via
+  // ClickActions/FormBusinessService.Parameters=["<opKey>"]). Wire shape
+  // verified by capture req-96 (docs/recon/2026-05-06-operations-spike.md).
+
+  it('list_operations returns empty arrays for extension with no FormOperations and no BarItems', async () => {
+    const xml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/operations-no-ops.xml',
+      'utf8',
+    );
+    const result = await client.send<{ operations: unknown[]; toolbarButtons: unknown[] }>(
+      'list_operations',
+      { xml },
+    );
+    expect(result.operations).toEqual([]);
+    expect(result.toolbarButtons).toEqual([]);
+  });
+
+  it('list_operations finds FormOperation + BarButtonItem in fixture', async () => {
+    const xml = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/operations-with-ops.xml',
+      'utf8',
+    );
+    const result = await client.send<{
+      operations: Array<{
+        operationKey: string;
+        operationId: number;
+        operationName: string;
+      }>;
+      toolbarButtons: Array<{
+        buttonKey: string;
+        caption: string;
+        boundOperationKey: string | null;
+      }>;
+    }>('list_operations', { xml });
+
+    expect(result.operations).toHaveLength(1);
+    expect(result.operations[0]).toMatchObject({
+      operationKey: 'TESTCopy',
+      operationId: 2,
+      operationName: 'TEST复制',
+    });
+
+    expect(result.toolbarButtons).toHaveLength(1);
+    expect(result.toolbarButtons[0]).toMatchObject({
+      buttonKey: 'UNW_tbButton',
+      caption: '按钮',
+      boundOperationKey: 'TESTCopy',
+    });
+  });
+
+  it('list_operations rejects empty xml', async () => {
+    await expect(client.send('list_operations', { xml: '' })).rejects.toThrow(/xml is empty/);
+  });
 });
