@@ -81,17 +81,21 @@ describe('buildK3CloudTools', () => {
     expect(bad.map((t) => t.definition.name)).toEqual([]);
   });
 
-  it('returns 26 tools when a connector is present', () => {
+  it('returns 31 tools when a connector is present', () => {
     const tools = buildK3CloudTools(makeFake());
     expect(tools.map((t) => t.definition.name).sort()).toEqual([
       'k3cloud_add_calculate_rule',
       'k3cloud_add_convert_bill_type_map',
       'k3cloud_add_convert_field_mapping',
       'k3cloud_add_convert_plugin',
+      'k3cloud_add_custom_operation',
       'k3cloud_add_get_inv_stock_rule',
+      'k3cloud_add_toolbar_button',
       'k3cloud_create_convert_rule_extension',
       'k3cloud_delete_business_rule',
       'k3cloud_delete_convert_rule_extension',
+      'k3cloud_delete_operation',
+      'k3cloud_delete_toolbar_button',
       'k3cloud_describe_basedata',
       'k3cloud_describe_convert_rule',
       'k3cloud_describe_service_meta',
@@ -105,12 +109,23 @@ describe('buildK3CloudTools', () => {
       'k3cloud_list_extensions',
       'k3cloud_list_form_plugins',
       'k3cloud_list_objects',
+      'k3cloud_list_operations',
       'k3cloud_list_subsystems',
       'k3cloud_remove_convert_plugin',
       'k3cloud_search_metadata',
       'k3cloud_set_convert_filter',
       'k3cloud_set_convert_groupby'
     ]);
+  });
+
+  it('registers all 5 operation/button tools (Plan 5.12.6 Task 4.2)', () => {
+    const tools = buildK3CloudTools(makeFake());
+    const names = tools.map((t) => t.definition.name);
+    expect(names).toContain('k3cloud_list_operations');
+    expect(names).toContain('k3cloud_add_custom_operation');
+    expect(names).toContain('k3cloud_delete_operation');
+    expect(names).toContain('k3cloud_add_toolbar_button');
+    expect(names).toContain('k3cloud_delete_toolbar_button');
   });
 
   it('returns empty when no active connector is configured', () => {

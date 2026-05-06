@@ -9,6 +9,13 @@ import {
   addGetInvStockRuleTool,
   addCalculateRuleTool
 } from './business-rule-tools';
+import {
+  listOperationsTool,
+  addCustomOperationTool,
+  deleteOperationTool,
+  addToolbarButtonTool,
+  deleteToolbarButtonTool
+} from './operation-tools';
 
 /**
  * Build the K/3 Cloud tool set for the current active project. Returns an
@@ -48,7 +55,12 @@ export function buildK3CloudTools(connector?: K3CloudConnector): ToolHandler[] {
     deleteBusinessRuleTool(c),
     describeServiceMetaTool(),
     addGetInvStockRuleTool(c),
-    addCalculateRuleTool(c)
+    addCalculateRuleTool(c),
+    listOperationsTool(c),
+    addCustomOperationTool(c),
+    deleteOperationTool(c),
+    addToolbarButtonTool(c),
+    deleteToolbarButtonTool(c)
   ];
 }
 
