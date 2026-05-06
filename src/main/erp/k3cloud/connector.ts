@@ -97,6 +97,14 @@ import {
   type ListBusinessRulesResult,
 } from './rpc/business-rule-parser';
 import type { ListOperationsResult } from './rpc/operation-types';
+import {
+  buildAddCustomOperationOverlay,
+  buildRemoveOperationOverlay,
+  buildAddToolbarButtonOverlay,
+  buildRemoveToolbarButtonOverlay,
+  extractFormAppearanceLocation,
+  extractEntryEntityAppearanceLocation,
+} from './rpc/operation-overlay';
 import { getBridge } from './bridge';
 import type { KdSession } from './rpc/http-client';
 import type {
@@ -1079,9 +1087,14 @@ export class K3CloudConnector implements ErpConnector {
     const extXml = await this.getKernelXml(args.extensionFid);
     if (!extXml) throw new Error(`扩展 ${args.extensionFid} 无 FKERNELXML`);
 
-    const bridge = await getBridge();
-    const { xml: patchedXml } = await bridge.send<{ xml: string }>('add_custom_operation', {
-      xml: extXml,
+    // Path A — string-template overlay matches register_python_plugins's
+    // production-verified wire shape. Bridge baseline-diff route (Plan 5.12.6
+    // initial design) was abandoned 2026-05-07 after spike #1 confirmed the
+    // BOS DcxmlSerializer needs byte-exact primary-key match against parent
+    // baseline; spike #2 surfaced the parent-element-wipe risk. See plan §
+    // technical-debt notes + memory `followup_operation_overlay_to_bridge`.
+    const overlay = buildAddCustomOperationOverlay({
+      extensionFormId: ext.id,
       operationKey: args.operationKey,
       operationName: args.operationName,
       operationParameterId: args.operationParameterId,
@@ -1091,6 +1104,7 @@ export class K3CloudConnector implements ErpConnector {
       operationObjectKey: args.operationObjectKey,
       expressValue: args.expressValue,
     });
+    const patchedXml = injectOverlay(extXml, overlay);
 
     const meta = await this.buildSaveExtensionRawMeta(session, args.extensionFid, ext);
     const result = await saveExtensionRaw(session, meta, patchedXml);
@@ -1115,11 +1129,8 @@ export class K3CloudConnector implements ErpConnector {
     const extXml = await this.getKernelXml(extensionFid);
     if (!extXml) throw new Error(`扩展 ${extensionFid} 无 FKERNELXML`);
 
-    const bridge = await getBridge();
-    const { xml: patchedXml } = await bridge.send<{ xml: string }>('remove_operation', {
-      xml: extXml,
-      operationKey,
-    });
+    const overlay = buildRemoveOperationOverlay(ext.id, operationKey);
+    const patchedXml = injectOverlay(extXml, overlay);
 
     const meta = await this.buildSaveExtensionRawMeta(session, extensionFid, ext);
     const result = await saveExtensionRaw(session, meta, patchedXml);
@@ -1168,10 +1179,33 @@ export class K3CloudConnector implements ErpConnector {
     const extXml = await this.getKernelXml(args.extensionFid);
     if (!extXml) throw new Error(`扩展 ${args.extensionFid} 无 FKERNELXML`);
 
-    const bridge = await getBridge();
-    const { xml: patchedXml } = await bridge.send<{ xml: string }>('add_toolbar_button', {
-      xml: extXml,
-      target: args.target,
+    // Resolve target appearance location from PARENT FKERNELXML (the parent
+    // form's own FormAppearance / EntryEntityAppearance carries the
+    // baseline oid that the overlay's `action="edit" oid=...` must match).
+    if (!ext.baseObjectId) {
+      throw new Error(`扩展 ${args.extensionFid} 缺少 BaseObjectId — 无法定位 appearance`);
+    }
+    const parentXml = await this.getKernelXml(ext.baseObjectId);
+    if (!parentXml) {
+      throw new Error(`父对象 ${ext.baseObjectId} 无 FKERNELXML — 无法定位 appearance`);
+    }
+    const loc =
+      args.target.kind === 'form'
+        ? extractFormAppearanceLocation(parentXml)
+        : extractEntryEntityAppearanceLocation(parentXml, args.target.entityKey);
+    if (!loc) {
+      throw new Error(
+        args.target.kind === 'form'
+          ? `父对象 ${ext.baseObjectId} 没有 FormAppearance — form 顶层工具栏不存在`
+          : `父对象 ${ext.baseObjectId} 没有 entityKey "${args.target.entityKey}" 的 EntryEntityAppearance`,
+      );
+    }
+
+    const overlay = buildAddToolbarButtonOverlay({
+      extensionFormId: ext.id,
+      appearanceOid: loc.oid,
+      appearanceKind: args.target.kind === 'form' ? 'FormAppearance' : 'EntryEntityAppearance',
+      appearanceElementType: loc.elementType,
       buttonKey: args.buttonKey,
       buttonId: args.buttonId,
       caption: args.caption,
@@ -1183,6 +1217,7 @@ export class K3CloudConnector implements ErpConnector {
       formBusinessServiceId: args.formBusinessServiceId,
       barItemLinkId: args.barItemLinkId,
     });
+    const patchedXml = injectOverlay(extXml, overlay);
 
     const meta = await this.buildSaveExtensionRawMeta(session, args.extensionFid, ext);
     const result = await saveExtensionRaw(session, meta, patchedXml);
@@ -1209,11 +1244,36 @@ export class K3CloudConnector implements ErpConnector {
     const extXml = await this.getKernelXml(extensionFid);
     if (!extXml) throw new Error(`扩展 ${extensionFid} 无 FKERNELXML`);
 
-    const bridge = await getBridge();
-    const { xml: patchedXml } = await bridge.send<{ xml: string }>('remove_toolbar_button', {
-      xml: extXml,
-      buttonKey,
-    });
+    // Look up button details via list_operations (bridge read path) to get
+    // the buttonId + barItemLinkId + parentEntityKey we need for the
+    // path-A overlay's `action="remove" oid=...` markers.
+    const list = await this.listOperations(extensionFid);
+    const button = list.toolbarButtons.find((b) => b.buttonKey === buttonKey);
+    if (!button) throw new Error(`按钮 ${buttonKey} 不存在`);
+    if (!button.buttonId) throw new Error(`按钮 ${buttonKey} 缺 BarButtonItem id — 无法删除`);
+    if (!button.barItemLinkId) throw new Error(`按钮 ${buttonKey} 缺 BarItemLink id — 无法删除`);
+
+    if (!ext.baseObjectId) throw new Error(`扩展 ${extensionFid} 缺少 BaseObjectId`);
+    const parentXml = await this.getKernelXml(ext.baseObjectId);
+    if (!parentXml) throw new Error(`父对象 ${ext.baseObjectId} 无 FKERNELXML`);
+
+    const loc = button.parentEntityKey
+      ? extractEntryEntityAppearanceLocation(parentXml, button.parentEntityKey)
+      : extractFormAppearanceLocation(parentXml);
+    if (!loc) {
+      throw new Error(
+        `父对象 ${ext.baseObjectId} 上找不到按钮 ${buttonKey} 对应的 appearance`,
+      );
+    }
+
+    const overlay = buildRemoveToolbarButtonOverlay(
+      button.parentEntityKey ? 'EntryEntityAppearance' : 'FormAppearance',
+      loc.oid,
+      loc.elementType,
+      button.buttonId,
+      button.barItemLinkId,
+    );
+    const patchedXml = injectOverlay(extXml, overlay);
 
     const meta = await this.buildSaveExtensionRawMeta(session, extensionFid, ext);
     const result = await saveExtensionRaw(session, meta, patchedXml);
