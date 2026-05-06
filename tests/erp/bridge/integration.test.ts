@@ -538,4 +538,98 @@ describeIfBridge('bos-bridge integration', () => {
   it('list_operations rejects empty xml', async () => {
     await expect(client.send('list_operations', { xml: '' })).rejects.toThrow(/xml is empty/);
   });
+
+  // ── Plan 5.12.6 Task 2.2 — add_custom_operation ───────────────────────
+  // Append a FormOperation to Form.FormOperations. Default OperationId=45
+  // (DoNothing / 自定义) per recon §3.3 — agents can override for variants
+  // like OperationId=2 (复制 with custom Parmeter). When pluginClassName is
+  // non-empty, also build a ServicePlugins/PlugIn entry with PlugInType=1
+  // (Python) and inline pyBody as ScriptString. Round-trip via list_operations
+  // to confirm the new op surfaces with the right operationKey + operationId
+  // + operationName + hasInlineScript flag.
+
+  it('add_custom_operation adds an OperationId=45 custom op without plugin', async () => {
+    const baseline = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/operations-no-ops.xml',
+      'utf8',
+    );
+    const patched = await client.send<{ xml: string }>('add_custom_operation', {
+      xml: baseline,
+      operationKey: 'NewOp',
+      operationName: '新自定义操作',
+      operationParameterId: '11111111-1111-1111-1111-111111111111',
+    });
+
+    expect(patched.xml).toMatch(/^<\?xml/);
+
+    const list = await client.send<{
+      operations: Array<{
+        operationKey: string;
+        operationId: number;
+        operationName: string;
+        hasInlineScript?: boolean;
+      }>;
+    }>('list_operations', { xml: patched.xml });
+    expect(list.operations).toHaveLength(1);
+    expect(list.operations[0]).toMatchObject({
+      operationKey: 'NewOp',
+      operationId: 45,
+      operationName: '新自定义操作',
+    });
+    // hasInlineScript not exposed by list_operations summary; verify wire
+    // shape directly: no <ServicePlugins> when no plugin was added.
+    expect(patched.xml).not.toContain('<ServicePlugins>');
+  });
+
+  it('add_custom_operation adds op with inline Python via ServicePlugins', async () => {
+    const baseline = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/operations-no-ops.xml',
+      'utf8',
+    );
+    const pyBody = `# test plugin
+class MyHandler:
+    def AfterDoOperation(self, e): pass`;
+    const patched = await client.send<{ xml: string }>('add_custom_operation', {
+      xml: baseline,
+      operationKey: 'PyOp',
+      operationName: 'Py操作',
+      operationParameterId: '22222222-2222-2222-2222-222222222222',
+      pluginClassName: 'my_handler',
+      pyBody,
+    });
+    expect(patched.xml).toContain('<ServicePlugins>');
+    expect(patched.xml).toContain('<ClassName>my_handler</ClassName>');
+    expect(patched.xml).toContain('<PlugInType>1</PlugInType>');
+    expect(patched.xml).toContain('class MyHandler:');
+  });
+
+  it('add_custom_operation rejects empty operationKey', async () => {
+    const baseline = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/operations-no-ops.xml',
+      'utf8',
+    );
+    await expect(
+      client.send('add_custom_operation', {
+        xml: baseline,
+        operationKey: '',
+        operationName: 'x',
+        operationParameterId: '33333333-3333-3333-3333-333333333333',
+      }),
+    ).rejects.toThrow(/operationKey/);
+  });
+
+  it('add_custom_operation rejects duplicate operationKey', async () => {
+    const fixture = readFileSync(
+      'src/main/erp/k3cloud/rpc/baselines/operations-with-ops.xml',
+      'utf8',
+    );
+    await expect(
+      client.send('add_custom_operation', {
+        xml: fixture,
+        operationKey: 'TESTCopy', // already exists in the with-ops fixture
+        operationName: 'x',
+        operationParameterId: '44444444-4444-4444-4444-444444444444',
+      }),
+    ).rejects.toThrow(/已存在/);
+  });
 });

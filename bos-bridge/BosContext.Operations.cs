@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -334,6 +335,180 @@ namespace OpenDeploy.BosBridge
             return null;
         }
 
+        /// <summary>
+        /// Append a custom <c>FormOperation</c> to <c>Form.FormOperations</c>.
+        /// Defaults <c>OperationId</c> to 45 (DoNothing / 自定义) per recon
+        /// §3.3 — agents can override for variants like OperationId=2 (复制
+        /// with a custom Parmeter). When <paramref name="args.PluginClassName"/>
+        /// is non-empty, a <c>ServicePlugins/PlugIn</c> entry is appended with
+        /// <c>PlugInType=1</c> (Python wire convention) and <c>PyScript</c>
+        /// inline as a <see cref="ScriptString"/>-typed property — coerced via
+        /// <see cref="ConvertValue"/>'s single-string-arg ctor path. Returns
+        /// the re-serialized DCXML.
+        ///
+        /// Wire shape verified by capture req-212 (`docs/recon/2026-05-06-operations-spike.md` §3.4):
+        ///   <c>&lt;ServicePlugins&gt;&lt;PlugIn ElementType="0" ElementStyle="0"&gt;
+        ///     &lt;ClassName&gt;...&lt;/ClassName&gt;
+        ///     &lt;PlugInType&gt;1&lt;/PlugInType&gt;
+        ///     &lt;PyScript&gt;&lt;![CDATA[...]]&gt;&lt;/PyScript&gt;
+        ///   &lt;/PlugIn&gt;&lt;/ServicePlugins&gt;</c>
+        /// </summary>
+        public string AddCustomOperation(AddCustomOperationArgs args)
+        {
+            if (args == null) throw new ArgumentNullException(nameof(args));
+            if (string.IsNullOrEmpty(args.Xml)) throw new ArgumentException("xml is empty", "xml");
+            // Reject empty operationKey explicitly — Form.FormOperations is
+            // keyed by Operation, and BOS Designer surfaces "操作标识不能为空"
+            // when the user tries to save with a blank key. Match that contract.
+            if (string.IsNullOrWhiteSpace(args.OperationKey))
+                throw new ArgumentException("operationKey: cannot be empty", "operationKey");
+            if (string.IsNullOrEmpty(args.OperationName))
+                throw new ArgumentException("operationName: cannot be empty", "operationName");
+            if (string.IsNullOrEmpty(args.OperationParameterId))
+                throw new ArgumentException("operationParameterId: cannot be empty", "operationParameterId");
+
+            var formMeta = _serializer.DeserializeFromString(args.Xml)
+                ?? throw new InvalidOperationException("DeserializeFromString returned null");
+
+            var businessInfo = formMeta.GetType().GetProperty("BusinessInfo")?.GetValue(formMeta)
+                ?? throw new InvalidOperationException(
+                    $"input deserialized to {formMeta.GetType().FullName} which has no BusinessInfo");
+
+            var form = FindFormElement(businessInfo)
+                ?? throw new InvalidOperationException("Form element not found in BusinessInfo");
+
+            // Form.FormOperations is `List<FormOperation>` (decompiled at
+            // bos-core-full.cs:177854). DcxmlSerializer ctors leave it
+            // null when the source XML has no <FormOperations> block; the
+            // get-or-create path below covers both shapes.
+            var formOpsList = GetOrCreateFormOperations(form);
+
+            // Duplicate-key guard — first match wins. Matches BOS Designer's
+            // own "操作标识已存在" save-time validation; the wire would happily
+            // accept duplicates and the runtime would silently dispatch to
+            // the first one, so we reject up-front for clarity.
+            foreach (var existing in formOpsList)
+            {
+                if (existing == null) continue;
+                if (string.Equals(ReadStringProperty(existing, "Operation"), args.OperationKey, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException($"操作 {args.OperationKey} 已存在");
+                }
+            }
+
+            var formOpType = ResolveType("Kingdee.BOS.Core.Metadata.FormElement.FormOperation")
+                ?? throw new InvalidOperationException(
+                    "Kingdee.BOS.Core.Metadata.FormElement.FormOperation not found in BOS Core");
+            var op = Activator.CreateInstance(formOpType)!;
+
+            // Id == Operation per FormOperation getter (FormOperation.cs:299-313)
+            // — id falls back to Operation when blank, but Designer ships them
+            // identical so we set both explicitly to avoid the get-side fallback
+            // surprising future readers.
+            SetProp(op, "Id", args.OperationKey);
+            SetProp(op, "Operation", args.OperationKey);
+            // OperationId is `long`. Default 45 (DoNothing) per recon §3.3 +
+            // capture req-212; spec §6.1 lets agents override (e.g. 2 for 复制
+            // variants per req-96). ConvertValue coerces int/JValue→long.
+            SetProp(op, "OperationId", args.OperationId ?? 45L);
+            // OperationName is `LocaleValue` (FormOperation.cs:335). ConvertValue
+            // wraps the string via LocaleValue's single-string-arg ctor — same
+            // path that 5.12.3b's add_entity_service_rule uses for Description /
+            // PreConditionDesc. Wire ships inline `<OperationName>测试</OperationName>`
+            // (req-212 confirms — no <LocaleValue> wrapper element).
+            SetProp(op, "OperationName", args.OperationName);
+            // LoadKeys is a string-typed wrapper around ReLoadKeys (List<string>);
+            // wire ships `<LoadKeys>[]</LoadKeys>` per recon §3.2 row 10. Setting
+            // the property serializes the empty list back as `[]` via
+            // KDObjectConverter (FormOperation.cs:380-389).
+            SetProp(op, "LoadKeys", "[]");
+
+            // FormOperation.Parmeter is typed `OperationParameter` (single,
+            // not collection) — see FormOperation.cs:338. Wire wraps it as
+            // `<Parmeter><OperationParameter>...</OperationParameter></Parmeter>`
+            // because DcxmlSerializer renders a complex property as
+            // <PropertyName><RuntimeTypeName>...</RuntimeTypeName></PropertyName>.
+            // Note the typo: BOS source uses `Parmeter`, not `Parameter`
+            // (recon §3.2 + 4 wire occurrences).
+            var paramType = ResolveType("Kingdee.BOS.Core.Metadata.FormElement.OperationParameter")
+                ?? throw new InvalidOperationException(
+                    "Kingdee.BOS.Core.Metadata.FormElement.OperationParameter not found in BOS Core");
+            var parameter = Activator.CreateInstance(paramType)!;
+            SetProp(parameter, "Id", args.OperationParameterId);
+            if (!string.IsNullOrEmpty(args.OperationObjectKey))
+                SetProp(parameter, "OperationObjectKey", args.OperationObjectKey);
+            if (!string.IsNullOrEmpty(args.ExpressValue))
+                SetProp(parameter, "ExpressValue", args.ExpressValue);
+            SetProp(op, "Parmeter", parameter);
+
+            // ── ServicePlugins (optional, only when pluginClassName is given) ─
+            // Per spec: pyBody can be empty (agent might just register a
+            // ClassName placeholder) — only fill PyScript when non-empty.
+            if (!string.IsNullOrEmpty(args.PluginClassName))
+            {
+                var pluginsList = GetOrCreateServicePlugins(op);
+                var plugInType = ResolveType("Kingdee.BOS.Core.Metadata.FormElement.PlugIn")
+                    ?? throw new InvalidOperationException(
+                        "Kingdee.BOS.Core.Metadata.FormElement.PlugIn not found in BOS Core");
+                var plugin = Activator.CreateInstance(plugInType)!;
+                SetProp(plugin, "ClassName", args.PluginClassName);
+                // PlugInType is typed `short` on PlugIn (bos-core-full.cs:291915).
+                // Wire convention (per recon §3.4 + existing convert-plugin code
+                // in BosContext.cs:223): 1=Python, 0=DLL. ConvertValue coerces
+                // int→short via Convert.ChangeType.
+                SetProp(plugin, "PlugInType", 1);
+                if (!string.IsNullOrEmpty(args.PyBody))
+                {
+                    // PyScript is typed Kingdee.BOS.Orm.DataEntity.ScriptString
+                    // (a wrapper around string). ConvertValue's single-string-
+                    // arg-ctor path handles the string→ScriptString coercion —
+                    // ScriptString has `ScriptString(string)` available.
+                    SetProp(plugin, "PyScript", args.PyBody);
+                }
+                pluginsList.Add(plugin);
+            }
+
+            formOpsList.Add(op);
+            return _serializer.SerializeToString(formMeta, null);
+        }
+
+        /// <summary>
+        /// Pull (or, defensively, create) the Form's FormOperations collection.
+        /// FormMetadata DCXML deserialization can leave this null when the
+        /// source XML has no <c>&lt;FormOperations&gt;</c> block (the
+        /// operations-no-ops baseline is the canonical example).
+        /// </summary>
+        private static IList GetOrCreateFormOperations(object form)
+        {
+            var prop = form.GetType().GetProperty("FormOperations", BindingFlags.Public | BindingFlags.Instance)
+                ?? throw new InvalidOperationException(
+                    $"{form.GetType().FullName} has no FormOperations property");
+            var list = prop.GetValue(form) as IList;
+            if (list != null) return list;
+            list = (IList)Activator.CreateInstance(prop.PropertyType)!;
+            prop.SetValue(form, list);
+            return list;
+        }
+
+        /// <summary>
+        /// Pull (or create) the FormOperation's ServicePlugins collection.
+        /// FormOperation's ctor (FormOperation.cs:412) pre-initializes
+        /// <c>ServicePlugins = new List&lt;PlugIn&gt;()</c>, so the
+        /// create-and-set-back path is a defensive fallback for unfamiliar
+        /// FormOperation subclasses.
+        /// </summary>
+        private static IList GetOrCreateServicePlugins(object formOperation)
+        {
+            var prop = formOperation.GetType().GetProperty("ServicePlugins", BindingFlags.Public | BindingFlags.Instance)
+                ?? throw new InvalidOperationException(
+                    $"{formOperation.GetType().FullName} has no ServicePlugins property");
+            var list = prop.GetValue(formOperation) as IList;
+            if (list != null) return list;
+            list = (IList)Activator.CreateInstance(prop.PropertyType)!;
+            prop.SetValue(formOperation, list);
+            return list;
+        }
+
         // ── Result DTOs ────────────────────────────────────────────────
         // JsonProperty annotations force camelCase wire names — JToken.FromObject
         // otherwise uses C# property casing (PascalCase) which mismatches the
@@ -417,6 +592,53 @@ namespace OpenDeploy.BosBridge
 
             [JsonProperty("barItemLinkId")]
             public string? BarItemLinkId { get; set; }
+        }
+
+        // ── add-op args DTO (deserialized from Program.cs Dispatch) ───────
+        // Newtonsoft honors [JsonProperty] camelCase mapping so wire keys
+        // (operationKey, pluginClassName, …) bind cleanly via req.ToObject<>.
+
+        internal sealed class AddCustomOperationArgs
+        {
+            [JsonProperty("xml")]
+            public string Xml { get; set; } = string.Empty;
+
+            [JsonProperty("operationKey")]
+            public string OperationKey { get; set; } = string.Empty;
+
+            [JsonProperty("operationName")]
+            public string OperationName { get; set; } = string.Empty;
+
+            // Caller-provided GUID for the OperationParameter.Id child; surfaced
+            // as a required arg so agents control identity (idempotent re-runs
+            // can reuse the same GUID for byte-stable diffs).
+            [JsonProperty("operationParameterId")]
+            public string OperationParameterId { get; set; } = string.Empty;
+
+            // Default 45 (DoNothing / 自定义) when omitted — recon §3.3 +
+            // capture req-212. Long instead of int because BOS schema is `long`.
+            [JsonProperty("operationId")]
+            public long? OperationId { get; set; }
+
+            // Optional — entry-key context for entry-level operations like
+            // 复制 (e.g. "FEntity"); null/empty for header-level ops.
+            [JsonProperty("operationObjectKey")]
+            public string? OperationObjectKey { get; set; }
+
+            // Optional — semicolon-delimited `key:value` pairs (req-96 example
+            // `IsCopyLinkEntry:0`, req-212 example `IsShowMes:0;IsForbidWFService:0`).
+            [JsonProperty("expressValue")]
+            public string? ExpressValue { get; set; }
+
+            // Optional ServicePlugins entry — only emitted when non-empty.
+            [JsonProperty("pluginClassName")]
+            public string? PluginClassName { get; set; }
+
+            // Optional inline IronPython source. When omitted but
+            // PluginClassName is set, the PlugIn ships without <PyScript>
+            // (BOS Designer also accepts this — class-name-only plugin shell).
+            [JsonProperty("pyBody")]
+            public string? PyBody { get; set; }
         }
     }
 }

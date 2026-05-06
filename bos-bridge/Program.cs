@@ -178,6 +178,17 @@ namespace OpenDeploy.BosBridge
                 }
                 case "list_operations":
                     return ctx.ListOperations(RequireString(req, "xml"));
+                case "add_custom_operation":
+                {
+                    // Newtonsoft binds the [JsonProperty] camelCase keys on
+                    // AddCustomOperationArgs (operationKey, pluginClassName,
+                    // pyBody, …) — same pattern 5.12.3b's add_entity_service_rule
+                    // / add_field_update_action use, so the wire shape stays
+                    // consistent across ops in this dispatch table.
+                    var args = req.ToObject<BosContext.AddCustomOperationArgs>()
+                        ?? throw new InvalidOperationException("failed to deserialize add_custom_operation args");
+                    return new { xml = ctx.AddCustomOperation(args) };
+                }
                 default:
                     throw new InvalidOperationException($"unknown op: {op}");
             }
