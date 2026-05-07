@@ -148,7 +148,7 @@ describe('extendConvertRule', () => {
     expect(paras0.MainVersion).toBe(LIVE_MAIN_VERSION);
   });
 
-  it('rule[1] sends a minimal extension XML (Status reset + Name + Id/Key) — not a full template clone', async () => {
+  it('rule[1] sends a minimal extension XML (Status enabled + Name + Id/Key) — not a full template clone', async () => {
     const { capturedAp0, fetchSpy } = captureSavePayload();
     globalThis.fetch = fetchSpy;
 
@@ -158,7 +158,11 @@ describe('extendConvertRule', () => {
 
     const outer = JSON.parse(decodeAppLayerString(capturedAp0.value));
     const rule1Source = JSON.parse(outer.__rules__[1]).__source__;
-    expect(rule1Source).toContain('<Status action="reset" />');
+    // Per commit ebb5348 — OpenDeploy auto-enables new extensions (Status=True).
+    // BOS Designer ships `<Status action="reset" />` so a human can review
+    // before enabling, but agent-driven creation is a deliberate act and
+    // requiring a manual 启动 click after the fact is friction.
+    expect(rule1Source).toContain('<Status>True</Status>');
     expect(rule1Source).toContain(`<Id>${result.newExtensionId}</Id>`);
     expect(rule1Source).toContain(`<Key>${result.newExtensionId}</Key>`);
     expect(rule1Source).toContain('<Name>我的扩展</Name>');
