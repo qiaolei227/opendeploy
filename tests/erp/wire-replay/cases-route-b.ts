@@ -119,4 +119,59 @@ export const ROUTE_B_CASES: RouteBCase[] = [
       ],
     },
   },
+
+  {
+    name: 'add-toolbar-button-form-level',
+    whyMatters:
+      'Lever 3 followup (2026-05-07) — addToolbarButton migrated from Route C ' +
+      'overlay to Route B envelope rebuild via addBarButtons[]. This case ' +
+      'locks the wire shape: BarButton lives in `<FormAppearance action="edit" ' +
+      'oid={parent}>` overlay sibling to existingAppearancesRaw, with full ' +
+      'BarDataManager/BarItems/BarItemLinks structure. Migrated wire equivalent ' +
+      'of the deleted Route C `add-toolbar-button-form-level` case.',
+    input: {
+      extension: BASELINE_EXT,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addBarButtons: [
+        {
+          appearanceOid: '22222222-3333-4444-5555-666666666666',
+          appearanceKind: 'FormAppearance',
+          appearanceElementType: 100,
+          buttonKey: 'OpdpTestBtn',
+          buttonId: '33333333333333333333333333333333',
+          caption: '测试按钮',
+          seq: 1,
+          boundOperationKey: 'OpdpTest',
+          boundOperationName: '测试操作',
+          toolbarKey: 'tbToolBar',
+          barDataManagerId: '44444444-5555-6666-7777-888888888888',
+          formBusinessServiceId: '55555555-6666-7777-8888-999999999999',
+          barItemLinkId: '66666666-7777-8888-9999-aaaaaaaaaaaa',
+        },
+      ],
+    },
+  },
+
+  {
+    name: 'remove-toolbar-button-form-level',
+    whyMatters:
+      'Lever 3 followup (2026-05-07) — removeToolbarButton migrated from Route C ' +
+      'overlay to Route B envelope rebuild via removeBarButtons[]. Locks the ' +
+      'declarative remove markers wrapped in `<FormAppearance action="edit">`.',
+    input: {
+      extension: BASELINE_EXT,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      removeBarButtons: [
+        {
+          appearanceOid: '22222222-3333-4444-5555-666666666666',
+          appearanceKind: 'FormAppearance',
+          appearanceElementType: 100,
+          buttonId: '33333333333333333333333333333333',
+          barItemLinkId: '66666666-7777-8888-9999-aaaaaaaaaaaa',
+        },
+      ],
+    },
+  },
 ];

@@ -2,20 +2,22 @@
 
 > **目的**:每次给 BOS 加新写入能力（字段、操作、按钮、转换规则、业务规则、扩展……）必须先读这份文档,选对路径再动手。Plan 5.12 反复踩坑大半源于"选错路径,实现到一半才发现"——本文档把"选哪条路"从隐性变成显性。
 
-**最近一次更新**:2026-05-07
-**对应仓库版本**:`feature/plan-5.12` @ `530c415`(Plan 5.12.6 hotfix #4 之后)
+**最近一次更新**:2026-05-07(L3 followup — Route C 完全废止)
+**对应仓库版本**:`feature/plan-5.12` @ HEAD(L3 followup migration:addToolbarButton/removeToolbarButton 也迁 Route B)
 
 ---
 
-## §1 当前 3 条并存路径
+## §1 当前路径 — 只剩 2 条
 
-| | Route A — Bridge | Route B — Envelope Rebuild | Route C — Overlay |
+| | Route A — Bridge | Route B — Envelope Rebuild | ~~Route C~~ |
 |---|---|---|---|
-| **核心位置** | `bos-bridge/` (.NET 4.8 sidecar) + `src/main/erp/k3cloud/bridge/{client,index}.ts` | `src/main/erp/k3cloud/rpc/{save-for-ide,dcxml,types,codec}.ts` | `src/main/erp/k3cloud/rpc/operation-overlay.ts` + `business-rule-overlay.ts` |
-| **形态** | DCXML deserialize → 强类型对象 mutate → DCXML serialize | 强类型 AST → 直接组 DCXML 字符串 → 全 envelope POST | 手写 XML 片段 → 字符串 splice 到既有 FKERNELXML |
-| **代码量** | ~3000 行 C#(2982) + ~300 行 TS | ~1374 行 TS(save-for-ide+dcxml+types) | 313 行 TS |
-| **当前生产用** | 转换规则(Plan 5.12.4 v2)、业务规则(Plan 5.12.3b) | `register_python_plugins`、`create_extension`、`add_custom_operation`(5.12.6 hotfix #4 后)| `removeOperation`、`removeToolbarButton`(5.12.6 残留) |
-| **可信度** | 🟢 已生产 | 🟢 已生产 | 🟡 服役但 L3 计划淘汰 |
+| **核心位置** | `bos-bridge/` (.NET 4.8 sidecar) + `src/main/erp/k3cloud/bridge/{client,index}.ts` | `src/main/erp/k3cloud/rpc/{save-for-ide,dcxml,types,codec}.ts` | ~~已废止~~ |
+| **形态** | DCXML deserialize → 强类型对象 mutate → DCXML serialize | 强类型 AST → 直接组 DCXML 字符串 → 全 envelope POST | — |
+| **代码量** | ~3000 行 C#(2982) + ~300 行 TS | ~1500 行 TS(save-for-ide+dcxml+types,L3 followup 后扩了 BarButton 类型) | — |
+| **当前生产用** | 转换规则(Plan 5.12.4 v2)、业务规则(Plan 5.12.3b) | `register_python_plugins` / `create_extension` / `add_custom_operation` / `removeOperation` / **`addToolbarButton` / `removeToolbarButton`**(L3 followup 完成 2026-05-07) | — |
+| **可信度** | 🟢 已生产 | 🟢 已生产 | — |
+
+**Route C 历史**:Plan 5.12.6 期间用过(`operation-overlay.ts` 字符串模板 splice 到既有 FKERNELXML),5.12.6 hotfix #4 把 addCustomOperation 切到 Route B,L3(2026-05-07)把 removeOperation 切到 Route B,L3 followup 同日把 addToolbarButton + removeToolbarButton 切到 Route B,Route C 至此完全死透。`operation-overlay.ts` 文件保留(改名待办),只剩 2 个 appearance-locator 解析器(read-only,不构造 XML)。
 
 ---
 
@@ -35,9 +37,10 @@
 │  ├─ 是「新增 / 创建 / 全量替换」?
 │  │  └─ ✅ Route B envelope rebuild — register_python_plugins 模式;
 │  │                                     调 saveExtension(SaveExtensionRequest)
+│  │                                     用 addXxx[] / addBarButtons[] 字段
 │  └─ 是「按 key 删除」?
-│     └─ 🟡 暂时 Route C(operation-overlay.ts) — L3 后改 Route B
-│        ⚠️ 不要再加新的 Route C overlay,直接给 Route B 加 removeXxx[] 字段
+│     └─ ✅ Route B — filter existing.formOperations 重发 envelope,或
+│                      用 removeBarButtons[] / removeFields[] 等显式 remove 字段
 │
 └─ X 操作 LayoutInfos / 控件外观 / 移动端布局?
    └─ ⚠️ 还没有任何路径覆盖,先 capture 实证再选路径(参考 §6)
@@ -109,34 +112,28 @@ const result = await saveExtension(session, req);              // 7. POST
 - **B-FAIL-2 wire format 严格**:`SaveExtensionRequest` 的 12 字段 + 12 appearance 类型的 dcxml.ts emit 必须正确;捕获错了 → 服务端 silent drop 或 NRE
 - **B-FAIL-3 fresh extension 的 LayoutInfos 缺失**:create_extension 后立即写,FKERNELXML 没 `<LayoutInfos>` —— 必须从父对象 extract layoutInfoOid 注入
 
-### Route C — Overlay(`rpc/operation-overlay.ts`)
+### ~~Route C — Overlay~~ (已死,2026-05-07)
 
-**何时用**:**不要再用**。仅 5.12.6 `removeOperation` / `removeToolbarButton` 残留,L3 后清掉。
+**全部清空**。所有 5 大 fail mode (C-FAIL-1 ~ C-FAIL-5) 因为这条路根本不在了已无意义,留作历史记录:
+- C-FAIL-1 duplicate `<Form>` sibling silent drop
+- C-FAIL-2 missing `<LayoutInfos>` silent drop
+- C-FAIL-3 wire 没有 `action="add"` 概念,Route C 加东西本就不该走 overlay
+- C-FAIL-4 手动 XML 转义易漏
+- C-FAIL-5 0 类型保护
 
-**残留接口(只读,不要扩展)**:
-```typescript
-buildRemoveOperationOverlay(operationKey)         // → <FormOperations><FormOperation action="remove" oid=.../></FormOperations>
-buildRemoveToolbarButtonOverlay(...)              // → <FormAppearance ...><Menu><BarDataManager><BarItems><BarButtonItem action="remove" oid=.../></BarItems>...
-```
-
-**为什么死**(全 5 fail mode 都踩齐了):
-- **C-FAIL-1 silent drop on duplicate `<Form>` sibling**:`create_extension` 已 ship 一个 Form 节点,naive `injectOverlay` 会造第二个,服务端 silently 只取第一个。Hotfix #2 临时绕过(`injectIntoForm` 探测既有 Form 后 splice 子节点)。详见 `operation-overlay.ts:23-30`
-- **C-FAIL-2 silent drop on missing `<LayoutInfos>`**:fresh extension 没 LayoutInfos → 服务端 silently 丢 add。Hotfix #4 把 addCustomOperation 切到 Route B 解决
-- **C-FAIL-3 wire 没有 `action="add"`**:DCXML 是 stateful baseline diff(memory `bos_save_for_ide_v9_wire_format.md` + spike doc §2.1),只支持 `action="edit|remove|setnull"`。"加东西"靠 ship 完整 element,不是 declare add
-- **C-FAIL-4 手动 XML 转义**:`xmlEscape` / `escCData` 漏调或调错就出 BOS 解析报错
-- **C-FAIL-5 0 类型保护**:agent 给错 shape,失败发生在服务端,堆栈反推到 agent 调用很慢
+`src/main/erp/k3cloud/rpc/operation-overlay.ts` 文件还在(待改名 `appearance-locator.ts`),但只剩 `extractFormAppearanceLocation` / `extractEntryEntityAppearanceLocation` 两个**只读**解析器,不构造任何 XML。L4 ESLint guard 该文件已从白名单去掉。
 
 ---
 
-## §4 已知 5 大失败模式速查表
+## §4 已知失败模式速查表
 
 | 编号 | 失败模式 | 证据 | 哪条路径会撞 | 现行解法 |
 |---|---|---|---|---|
 | **F1** | bridge byte-exact PK match 失败 → silent drop | docs/recon/2026-05-06-operations-spike.md spike #1 | A | 改 B(全 envelope 重建) |
 | **F2** | bridge 父元素 wipe 风险 | spike #2 | A | 改 B |
-| **F3** | duplicate `<Form>` sibling → 服务端只取第 1 个 | .scratch/ship-debug 2026-05-07 capture(operation-overlay.ts:23-30) | C(naive injectOverlay) | `injectIntoForm` 探测后 splice / 改 B |
-| **F4** | fresh extension 缺 `<LayoutInfos>` → silent drop add | 5.12.6 hotfix #4 注释(connector.ts:1100-1103) | B(忘 layoutInfoOid)/ C | extract from parent 注入 |
-| **F5** | envelope 漏 existingXxxRaw → 该类元素全抹 | 5.12.6 hotfix #4 | B | 必须传齐 7 个 existing*Raw 字段 |
+| **F4** | fresh extension 缺 `<LayoutInfos>` → silent drop add | 5.12.6 hotfix #4 注释(connector.ts:1100-1103) | B(忘 layoutInfoOid) | extract from parent 注入 |
+| **F5** | envelope 漏 existingXxxRaw → 该类元素全抹 | 5.12.6 hotfix #4 | B | 必须传齐 8 个 existing*Raw 字段 |
+| ~~F3~~ | ~~duplicate `<Form>` sibling silent drop~~ | ~~Route C 专属,已废止~~ | — | — |
 
 ---
 

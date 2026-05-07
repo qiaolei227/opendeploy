@@ -355,6 +355,93 @@ export interface BosRemoveElement {
 }
 
 /**
+ * Toolbar BarButton add — emits as a `<FormAppearance|EntryEntityAppearance
+ * action="edit" oid={appearanceOid}>` overlay containing the new BarButtonItem
+ * + matching BarItemLink. Inside `<LayoutInfos><LayoutInfo><Appearances>`.
+ *
+ * Migrated from Route C `buildAddToolbarButtonOverlay` (2026-05-07 lever 3
+ * followup) — same wire shape, but emitted by dcxml.ts via typed input so the
+ * lint guard catches drift and wire-replay snapshots cover it.
+ *
+ * Wire shape (BOS Designer 2026-05-06 capture req-96):
+ *
+ *   <FormAppearance action="edit" oid={parent_appearance_oid} ElementType="100" ElementStyle="1">
+ *     <Menu>
+ *       <BarDataManager>
+ *         <Id>{barDataManagerId}</Id>
+ *         <BarItems>
+ *           <BarButtonItem ElementType="2005" ElementStyle="1">
+ *             <Shortcut/>
+ *             <Seq>{seq}</Seq>
+ *             <Description>按钮</Description>
+ *             <IsShowTitle>True</IsShowTitle>
+ *             <ClickActions>
+ *               <FormBusinessService>
+ *                 <ConfirmInfo/>
+ *                 <Parameters>["{boundOperationKey}"]</Parameters>
+ *                 <ActionId>23</ActionId>
+ *                 <Description>调用表单操作--{boundOperationName}</Description>
+ *                 <Id>{formBusinessServiceId}</Id>
+ *               </FormBusinessService>
+ *             </ClickActions>
+ *             <Caption>{caption}</Caption>
+ *             <Id>{buttonId}</Id>
+ *             <Key>{buttonKey}</Key>
+ *           </BarButtonItem>
+ *         </BarItems>
+ *         <BarItemLinks>
+ *           <BarItemLink>
+ *             <Id>{barItemLinkId}</Id>
+ *             <BarItemKey>{buttonKey}</BarItemKey>
+ *             <ParentKey>{toolbarKey}</ParentKey>
+ *           </BarItemLink>
+ *         </BarItemLinks>
+ *       </BarDataManager>
+ *     </Menu>
+ *   </FormAppearance>
+ */
+export interface BosBarButtonElement {
+  /** Parent appearance oid (form-level FormAppearance OR entry-level
+   *  EntryEntityAppearance) — discovered via `extractFormAppearanceLocation`
+   *  / `extractEntryEntityAppearanceLocation` from parent FKERNELXML. */
+  appearanceOid: string;
+  appearanceKind: 'FormAppearance' | 'EntryEntityAppearance';
+  /** ElementType: 100 for FormAppearance, 35 for EntryEntityAppearance. */
+  appearanceElementType: number;
+  /** Stable per-appearance BarDataManager id (dashed UUID). Caller manages. */
+  barDataManagerId: string;
+  /** New button identity. */
+  buttonKey: string;
+  buttonId: string;
+  caption: string;
+  /** Display order within the toolbar. Default 1. */
+  seq?: number;
+  /** Bound FormOperation — must already exist (or be in same save's
+   *  addFormOperations). Wires through `Parameters: ["{boundOperationKey}"]`. */
+  boundOperationKey: string;
+  boundOperationName: string;
+  /** ToolBar `<Key>` the button hangs off (e.g. "tbToolBar" form-level,
+   *  or auto-built `F_<DevCode>_TB_<n>` entry-level). */
+  toolbarKey: string;
+  formBusinessServiceId: string;
+  barItemLinkId: string;
+}
+
+/**
+ * Toolbar BarButton remove — emits the same `<FormAppearance|EntryEntityAppearance
+ * action="edit" oid={appearanceOid}>` envelope but with declarative
+ * `<BarButtonItem action="remove" oid={buttonId}/>` + matching BarItemLink
+ * removal markers inside.
+ */
+export interface BosRemoveBarButton {
+  appearanceOid: string;
+  appearanceKind: 'FormAppearance' | 'EntryEntityAppearance';
+  appearanceElementType: number;
+  buttonId: string;
+  barItemLinkId: string;
+}
+
+/**
  * One form plugin registration. Renders inside `<Form>` (NOT as a sibling) —
  * specifically inside a `<FormPlugins>` wrapper. Verified 2026-04-27 capture
  * req-75: server accepts this shape and returns IsSuccess=true.
@@ -465,6 +552,12 @@ export interface SaveExtensionRequest {
   addTabPages?: BosTabPageAppearance[];
   /** New TabControl placements. Rendered inside `<Appearances>`. */
   addTabControls?: BosTabControlAppearance[];
+  /** Toolbar BarButton additions — emit FormAppearance/EntryEntityAppearance
+   *  edit-overlays inside `<Appearances>`. Each entry produces one overlay. */
+  addBarButtons?: BosBarButtonElement[];
+  /** Toolbar BarButton removals — emit declarative remove markers wrapped
+   *  in matching action="edit" appearance overlay. */
+  removeBarButtons?: BosRemoveBarButton[];
   /**
    * Pre-serialized chunks of the extension's currently-saved fields (typically
    * obtained via `extractExistingExtensionElements`). DCXML is a baseline

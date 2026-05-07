@@ -82,7 +82,12 @@ import { transformPatchedToExtensionWire } from './rpc/transform-extension-wire'
 import { saveExtension, saveExtensionRaw, type SaveExtensionRawMeta } from './rpc/save-for-ide';
 import { extractLayoutInfoOid } from './rpc/layout-discovery';
 import { extractExistingExtensionElements } from './rpc/existing-elements';
-import type { BosFormOperationElement, SaveExtensionRequest } from './rpc/types';
+import type {
+  BosFormOperationElement,
+  BosBarButtonElement,
+  BosRemoveBarButton,
+  SaveExtensionRequest,
+} from './rpc/types';
 import {
   buildAddEntityRuleOverlay,
   buildRemoveEntityRuleOverlay,
@@ -101,12 +106,9 @@ import {
 } from './rpc/business-rule-parser';
 import type { ListOperationsResult } from './rpc/operation-types';
 import {
-  // Lever 3 (2026-05-07) migrated removeOperation to Route B envelope rebuild.
-  // The remaining overlay imports support the addToolbarButton / removeToolbarButton
-  // flows that still need their own Route B migration (followup — requires
-  // BarItem-inside-existing-appearance delta support in dcxml.ts).
-  buildAddToolbarButtonOverlay,
-  buildRemoveToolbarButtonOverlay,
+  // Lever 3 followup (2026-05-07): addToolbarButton / removeToolbarButton
+  // migrated to Route B envelope rebuild. Only the appearance-location
+  // extractors remain — they're parsers (read-only, no XML construction).
   extractFormAppearanceLocation,
   extractEntryEntityAppearanceLocation,
 } from './rpc/operation-overlay';
@@ -1275,19 +1277,24 @@ export class K3CloudConnector implements ErpConnector {
 
     const ext = await this.getObject(args.extensionFid);
     if (!ext) throw new Error(`扩展 ${args.extensionFid} 不存在`);
+    if (!ext.baseObjectId) {
+      throw new Error(`扩展 ${args.extensionFid} 缺少 BaseObjectId — 无法 add_toolbar_button`);
+    }
+    if (ext.modelTypeId == null || ext.subsystemId == null) {
+      throw new Error(
+        `扩展 ${args.extensionFid} 元数据不完整(modelTypeId=${ext.modelTypeId}, subsystemId=${ext.subsystemId})`,
+      );
+    }
 
     const extXml = await this.getKernelXml(args.extensionFid);
     if (!extXml) throw new Error(`扩展 ${args.extensionFid} 无 FKERNELXML`);
-
-    // Resolve target appearance location from PARENT FKERNELXML (the parent
-    // form's own FormAppearance / EntryEntityAppearance carries the
-    // baseline oid that the overlay's `action="edit" oid=...` must match).
-    if (!ext.baseObjectId) {
-      throw new Error(`扩展 ${args.extensionFid} 缺少 BaseObjectId — 无法定位 appearance`);
-    }
     const parentXml = await this.getKernelXml(ext.baseObjectId);
     if (!parentXml) {
       throw new Error(`父对象 ${ext.baseObjectId} 无 FKERNELXML — 无法定位 appearance`);
+    }
+    const layoutInfoOid = extractLayoutInfoOid(parentXml);
+    if (!layoutInfoOid) {
+      throw new Error(`父对象 ${ext.baseObjectId} FKERNELXML 中未找到 layoutInfoOid`);
     }
     const loc =
       args.target.kind === 'form'
@@ -1301,8 +1308,8 @@ export class K3CloudConnector implements ErpConnector {
       );
     }
 
-    const overlay = buildAddToolbarButtonOverlay({
-      extensionFormId: ext.id,
+    const existing = extractExistingExtensionElements(extXml);
+    const newButton: BosBarButtonElement = {
       appearanceOid: loc.oid,
       appearanceKind: args.target.kind === 'form' ? 'FormAppearance' : 'EntryEntityAppearance',
       appearanceElementType: loc.elementType,
@@ -1316,11 +1323,31 @@ export class K3CloudConnector implements ErpConnector {
       barDataManagerId: args.barDataManagerId,
       formBusinessServiceId: args.formBusinessServiceId,
       barItemLinkId: args.barItemLinkId,
-    });
-    const patchedXml = injectOverlay(extXml, overlay);
+    };
 
-    const meta = await this.buildSaveExtensionRawMeta(session, args.extensionFid, ext);
-    const result = await saveExtensionRaw(session, meta, patchedXml);
+    const req: SaveExtensionRequest = {
+      extension: {
+        formId: ext.id,
+        baseObjectId: ext.baseObjectId,
+        modelTypeId: ext.modelTypeId,
+        subSystemId: ext.subsystemId,
+        name: [{ localeId: 2052, value: ext.name }],
+        isv: { devCode: this.config.devCode },
+      },
+      isNew: false,
+      layoutInfoOid,
+      existingFieldsRaw: existing.fields,
+      existingAppearancesRaw: existing.appearances,
+      existingPluginsRaw: existing.plugins,
+      existingEntriesRaw: existing.entries,
+      existingEntryAppearancesRaw: existing.entryAppearances,
+      existingTabPagesRaw: existing.tabPages,
+      existingTabControlsRaw: existing.tabControls,
+      existingFormOperationsRaw: existing.formOperations,
+      addBarButtons: [newButton],
+    };
+
+    const result = await saveExtension(session, req);
     if (!result.isSuccess) {
       throw new Error(
         `添加按钮失败：${result.messageTitle ?? ''} ${result.messageDetail ?? '<no detail>'}`,
@@ -1340,23 +1367,30 @@ export class K3CloudConnector implements ErpConnector {
 
     const ext = await this.getObject(extensionFid);
     if (!ext) throw new Error(`扩展 ${extensionFid} 不存在`);
-
-    const extXml = await this.getKernelXml(extensionFid);
-    if (!extXml) throw new Error(`扩展 ${extensionFid} 无 FKERNELXML`);
+    if (!ext.baseObjectId) throw new Error(`扩展 ${extensionFid} 缺少 BaseObjectId`);
+    if (ext.modelTypeId == null || ext.subsystemId == null) {
+      throw new Error(
+        `扩展 ${extensionFid} 元数据不完整(modelTypeId=${ext.modelTypeId}, subsystemId=${ext.subsystemId})`,
+      );
+    }
 
     // Look up button details via list_operations (bridge read path) to get
-    // the buttonId + barItemLinkId + parentEntityKey we need for the
-    // path-A overlay's `action="remove" oid=...` markers.
+    // the buttonId + barItemLinkId + parentEntityKey needed for the
+    // declarative remove markers.
     const list = await this.listOperations(extensionFid);
     const button = list.toolbarButtons.find((b) => b.buttonKey === buttonKey);
     if (!button) throw new Error(`按钮 ${buttonKey} 不存在`);
     if (!button.buttonId) throw new Error(`按钮 ${buttonKey} 缺 BarButtonItem id — 无法删除`);
     if (!button.barItemLinkId) throw new Error(`按钮 ${buttonKey} 缺 BarItemLink id — 无法删除`);
 
-    if (!ext.baseObjectId) throw new Error(`扩展 ${extensionFid} 缺少 BaseObjectId`);
+    const extXml = await this.getKernelXml(extensionFid);
+    if (!extXml) throw new Error(`扩展 ${extensionFid} 无 FKERNELXML`);
     const parentXml = await this.getKernelXml(ext.baseObjectId);
     if (!parentXml) throw new Error(`父对象 ${ext.baseObjectId} 无 FKERNELXML`);
-
+    const layoutInfoOid = extractLayoutInfoOid(parentXml);
+    if (!layoutInfoOid) {
+      throw new Error(`父对象 ${ext.baseObjectId} FKERNELXML 中未找到 layoutInfoOid`);
+    }
     const loc = button.parentEntityKey
       ? extractEntryEntityAppearanceLocation(parentXml, button.parentEntityKey)
       : extractFormAppearanceLocation(parentXml);
@@ -1366,17 +1400,38 @@ export class K3CloudConnector implements ErpConnector {
       );
     }
 
-    const overlay = buildRemoveToolbarButtonOverlay(
-      button.parentEntityKey ? 'EntryEntityAppearance' : 'FormAppearance',
-      loc.oid,
-      loc.elementType,
-      button.buttonId,
-      button.barItemLinkId,
-    );
-    const patchedXml = injectOverlay(extXml, overlay);
+    const existing = extractExistingExtensionElements(extXml);
+    const removal: BosRemoveBarButton = {
+      appearanceOid: loc.oid,
+      appearanceKind: button.parentEntityKey ? 'EntryEntityAppearance' : 'FormAppearance',
+      appearanceElementType: loc.elementType,
+      buttonId: button.buttonId,
+      barItemLinkId: button.barItemLinkId,
+    };
 
-    const meta = await this.buildSaveExtensionRawMeta(session, extensionFid, ext);
-    const result = await saveExtensionRaw(session, meta, patchedXml);
+    const req: SaveExtensionRequest = {
+      extension: {
+        formId: ext.id,
+        baseObjectId: ext.baseObjectId,
+        modelTypeId: ext.modelTypeId,
+        subSystemId: ext.subsystemId,
+        name: [{ localeId: 2052, value: ext.name }],
+        isv: { devCode: this.config.devCode },
+      },
+      isNew: false,
+      layoutInfoOid,
+      existingFieldsRaw: existing.fields,
+      existingAppearancesRaw: existing.appearances,
+      existingPluginsRaw: existing.plugins,
+      existingEntriesRaw: existing.entries,
+      existingEntryAppearancesRaw: existing.entryAppearances,
+      existingTabPagesRaw: existing.tabPages,
+      existingTabControlsRaw: existing.tabControls,
+      existingFormOperationsRaw: existing.formOperations,
+      removeBarButtons: [removal],
+    };
+
+    const result = await saveExtension(session, req);
     if (!result.isSuccess) {
       throw new Error(
         `删除按钮失败：${result.messageTitle ?? ''} ${result.messageDetail ?? '<no detail>'}`,

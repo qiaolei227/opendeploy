@@ -38,6 +38,8 @@ import {
   BosTabPageAppearance,
   BosTabControlAppearance,
   BosFormOperationElement,
+  BosBarButtonElement,
+  BosRemoveBarButton,
   BosDefValue,
   SaveExtensionRequest,
   FIELD_ELEMENT_TYPE,
@@ -591,6 +593,76 @@ function renderEntryEntityAppearance(out: XmlWriter, a: BosEntryAppearance): voi
   out.push(`</EntryEntityAppearance>`);
 }
 
+/**
+ * Render a `<FormAppearance|EntryEntityAppearance action="edit">` overlay
+ * adding one BarButton + matching BarItemLink. Goes inside `<Appearances>`.
+ *
+ * Wire shape verified against capture req-96 (BOS Designer 2026-05-06).
+ * Migrated from Route C `buildAddToolbarButtonOverlay` 2026-05-07 (lever 3
+ * followup). Same wire output, but emitted by typed input so wire-replay
+ * regression tests + ESLint guard cover it.
+ */
+function renderAddBarButton(out: XmlWriter, b: BosBarButtonElement): void {
+  const seq = b.seq ?? 1;
+  // Parameters is a JSON-array literal — emit raw so the inner double quotes
+  // survive (same trick as renderDefaultEntryMenu).
+  const paramsJson = `["${xmlEscape(b.boundOperationKey)}"]`;
+  out.push(`<${b.appearanceKind} action="edit" oid="${xmlEscape(b.appearanceOid)}" ElementType="${b.appearanceElementType}" ElementStyle="1">`);
+  out.push('<Menu>');
+  out.push('<BarDataManager>');
+  child(out, 'Id', b.barDataManagerId);
+  out.push('<BarItems>');
+  out.push('<BarButtonItem ElementType="2005" ElementStyle="1">');
+  out.push('<Shortcut/>');
+  child(out, 'Seq', seq);
+  child(out, 'Description', '按钮');
+  child(out, 'IsShowTitle', 'True');
+  out.push('<ClickActions>');
+  out.push('<FormBusinessService>');
+  out.push('<ConfirmInfo/>');
+  out.push(`<Parameters>${paramsJson}</Parameters>`);
+  child(out, 'ActionId', 23);
+  child(out, 'Description', `调用表单操作--${b.boundOperationName}`);
+  child(out, 'Id', b.formBusinessServiceId);
+  out.push('</FormBusinessService>');
+  out.push('</ClickActions>');
+  child(out, 'Caption', b.caption);
+  child(out, 'Id', b.buttonId);
+  child(out, 'Key', b.buttonKey);
+  out.push('</BarButtonItem>');
+  out.push('</BarItems>');
+  out.push('<BarItemLinks>');
+  out.push('<BarItemLink>');
+  child(out, 'Id', b.barItemLinkId);
+  child(out, 'BarItemKey', b.buttonKey);
+  child(out, 'ParentKey', b.toolbarKey);
+  out.push('</BarItemLink>');
+  out.push('</BarItemLinks>');
+  out.push('</BarDataManager>');
+  out.push('</Menu>');
+  out.push(`</${b.appearanceKind}>`);
+}
+
+/**
+ * Render a `<FormAppearance|EntryEntityAppearance action="edit">` overlay
+ * containing declarative BarButton + BarItemLink removal markers. Migrated
+ * from Route C `buildRemoveToolbarButtonOverlay` 2026-05-07.
+ */
+function renderRemoveBarButton(out: XmlWriter, b: BosRemoveBarButton): void {
+  out.push(`<${b.appearanceKind} action="edit" oid="${xmlEscape(b.appearanceOid)}" ElementType="${b.appearanceElementType}" ElementStyle="1">`);
+  out.push('<Menu>');
+  out.push('<BarDataManager>');
+  out.push('<BarItems>');
+  out.push(`<BarButtonItem action="remove" oid="${xmlEscape(b.buttonId)}"/>`);
+  out.push('</BarItems>');
+  out.push('<BarItemLinks>');
+  out.push(`<BarItemLink action="remove" oid="${xmlEscape(b.barItemLinkId)}"/>`);
+  out.push('</BarItemLinks>');
+  out.push('</BarDataManager>');
+  out.push('</Menu>');
+  out.push(`</${b.appearanceKind}>`);
+}
+
 /** Render a self-built TabControlAppearance. ElementType=1005. */
 function renderTabControlAppearance(out: XmlWriter, a: BosTabControlAppearance): void {
   const id = a.id ?? newCompactGuid();
@@ -654,6 +726,11 @@ export function buildDcxmlSource(req: SaveExtensionRequest): string {
   for (const a of req.addTabPages ?? []) renderTabPageAppearance(out, a);
   for (const raw of req.existingEntryAppearancesRaw ?? []) out.push(raw);
   for (const a of req.addEntryAppearances ?? []) renderEntryEntityAppearance(out, a);
+  // BarButton overlays: each emits a `<FormAppearance|EntryEntityAppearance
+  // action="edit" oid=...>` block siblings to existingAppearancesRaw. Server
+  // applies as a baseline-diff edit on the named parent appearance.
+  for (const b of req.addBarButtons ?? []) renderAddBarButton(out, b);
+  for (const b of req.removeBarButtons ?? []) renderRemoveBarButton(out, b);
   out.push(`</Appearances>`);
   out.push(`</LayoutInfo></LayoutInfos>`);
   out.push(`</FormMetadata>`);
