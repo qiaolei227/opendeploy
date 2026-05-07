@@ -194,7 +194,7 @@ describe('connector.removeToolbarButton — Route B envelope (lever 3 followup)'
     vi.restoreAllMocks();
   });
 
-  it('composes SaveExtensionRequest with removeBarButtons + all existingXxxRaw populated', async () => {
+  it('filters target button out of existingAppearancesRaw (no removeBarButtons sibling)', async () => {
     const { connector, capturedReq } = setupConnector();
 
     await connector.removeToolbarButton('00000000000000000000000000000001', 'btnExisting');
@@ -203,18 +203,19 @@ describe('connector.removeToolbarButton — Route B envelope (lever 3 followup)'
     expect(req).not.toBeNull();
     if (!req) return;
 
-    expect(req.removeBarButtons).toBeDefined();
-    expect(req.removeBarButtons).toHaveLength(1);
-    expect(req.removeBarButtons![0]).toMatchObject({
-      appearanceOid: 'parent-form-appearance-oid',
-      appearanceKind: 'FormAppearance',
-      appearanceElementType: 100,
-      buttonId: '33333333333333333333333333333333',
-      barItemLinkId: '66666666-7777-8888-9999-aaaaaaaaaaaa',
-    });
+    // Per real-server smoke 2026-05-07 step 7 finding: shipping a sibling
+    // <FormAppearance action="edit"> alongside the unmodified existing one
+    // makes BOS server keep the existing and drop the remove markers.
+    // The fix is filter-existing — modify the appearance in-place, no
+    // separate removeBarButtons[]. So this field should NOT be set.
+    expect(req.removeBarButtons).toBeUndefined();
     expect(req.layoutInfoOid).toBe('parent-layout-oid');
     expect(req.existingFieldsRaw).toBeDefined();
     expect(req.existingFormOperationsRaw).toBeDefined();
+    // existingAppearancesRaw still populated (potentially modified) —
+    // the connector either strips the BarButtonItem inline or omits the
+    // whole appearance if the button was the only content.
+    expect(req.existingAppearancesRaw).toBeDefined();
   });
 
   it('throws when buttonKey not found in listOperations', async () => {

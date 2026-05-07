@@ -635,7 +635,17 @@ function renderAddBarButton(out: XmlWriter, b: BosBarButtonElement): void {
   out.push('<BarItemLink>');
   child(out, 'Id', b.barItemLinkId);
   child(out, 'BarItemKey', b.buttonKey);
-  child(out, 'ParentKey', b.toolbarKey);
+  // ParentKey on the form-level toolbar is intentionally OMITTED — capture
+  // req-96 (BOS Designer 2026-05-06 manual save of UNW_tbButton on
+  // FormAppearance) shipped the BarItemLink with NO <ParentKey>. Including
+  // one whose value doesn't match an in-wire BarItem of type ToolBar makes
+  // the server strip the entire <BarItemLinks> block (real-server smoke
+  // 2026-05-07 step 6 + memory `bos_smoke_findings_2026_05_07` finding 3).
+  // Entry-level toolbars ship their own ToolBar element via
+  // renderDefaultEntryMenu and DO need ParentKey — that path stays intact.
+  if (b.appearanceKind === 'EntryEntityAppearance') {
+    child(out, 'ParentKey', b.toolbarKey);
+  }
   out.push('</BarItemLink>');
   out.push('</BarItemLinks>');
   out.push('</BarDataManager>');

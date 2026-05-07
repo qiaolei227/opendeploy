@@ -75,6 +75,8 @@ export default [
       // ── Parser layer — uses indexOf('<FormPlugins>') etc. to walk FKERNELXML.
       //    The strings are tag SEARCH literals, not emission. ──
       'src/main/erp/k3cloud/fkernel-parsers.ts',
+      'src/main/erp/k3cloud/rpc/operation-parser.ts',
+      'src/main/erp/k3cloud/rpc/existing-elements.ts',
 
       // ── Agent tool wrappers — error messages and tool descriptions
       //    legitimately reference BOS XML element names (e.g. "FKERNELXML 中

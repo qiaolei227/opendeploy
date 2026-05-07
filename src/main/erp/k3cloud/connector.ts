@@ -85,9 +85,9 @@ import { extractExistingExtensionElements } from './rpc/existing-elements';
 import type {
   BosFormOperationElement,
   BosBarButtonElement,
-  BosRemoveBarButton,
   SaveExtensionRequest,
 } from './rpc/types';
+import { stripBarButtonFromAppearance } from './rpc/operation-parser';
 import {
   buildAddEntityRuleOverlay,
   buildRemoveEntityRuleOverlay,
@@ -1408,13 +1408,22 @@ export class K3CloudConnector implements ErpConnector {
     }
 
     const existing = extractExistingExtensionElements(extXml);
-    const removal: BosRemoveBarButton = {
-      appearanceOid: loc.oid,
-      appearanceKind: button.parentEntityKey ? 'EntryEntityAppearance' : 'FormAppearance',
-      appearanceElementType: loc.elementType,
-      buttonId: button.buttonId,
-      barItemLinkId: button.barItemLinkId,
-    };
+    // Surgical filter: locate the FormAppearance / EntryEntityAppearance
+    // chunk in existing.appearances containing this button, and either
+    // (a) strip the BarButtonItem + BarItemLink inline, keeping the
+    //     appearance for any other buttons it carries, or
+    // (b) drop the entire appearance if the button was the only thing in
+    //     it (server treats omission as remove via baseline diff — same
+    //     pattern as removeOperation filter-existing-formOperations).
+    //
+    // We do NOT ship a separate `<FormAppearance action="edit" action="remove">`
+    // sibling overlay. Tried that 2026-05-07 — server saw two overlays
+    // with the same oid (existing + new sibling) and silently dropped the
+    // sibling, leaving the button intact. See memory
+    // `bos_smoke_findings_2026_05_07` finding 3.
+    const filteredAppearances = existing.appearances
+      .map((apXml) => stripBarButtonFromAppearance(apXml, button.buttonId!, button.barItemLinkId!))
+      .filter((apXml): apXml is string => apXml !== null);
 
     const req: SaveExtensionRequest = {
       extension: {
@@ -1428,14 +1437,13 @@ export class K3CloudConnector implements ErpConnector {
       isNew: false,
       layoutInfoOid,
       existingFieldsRaw: existing.fields,
-      existingAppearancesRaw: existing.appearances,
+      existingAppearancesRaw: filteredAppearances,
       existingPluginsRaw: existing.plugins,
       existingEntriesRaw: existing.entries,
       existingEntryAppearancesRaw: existing.entryAppearances,
       existingTabPagesRaw: existing.tabPages,
       existingTabControlsRaw: existing.tabControls,
       existingFormOperationsRaw: existing.formOperations,
-      removeBarButtons: [removal],
     };
 
     const result = await saveExtension(session, req);

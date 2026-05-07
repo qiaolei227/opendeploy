@@ -169,6 +169,52 @@ function parseToolbarButtons(xml: string): ParsedToolbarButton[] {
   return out;
 }
 
+// ── BarButton surgical removal ───────────────────────────────────────────
+
+/**
+ * Remove one BarButtonItem (by `buttonId`) + its paired BarItemLink (by
+ * `barItemLinkId`) from a FormAppearance / EntryEntityAppearance chunk
+ * sourced from `extractExistingExtensionElements`. Returns the modified
+ * chunk, or `null` if no BarButtonItem / BarItemLink remains afterwards
+ * (caller should drop the appearance from the envelope so BOS reverts to
+ * parent baseline).
+ *
+ * Background — discovered necessary 2026-05-07 real-server smoke step 7:
+ * shipping a sibling `<FormAppearance action="edit" oid=...>` overlay
+ * alongside the unmodified existingAppearancesRaw left BOTH in the wire;
+ * server silently kept the existing one and dropped the remove markers.
+ * Filter-existing matches the removeOperation pattern and works because
+ * BOS reads the wire as the authoritative state for the named oid.
+ */
+export function stripBarButtonFromAppearance(
+  apXml: string,
+  buttonId: string,
+  barItemLinkId: string,
+): string | null {
+  // Match the entire `<BarButtonItem>...</BarButtonItem>` block whose
+  // direct `<Id>{buttonId}</Id>` child equals the target. The
+  // negative-lookahead inside the body prevents the match from spilling
+  // into a sibling BarButtonItem when multiple buttons share the same
+  // BarItems collection.
+  const buttonRe = new RegExp(
+    `<BarButtonItem\\b[^>]*>(?:[\\s\\S](?!<BarButtonItem\\b))*?<Id>${escapeReg(buttonId)}<\\/Id>[\\s\\S]*?<\\/BarButtonItem>`,
+  );
+  const linkRe = new RegExp(
+    `<BarItemLink\\b[^>]*>(?:[\\s\\S](?!<BarItemLink\\b))*?<Id>${escapeReg(barItemLinkId)}<\\/Id>[\\s\\S]*?<\\/BarItemLink>`,
+  );
+  const out = apXml.replace(buttonRe, '').replace(linkRe, '');
+  // After strip: if no BarButtonItem and no BarItemLink remain, the appearance
+  // has no remaining BarButton content — caller should omit the whole chunk.
+  if (!/<BarButtonItem\b/.test(out) && !/<BarItemLink\b/.test(out)) {
+    return null;
+  }
+  return out;
+}
+
+function escapeReg(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // ── Tiny shared helpers ──────────────────────────────────────────────────
 
 /** Match `<Tag>text</Tag>` as a direct child by tag name; returns the text or null. */
