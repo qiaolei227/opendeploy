@@ -44,7 +44,6 @@ export function validatePlanFilename(name: string): { ok: true } | { ok: false; 
     return { ok: false, reason: 'filename may not contain path separators' };
   }
   if (name.includes('..')) return { ok: false, reason: 'filename may not contain ".."' };
-  // eslint-disable-next-line no-control-regex
   if (/[\x00-\x1f]/.test(name)) {
     return { ok: false, reason: 'filename may not contain control characters' };
   }

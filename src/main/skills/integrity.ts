@@ -72,7 +72,6 @@ export interface IntegrityReport {
  * and to keep the signature consistent across bundle-level operations.
  */
 export async function verifyIntegrity(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   root: string,
   manifest: KnowledgeManifest,
   skills: SkillMeta[]

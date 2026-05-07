@@ -42,7 +42,6 @@ async function bootstrap(): Promise<void> {
       </StrictMode>
     );
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.error('Failed to bootstrap:', err);
     const root = document.getElementById('root');
     if (root) {
