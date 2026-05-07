@@ -216,6 +216,16 @@ export function extractExistingExtensionElements(
         tabPages.push(child.raw);
       } else if (child.tag === 'TabControlAppearance') {
         tabControls.push(child.raw);
+      } else if (child.tag === 'FormAppearance') {
+        // Form-level toolbar BarButton overlays land here
+        // (`<FormAppearance action="edit" oid={parent}>` carrying
+        // `<Menu><BarDataManager><BarItems><BarButtonItem>...`).
+        // Pre-L3-followup the parser silently dropped this tag — every
+        // multi-save flow that touched a toolbar button leaked the
+        // FormAppearance back to the server's "remove" pile (F5 silent
+        // drop). Now bucketed alongside FieldAppearance so saveExtension
+        // round-trips them. Found via real-server smoke 2026-05-07.
+        appearances.push(child.raw);
       }
     }
   }

@@ -105,6 +105,7 @@ import {
   type ListBusinessRulesResult,
 } from './rpc/business-rule-parser';
 import type { ListOperationsResult } from './rpc/operation-types';
+import { parseOperationsFromKernelXml } from './rpc/operation-parser';
 import {
   // Lever 3 followup (2026-05-07): addToolbarButton / removeToolbarButton
   // migrated to Route B envelope rebuild. Only the appearance-location
@@ -1060,8 +1061,14 @@ export class K3CloudConnector implements ErpConnector {
     if (!xml) {
       throw new Error(`扩展 ${extensionFid} 无 FKERNELXML — 不存在或未持久化`);
     }
-    const bridge = await getBridge();
-    return bridge.send<ListOperationsResult>('list_operations', { xml });
+    // Routes through the TS-side parser instead of bridge.list_operations.
+    // Bridge's `DcxmlSerializer.DeserializeFromString(xml)` silently drops
+    // `<Form action="edit">` content without a parent baseline — that bug
+    // was the 5.12.6 "silent drop" scapegoat (real-server smoke 2026-05-07
+    // proved DB persisted the operations correctly; bridge reads couldn't
+    // see them). See `rpc/operation-parser.ts` docstring + memory
+    // `bos_bridge_list_operations_silent_drop`.
+    return parseOperationsFromKernelXml(xml);
   }
 
   /**
