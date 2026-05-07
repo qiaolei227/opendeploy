@@ -1,57 +1,33 @@
 /**
- * String-template overlays for FormOperation + Toolbar Button writes
- * (Plan 5.12.6 Path A — bridge baseline-diff mode in Plan 5.12.6 hit
- * silent-drop because BOS DcxmlSerializer's `action="edit"` emission
- * requires byte-exact primary-key match against parent.Form, see
- * docs/recon/2026-05-06-operations-spike.md spike #1).
+ * String-template overlays — Route C, frozen in sunset mode per
+ * docs/architecture/bos-write-routes.md §3 Route C.
  *
- * Path A bypasses the BOS client serializer entirely: we ship a hand-written
- * baseline-diff overlay XML fragment that the BOS *server's* deserializer
- * applies. The wire shape is taken verbatim from `dcxml.ts:86` (the
- * register_python_plugins template, which has been in production since
- * Plan 5 with no silent-drop reports).
+ * **Lever 3 (2026-05-07) status**:
+ * - `removeOperation` migrated to Route B (envelope rebuild, filter-existing).
+ * - `buildAddCustomOperationOverlay` + `injectIntoForm` deleted as orphans
+ *   (their last caller was `removeOperation` pre-lever-3; addCustomOperation
+ *   itself moved to Route B in 5.12.6 hotfix #4).
+ * - `buildAddToolbarButtonOverlay` / `buildRemoveToolbarButtonOverlay` /
+ *   `buildRemoveOperationOverlay` REMAIN, used by toolbar-button flows that
+ *   still need their own Route B migration. Migrating them requires extending
+ *   `dcxml.ts` to emit BarButton deltas inside an existing-FormAppearance
+ *   envelope — a non-trivial design + implementation cycle. Tracked as a
+ *   followup task in `docs/architecture/bos-write-routes.md` §3 Route C.
  *
- * The overlay is spliced into the existing extension FKERNELXML via the
- * shared `injectOverlay` helper in `business-rule-overlay.ts` (5.12.3b).
+ * **Why these still exist after lever 3**: shipping toolbar-button migration
+ * with delta-into-existing-appearance support takes a focused design pass
+ * and capture-validation cycle; bundling it with lever 3 risked another
+ * hotfix loop. The wire-replay snapshots (lever 2) lock the current shape
+ * so a future migration PR can verify byte-identical behavior on the
+ * Route B reimplementation before deleting these.
+ *
+ * **Do NOT add new functions here**. Per L1 doc anti-patterns, new BOS
+ * write capabilities must use Route A or Route B.
  */
 
 import { injectOverlay } from './business-rule-overlay';
 
 export { injectOverlay };
-
-/**
- * Inject a Form-children overlay (e.g. `<FormOperations>...</FormOperations>`)
- * into the extension's existing `<Form action="edit" oid="BOS_BillModel">`
- * node. Necessary because `create_extension` already ships a Form node
- * (carrying `<Id>` + `<Name>`); a naive `injectOverlay` would create a
- * second Form and the BOS server only applies the first, silently dropping
- * everything in the second. (Confirmed via .scratch/ship-debug capture
- * 2026-05-07: two `<Form action="edit" oid="BOS_BillModel">` siblings →
- * `list_operations` saw zero ops post-save.)
- *
- * Falls back to `injectOverlay` (full Form wrapper) when no Form exists yet,
- * matching `register_python_plugins` first-write behavior.
- *
- * `formChildXml`: the inner content to splice into the Form, e.g.
- *   `<FormOperations><FormOperation>...</FormOperation></FormOperations>`
- * (no `<Form>` wrapper, no `<Id>`).
- */
-export function injectIntoForm(extKernelXml: string, extensionFormId: string, formChildXml: string): string {
-  const formId = extensionFormId.replace(/-/g, '');
-  // Match the entire `<Form action="edit" oid="BOS_BillModel" ...>...</Form>`
-  // block. BOS_BillModel form has at most one of these per ext XML.
-  const re = /(<Form\b[^>]*\boid="BOS_BillModel"[^>]*>)([\s\S]*?)(<\/Form>)/;
-  if (re.test(extKernelXml)) {
-    return extKernelXml.replace(re, `$1$2${formChildXml}$3`);
-  }
-  // No existing Form — wrap and inject as a new Form into Elements.
-  const wrapper =
-    `<Form action="edit" oid="BOS_BillModel" ElementType="100" ElementStyle="0">` +
-      `<Id>${formId}</Id>` +
-      formChildXml +
-    `</Form>`;
-  return injectOverlay(extKernelXml, wrapper);
-}
 
 /* ---------- Common ---------- */
 
@@ -66,103 +42,10 @@ function xmlEscape(value: unknown): string {
     .replace(/'/g, '&apos;');
 }
 
-function escCData(value: string): string {
-  // CDATA can't contain `]]>`; escape by splitting + concatenating.
-  return value.replace(/]]>/g, ']]]]><![CDATA[>');
-}
-
 function assertCIdent(name: string, label: string): void {
   if (!C_IDENT_RE.test(name)) {
     throw new Error(`${label}: must be a C-identifier (got "${name}")`);
   }
-}
-
-/* ---------- add_custom_operation ---------- */
-
-export interface AddCustomOperationArgs {
-  /** ext.id — used as Form.Id (compact 32-hex GUID, no dashes). */
-  extensionFormId: string;
-  /** unique within form — equals both `<Id>` and `<Operation>` of FormOperation. */
-  operationKey: string;
-  operationName: string;
-  /** dashed UUID for `<OperationParameter><Id>`. */
-  operationParameterId: string;
-  /** default 45 (DoNothing / 自定义). */
-  operationId?: number;
-  /** OperationParameter.OperationObjectKey — usually empty for header-level ops. */
-  operationObjectKey?: string;
-  /** OperationParameter.ExpressValue — semicolon-separated `key:value` pairs. */
-  expressValue?: string;
-  /** When set, emits `<ServicePlugins><PlugIn>` block (Python plugin). */
-  pluginClassName?: string;
-  /** IronPython source body — inlined as `<PyScript><![CDATA[...]]></PyScript>`. */
-  pyBody?: string;
-  /** LoadKeys JSON string, default `[]`. */
-  loadKeys?: string;
-}
-
-/**
- * Build the FORM-CHILDREN fragment (`<FormOperations><FormOperation>...
- * </FormOperation></FormOperations>` + optional `<ServicePlugins>`) to be
- * spliced INTO an existing `<Form action="edit" oid="BOS_BillModel">` via
- * `injectIntoForm()`. We don't wrap our own Form here — `create_extension`
- * already ships a Form node (with `<Name>` etc.), and a duplicate Form
- * sibling causes the BOS server to silently drop our additions
- * (verified 2026-05-07 .scratch/ship-debug capture).
- */
-export function buildAddCustomOperationOverlay(args: AddCustomOperationArgs): string {
-  if (!args.extensionFormId) throw new Error('buildAddCustomOperationOverlay: extensionFormId required');
-  assertCIdent(args.operationKey, 'buildAddCustomOperationOverlay: operationKey');
-  if (!args.operationName) throw new Error('buildAddCustomOperationOverlay: operationName required');
-  if (!args.operationParameterId) throw new Error('buildAddCustomOperationOverlay: operationParameterId required');
-  const opId = args.operationId ?? 45;
-
-  // OperationParameter children — only emit non-empty siblings.
-  const objectKey = args.operationObjectKey
-    ? `<OperationObjectKey>${xmlEscape(args.operationObjectKey)}</OperationObjectKey>`
-    : '';
-  const expressValue = args.expressValue
-    ? `<ExpressValue>${xmlEscape(args.expressValue)}</ExpressValue>`
-    : '';
-
-  // ServicePlugins — present only when caller supplies a plugin.
-  let servicePluginsXml = '';
-  if (args.pluginClassName) {
-    const pyScript = args.pyBody
-      ? `<PyScript><![CDATA[${escCData(args.pyBody)}]]></PyScript>`
-      : '';
-    servicePluginsXml =
-      `<ServicePlugins>` +
-        `<PlugIn ElementType="0" ElementStyle="0">` +
-          `<ClassName>${xmlEscape(args.pluginClassName)}</ClassName>` +
-          `<PlugInType>1</PlugInType>` +
-          pyScript +
-        `</PlugIn>` +
-      `</ServicePlugins>`;
-  }
-
-  return (
-    `<FormOperations>` +
-      `<FormOperation>` +
-        `<Id>${xmlEscape(args.operationKey)}</Id>` +
-        `<Operation>${xmlEscape(args.operationKey)}</Operation>` +
-        `<BeforeOpAlterInfo />` +
-        `<AfterOpAlterInfo />` +
-        `<AfterOpFailedInfo action="setnull" />` +
-        `<OperationId>${opId}</OperationId>` +
-        `<OperationName>${xmlEscape(args.operationName)}</OperationName>` +
-        `<Parmeter>` + // typo preserved per recon §3.2
-          `<OperationParameter>` +
-            `<Id>${xmlEscape(args.operationParameterId)}</Id>` +
-            objectKey +
-            expressValue +
-          `</OperationParameter>` +
-        `</Parmeter>` +
-        `<LoadKeys>${xmlEscape(args.loadKeys ?? '[]')}</LoadKeys>` +
-        servicePluginsXml +
-      `</FormOperation>` +
-    `</FormOperations>`
-  );
 }
 
 /* ---------- remove_operation ---------- */

@@ -12,9 +12,6 @@
  */
 
 import {
-  buildAddCustomOperationOverlay,
-  type AddCustomOperationArgs,
-  buildRemoveOperationOverlay,
   buildAddToolbarButtonOverlay,
   type AddToolbarButtonArgs,
   buildRemoveToolbarButtonOverlay,
@@ -28,32 +25,11 @@ export interface RouteCCase {
 }
 
 export const ROUTE_C_CASES: RouteCCase[] = [
-  {
-    name: 'add-custom-operation-with-plugin',
-    whyMatters:
-      'Frozen — Route C addCustomOperation was abandoned by 5.12.6 hotfix #4 ' +
-      '(switched to Route B saveExtension). Snapshot prevents silent drift while ' +
-      'the function is still exported. Lever 3 deletes both case + function.',
-    produce: () =>
-      buildAddCustomOperationOverlay({
-        extensionFormId: '00000000000000000000000000000001',
-        operationKey: 'OpdpTest',
-        operationName: '测试操作',
-        operationParameterId: '11111111-2222-3333-4444-555555555555',
-        operationId: 45,
-        pluginClassName: 'OpdpTestPlugin',
-        pyBody: '#test\nprint(1)',
-      } satisfies AddCustomOperationArgs),
-  },
-
-  {
-    name: 'remove-operation',
-    whyMatters:
-      'Currently in production use (5.12.6 connector.removeOperation). Frozen ' +
-      'until lever 3 migrates remove* to Route B (removeFormOperations: [key] ' +
-      'on SaveExtensionRequest).',
-    produce: () => buildRemoveOperationOverlay('OpdpTest'),
-  },
+  // (deleted 2026-05-07 lever 3) `add-custom-operation-with-plugin` and
+  // `remove-operation` cases removed: the underlying overlay functions were
+  // deleted as orphans (addCustomOperation/removeOperation now use Route B).
+  // The 5.12.6 add_custom_operation flow snapshot lives at
+  // tests/erp/wire-replay/__snapshots__/route-b/add-custom-operation-with-python-plugin/.
 
   {
     name: 'add-toolbar-button-form-level',

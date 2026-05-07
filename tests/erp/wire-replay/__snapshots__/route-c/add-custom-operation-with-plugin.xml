@@ -1,2 +1,0 @@
-<FormOperations><FormOperation><Id>OpdpTest</Id><Operation>OpdpTest</Operation><BeforeOpAlterInfo /><AfterOpAlterInfo /><AfterOpFailedInfo action="setnull" /><OperationId>45</OperationId><OperationName>测试操作</OperationName><Parmeter><OperationParameter><Id><GUID:1></Id></OperationParameter></Parmeter><LoadKeys>[]</LoadKeys><ServicePlugins><PlugIn ElementType="0" ElementStyle="0"><ClassName>OpdpTestPlugin</ClassName><PlugInType>1</PlugInType><PyScript><![CDATA[#test
-print(1)]]></PyScript></PlugIn></ServicePlugins></FormOperation></FormOperations>

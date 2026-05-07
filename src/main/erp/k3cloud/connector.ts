@@ -101,13 +101,14 @@ import {
 } from './rpc/business-rule-parser';
 import type { ListOperationsResult } from './rpc/operation-types';
 import {
-  buildAddCustomOperationOverlay,
-  buildRemoveOperationOverlay,
+  // Lever 3 (2026-05-07) migrated removeOperation to Route B envelope rebuild.
+  // The remaining overlay imports support the addToolbarButton / removeToolbarButton
+  // flows that still need their own Route B migration (followup — requires
+  // BarItem-inside-existing-appearance delta support in dcxml.ts).
   buildAddToolbarButtonOverlay,
   buildRemoveToolbarButtonOverlay,
   extractFormAppearanceLocation,
   extractEntryEntityAppearanceLocation,
-  injectIntoForm,
 } from './rpc/operation-overlay';
 import { getBridge } from './bridge';
 import type { KdSession } from './rpc/http-client';
@@ -1164,23 +1165,75 @@ export class K3CloudConnector implements ErpConnector {
   }
 
   /**
-   * Remove a FormOperation by operationKey. Bridge throws when no match —
-   * the caller surfaces "不存在" verbatim.
+   * Remove a FormOperation by operationKey. Route B (envelope rebuild) per
+   * docs/architecture/bos-write-routes.md §3 — filter the targeted op out of
+   * existing.formOperations and re-save the full envelope. Server applies
+   * the stateful baseline diff: omitted = removed.
+   *
+   * Lever 3 migrated this off Route C overlay (commit on 2026-05-07). Route C
+   * `buildRemoveOperationOverlay` + `injectIntoForm` are no longer called from
+   * connector — kept around only for the addToolbarButton / removeToolbarButton
+   * flows pending their own envelope migration (followup task — see
+   * `docs/architecture/bos-write-routes.md` §3 Route C).
    */
   async removeOperation(extensionFid: string, operationKey: string): Promise<void> {
     const session = this.requireSession();
 
     const ext = await this.getObject(extensionFid);
     if (!ext) throw new Error(`扩展 ${extensionFid} 不存在`);
+    if (!ext.baseObjectId) {
+      throw new Error(`扩展 ${extensionFid} 缺少 BaseObjectId — 无法 remove_operation`);
+    }
+    if (ext.modelTypeId == null || ext.subsystemId == null) {
+      throw new Error(
+        `扩展 ${extensionFid} 元数据不完整(modelTypeId=${ext.modelTypeId}, subsystemId=${ext.subsystemId})`,
+      );
+    }
 
     const extXml = await this.getKernelXml(extensionFid);
     if (!extXml) throw new Error(`扩展 ${extensionFid} 无 FKERNELXML`);
+    const parentXml = await this.getKernelXml(ext.baseObjectId);
+    if (!parentXml) {
+      throw new Error(`父对象 ${ext.baseObjectId} 无 FKERNELXML — 无法 remove_operation`);
+    }
+    const layoutInfoOid = extractLayoutInfoOid(parentXml);
+    if (!layoutInfoOid) {
+      throw new Error(`父对象 ${ext.baseObjectId} FKERNELXML 中未找到 layoutInfoOid`);
+    }
 
-    const overlay = buildRemoveOperationOverlay(operationKey);
-    const patchedXml = injectIntoForm(extXml, ext.id, overlay);
+    const existing = extractExistingExtensionElements(extXml);
 
-    const meta = await this.buildSaveExtensionRawMeta(session, extensionFid, ext);
-    const result = await saveExtensionRaw(session, meta, patchedXml);
+    // Filter targeted op out of existing chunks. operationKey is asserted to be
+    // a C-identifier upstream (no XML metachars) so a substring check on the
+    // canonical `<Id>{key}</Id>` marker is safe.
+    const idMarker = `<Id>${operationKey}</Id>`;
+    const filteredOps = existing.formOperations.filter((op) => !op.includes(idMarker));
+    if (filteredOps.length === existing.formOperations.length) {
+      throw new Error(`操作 ${operationKey} 不存在`);
+    }
+
+    const req: SaveExtensionRequest = {
+      extension: {
+        formId: ext.id,
+        baseObjectId: ext.baseObjectId,
+        modelTypeId: ext.modelTypeId,
+        subSystemId: ext.subsystemId,
+        name: [{ localeId: 2052, value: ext.name }],
+        isv: { devCode: this.config.devCode },
+      },
+      isNew: false,
+      layoutInfoOid,
+      existingFieldsRaw: existing.fields,
+      existingAppearancesRaw: existing.appearances,
+      existingPluginsRaw: existing.plugins,
+      existingEntriesRaw: existing.entries,
+      existingEntryAppearancesRaw: existing.entryAppearances,
+      existingTabPagesRaw: existing.tabPages,
+      existingTabControlsRaw: existing.tabControls,
+      existingFormOperationsRaw: filteredOps,
+    };
+
+    const result = await saveExtension(session, req);
     if (!result.isSuccess) {
       throw new Error(
         `删除操作失败：${result.messageTitle ?? ''} ${result.messageDetail ?? '<no detail>'}`,
