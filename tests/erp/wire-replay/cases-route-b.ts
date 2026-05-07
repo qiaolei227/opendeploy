@@ -174,4 +174,105 @@ export const ROUTE_B_CASES: RouteBCase[] = [
       ],
     },
   },
+
+  {
+    name: 'plan-5_12_7-textfield-mustinput-defvalue-literal',
+    whyMatters:
+      'Plan 5.12.7 — Field.MustInput int 0/1 (NOT True/False) + DefValue ' +
+      'literal wire (TextField uses `<DefValue><DefaultValue><Value>X</Value>' +
+      '</DefaultValue></DefValue>`). Locks the position: MustInput right ' +
+      'after FieldName, DefValue between FieldName and ListTabIndex per ' +
+      'capture req-77. Catches mistakes that mix bool encodings or shift ' +
+      'wire position (BOS server is strict about both).',
+    input: {
+      extension: BASELINE_EXT,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addFields: [
+        {
+          type: 'TextField',
+          key: 'FOpdpRequired',
+          caption: '必录测试',
+          listTabIndex: 100,
+          id: '11111111-1111-1111-1111-111111111111',
+          mustInput: true,
+          defValue: { kind: 'literal', value: 'DEFAULT_TEXT' },
+        },
+      ],
+      addAppearances: [
+        {
+          type: 'TextField',
+          key: 'FOpdpRequired',
+          caption: '必录测试',
+          tabindex: 100,
+        },
+      ],
+    },
+  },
+
+  {
+    name: 'plan-5_12_7-basedatafield-orgfieldkey-defvalue-function',
+    whyMatters:
+      'Plan 5.12.7 — BaseDataField.OrgFieldKey (multi-org enterprise) + ' +
+      'DefValue function-form (FunctionDefaultValue with FunctionId=15 ' +
+      'GetBaseData). OrgFieldKey lands between SrcDisplayFieldName and ' +
+      'PropertyName per capture req-77. Locks the polymorphic DefValue ' +
+      'wrapper (literal vs function differs by field type).',
+    input: {
+      extension: BASELINE_EXT,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addFields: [
+        {
+          type: 'BaseDataField',
+          key: 'FOpdpCust',
+          caption: '客户(默认 01)',
+          listTabIndex: 200,
+          id: '22222222-2222-2222-2222-222222222222',
+          lookUpObjectId: 'BD_Customer-guid-here',
+          orgFieldKey: 'FSaleOrgId',
+          defValue: { kind: 'function', functionId: 15, functionName: 'GetBaseData', value: '01' },
+        },
+      ],
+      addAppearances: [
+        {
+          type: 'BaseDataField',
+          key: 'FOpdpCust',
+          caption: '客户(默认 01)',
+          tabindex: 200,
+        },
+      ],
+    },
+  },
+
+  {
+    name: 'plan-5_12_7-entry-mustinput-isshowseq',
+    whyMatters:
+      'Plan 5.12.7 — Entity.MustInput (int 0/1) + EntityAppearance.IsShowSeq ' +
+      '(bool **True/False capitalized**, NOT 0/1). The two encodings are ' +
+      'intentionally different per capture req-103 — easy to mix up.',
+    input: {
+      extension: BASELINE_EXT,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addEntries: [
+        {
+          key: 'FOpdpEntry',
+          name: '必录明细',
+          entryName: 'OPDP_Cust_Entry1',
+          tableName: 'OPDP_t_Cust_Entry1',
+          seq: 5,
+          mustInput: true,
+        },
+      ],
+      addEntryAppearances: [
+        {
+          key: 'FOpdpEntry',
+          caption: '必录明细',
+          container: 'FTab1_OPDP_P_abc',
+          isShowSeq: true,
+        },
+      ],
+    },
+  },
 ];
