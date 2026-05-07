@@ -1,0 +1,32 @@
+{
+  "Id": "<GUID:1>",
+  "OldId": "<GUID:1>",
+  "ModelTypeId": 100,
+  "BaseObjectId": "SAL_SaleOrder",
+  "DevType": 2,
+  "SubSystemId": "23",
+  "Version": null,
+  "PackageId": null,
+  "HasExtends": false,
+  "RunTime": false,
+  "LayoutViewId": null,
+  "OldLayoutViewId": null,
+  "LayoutViewVersion": null,
+  "DependencyObjectId": null,
+  "FirstNonExtendObjectID": "SAL_SaleOrder",
+  "ISV": {
+    "Id": "TEST",
+    "Name": "TEST",
+    "ISVSignal": "Kingdee",
+    "PackageSignal": "",
+    "DevCode": "TEST"
+  },
+  "UpdateIdToKey": false,
+  "SourceFormId": null,
+  "InheritPath": null,
+  "IsInheritElement": false,
+  "ModelTypeSubId": 100,
+  "MainVersion": null,
+  "Name": "[{\"Key\":2052,\"Value\":\"销售订单扩展(test)\"}]",
+  "FuncInterfaces": null
+}
