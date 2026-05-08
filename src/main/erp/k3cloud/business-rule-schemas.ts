@@ -84,4 +84,4 @@ export const SERVICE_META_SCHEMAS: Record<number, ServiceMetaSchema> = {
 };
 
 export const UNSUPPORTED_ACTION_ID_MESSAGE =
-  'v0.1 仅支持 ActionId 2 (Calculate) 和 67 (GetInvStock)。其他 ActionId (3/23/42/70 等) 留 v0.2，可用 k3cloud_register_plugin 写 Python 插件作为替代。';
+  'v0.1 仅支持 ActionId 2 (Calculate) 和 67 (GetInvStock)。其他 ActionId (3/23/42/70 等) 留 v0.2，可用 k3cloud_register_python_plugins 写 Python 插件作为替代。';

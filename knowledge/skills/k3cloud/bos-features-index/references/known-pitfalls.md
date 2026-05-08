@@ -24,7 +24,7 @@ BOS Designer 把这种"无主"扩展视为**任何开发者都能编辑**,没有
 
 ### 影响范围
 
-- ✂️ 不需要 `kingdee_probe_bos_environment` 返回 `ready=false` 阻塞写入
+- ✂️ 不需要 `k3cloud_probe_bos_environment` 返回 `ready=false` 阻塞写入
 - ✂️ 不需要让用户提前登协同平台
 - ✂️ 不需要在 SKILL.md 里加"先问用户 BOS 用户 ID"的澄清问
 
@@ -74,7 +74,7 @@ nextFTableId = max(globalMax + 1, 900000)
 
 ### v0.1 策略
 
-**不自动触发刷新**。每次 `kingdee_*` 写入工具成功后必须在返回消息里明示:
+**不自动触发刷新**。每次 `k3cloud_*` 写入工具成功后必须在返回消息里明示:
 
 > "✅ 注册成功。请:
 > 1. BOS Designer 按 F5 刷新看到扩展
@@ -99,7 +99,7 @@ nextFTableId = max(globalMax + 1, 900000)
 
 2. **FID 必须是本产品创建的**:写入前查 `T_META_OBJECTTYPE.FID`,确认是本次工具调用创建的扩展或其衍生行。**绝不**改原厂行(`FBASEOBJECTID = NULL` 的就是原厂)
 
-3. **写前必须 backup**:快照受影响行到 `%USERPROFILE%/.opendeploy/projects/<pid>/bos-backups/<timestamp>_<op>_<ext_fid>.json`,可用 `kingdee_restore_from_backup` 回滚
+3. **回滚靠重建**:5.5 之后 BOS 写入走 RPC `SaveForIDEV9`,服务端自带事务,无独立 backup 文件;客户写错了用 `k3cloud_delete_extension` 整删扩展再重建,精细回滚靠 BOS Designer。
 
 ### 不在白名单的表
 
@@ -125,7 +125,7 @@ nextFTableId = max(globalMax + 1, 900000)
 2. **删 backup 文件**(因为没真正写入,backup 不该残留诱导 restore)
 3. 返回结构化错误,标明哪张表失败 + SQL Server 的原始错误码
 
-OpenDeploy 的 `kingdee_create_extension_with_python_plugin` 已封装这套事务 + backup + rollback 协议,**不要绕过它直接拼 SQL**。
+OpenDeploy 的 `k3cloud_create_extension` + `k3cloud_register_python_plugins` 已经走 BOS RPC `SaveForIDEV9`(2026-04-27 之后,与 BOS Designer 同路径),服务端自带事务 + 回滚,**不要绕过它直接拼 SQL**。
 
 ---
 
@@ -133,7 +133,7 @@ OpenDeploy 的 `kingdee_create_extension_with_python_plugin` 已封装这套事�
 
 ### 症状
 
-对同一扩展第二次调 `kingdee_register_python_plugins` 传同 `className`:
+对同一扩展第二次调 `k3cloud_register_python_plugins` 传同 `className`:
 
 - ✅ 当前实现:覆盖原 `<PlugIn>` 节点的 `<PyScript>`,不新增节点
 - ⚠️ 用户预期可能是"再加一个" → 明确告知"同名覆盖,不同名追加"
@@ -146,7 +146,7 @@ OpenDeploy 的 `kingdee_create_extension_with_python_plugin` 已封装这套事�
 
 ## 7. 删除扩展前必查继承链
 
-`kingdee_delete_extension(extId)` 之前:
+`k3cloud_delete_extension(extId)` 之前:
 
 ```sql
 SELECT FID FROM T_META_OBJECTTYPE WHERE FINHERITPATH LIKE '%' + @extId + '%'
@@ -166,7 +166,7 @@ SELECT FID FROM T_META_OBJECTTYPE WHERE FINHERITPATH LIKE '%' + @extId + '%'
 
 - 数据库连接全程 `nvarchar`(已默认)
 - Python 源码字符串全部加 `u` 前缀:`u"客户必须填写"`(详见 `python-plugin-index/prompts/error-handling.md`)
-- 测试时反查 `kingdee_list_form_plugins` 确认 `pyScript` 里中文字符**字节正确**(不是 `?` 也不是乱码)
+- 测试时反查 `k3cloud_list_form_plugins` 确认 `pyScript` 里中文字符**字节正确**(不是 `?` 也不是乱码)
 
 ---
 

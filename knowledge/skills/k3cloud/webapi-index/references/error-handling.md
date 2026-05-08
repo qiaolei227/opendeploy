@@ -245,7 +245,7 @@ WebAPI 问题 80% 来自字段值 / 顺序 / 联动。**先在 K/3 Cloud 客户�
 ## OpenDeploy 工具覆盖
 
 - ❌ **不自动调用 WebAPI**——错误处理由客户集成层做
-- ✅ **可用 `kingdee_execute_readonly_query` 查元数据**定位字段名 / 单据结构(仅元数据,不是业务数据)
+- ✅ **可用 `k3cloud_search_metadata` / `k3cloud_get_fields` / `k3cloud_get_object` 查元数据**定位字段名 / 单据结构(仅元数据,不是业务数据)
 - ✅ **可生成 Python / C# 客户端参考代码**,含错误处理骨架
 
 ---

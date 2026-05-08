@@ -27,7 +27,7 @@ category: troubleshooting
 | skill / 文件 | 覆盖什么 | 何时去它 |
 |---|---|---|
 | **`common/systematic-debugging`** | 通用排错**方法论**:列症状 → 假设 → 证据 → 锁定 → 再动手 | 每个排错场景**都**要按它的五步走 |
-| **`k3cloud/bos-features-index/references/known-pitfalls`** | **我们写 BOS 代码**踩的工程坑(FUSERID / FTABLEID / 缓存 / 白名单) | 调 `kingdee_*` BOS 写入工具报错或反查不到 |
+| **`k3cloud/bos-features-index/references/known-pitfalls`** | **我们写 BOS 代码**踩的工程坑(FUSERID / FTABLEID / 缓存 / 白名单) | 调 `k3cloud_*` BOS 写入工具报错或反查不到 |
 | **`k3cloud/python-plugin-index/prompts/debugging`** | **我们写的 Python 插件**运行时排障流程 | 插件注册成功但行为不符合预期 |
 | **本 skill** | **客户日常使用 K/3 Cloud 标准功能**遇到的报错 / 数据问题 / 操作失败 / 性能问题 | 客户反馈系统不对劲,**我们没写代码**也会遇到 |
 
@@ -78,7 +78,7 @@ category: troubleshooting
 
 所以**绝对不要**给用户一句"XX 功能有 bug,去设置 Y"——你会误导。**正确姿势**:
 
-1. 用 **`kingdee_*` 工具 / SQL 查询**看客户当前状态
+1. 用 **`k3cloud_*` 工具 / SQL 查询**看客户当前状态
 2. 列**可能的原因**(2-3 个假设,走 `systematic-debugging` 五步流程)
 3. 告诉用户**去哪个菜单 / 哪张表**看对应证据
 4. 根据证据**再给结论**

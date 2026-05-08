@@ -55,7 +55,7 @@ delta 形态(Python 插件注册示例):
 | `T_META_OBJECTTYPEREF` | 77 | 从父对象克隆外键引用 |
 | `T_META_TRACKERBILLTABLE` | 4 | 从父对象克隆跟踪表(`FTABLEID` **必须 ≥ 900000**,见 known-pitfalls)|
 
-**全部必须事务包裹**。OpenDeploy 的 `kingdee_create_extension_with_python_plugin` 工具已封装好这 8 张表 + 事务 + rollback + backup,**调用方只需提供父单据 ID / 扩展名 / 插件名 / pyBody 四个参数**。
+**全部走 BOS RPC SaveForIDEV9 写入**(2026-04-27 之后 — 不再 SQL 直写)。OpenDeploy 拆成两个工具:`k3cloud_create_extension`(只建扩展骨架,服务端事务包好 8 张表)+ `k3cloud_register_python_plugins`(批量挂 Python 插件,走 read-merge baseline-diff)。调用方只需提供父单据 ID / 扩展名 / 插件名 / pyBody 四个参数。
 
 ---
 
@@ -99,7 +99,7 @@ SAL_SaleOrder^<ext-level-1-guid>^<ext-level-2-guid>
 
 - **现状**:写入时 `FSUPPLIERNAME = NULL` + `FMODIFIERID = 0`,BOS Designer 把这种"无主"扩展视为任何开发者都能编辑,**没有副作用**
 - **不需要**问用户 BOS 用户 ID、不需要反查 developer code、不需要让用户先登录协同平台
-- **不需要** `kingdee_probe_bos_environment` 返回 `ready=false` 阻塞写入
+- **不需要** `k3cloud_probe_bos_environment` 返回 `ready=false` 阻塞写入
 
 详见 `references/known-pitfalls.md` 的 "FUSERID / FSUPPLIERNAME 机制作废" 段。
 
@@ -132,13 +132,13 @@ OpenDeploy 每次 BOS 写入前快照受影响行到:
 %USERPROFILE%/.opendeploy/projects/<pid>/bos-backups/<timestamp>_<op>_<ext_fid>.json
 ```
 
-用户可调 `kingdee_restore_from_backup` 回滚。
+回滚走 `k3cloud_delete_extension`(整体删除扩展)。**注意**:5.5 之后 BOS 写入走 RPC `SaveForIDEV9`(与 BOS Designer 同路径),服务端自带事务,无独立 backup 文件;部分写在 `~/.opendeploy/projects/<pid>/bos-backups/`,但还原靠 BOS Designer 重建,工具不再提供 `restore_from_backup`。
 
 ---
 
 ## 删除扩展
 
-`kingdee_delete_extension(extensionFId)` — 反向写 8 张表的 DELETE,同样事务包裹 + backup。
+`k3cloud_delete_extension(extensionFId)` — 反向写 8 张表的 DELETE,同样事务包裹 + backup。
 
 **前置校验**:
 - 没有下级扩展继承它(查 `FINHERITPATH` 包含本扩展 FID 的其他行)

@@ -87,7 +87,7 @@ agent 在性能问题上**最常犯的错**:用户一说"慢",立刻提议"我�
   5. **服务端配置不够**(IIS 应用池工作进程 / .NET GC)
 - **诊断步骤**:
   1. 让用户尝试**精简一份测试单**(只 5 行),保存看是否还慢——慢 = 单据本身问题(业务规则);快 = 行数堆积问题
-  2. 用 `kingdee_list_form_plugins('<baseObjectId>')` 查挂了什么插件
+  2. 用 `k3cloud_list_form_plugins('<baseObjectId>')` 查挂了什么插件
   3. 让客户 IT 在 SQL Server 抓**保存时刻的活动 SQL**(`sp_whoisactive`)
 - **解决方向**:
   - 业务规则太多:BOS Designer 优化规则(如改异步)

@@ -241,7 +241,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const conv = await window.opendeploy.conversationsLoad(id);
 
     // Auto-switch active project to whatever this conversation was started under,
-    // so agent tools (kingdee_*) and StatusBar reflect the right ERP context.
+    // so agent tools (k3cloud_*) and StatusBar reflect the right ERP context.
     // Skipped silently when: legacy conversation has no projectId, target project
     // was deleted (not in projects[]), or it's already active.
     if (conv.projectId) {

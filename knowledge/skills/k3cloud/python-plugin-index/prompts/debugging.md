@@ -20,11 +20,11 @@
 ## §1 是否成功注册
 
 ```
-调 kingdee_list_form_plugins(baseObjectId='<父单据>')
+调 k3cloud_list_form_plugins(baseObjectId='<父单据>')
   └─ 看有没有你注册的 ClassName
 ```
 
-没有 → 注册压根没成功,重试 `kingdee_register_python_plugins`,看工具返回的错误消息。
+没有 → 注册压根没成功,重试 `k3cloud_register_python_plugins`,看工具返回的错误消息。
 
 有 → §2。
 
@@ -72,7 +72,7 @@ def AfterBindData(self, e):
 3. **中文字符串没 `u`**——`"客户"` 可能乱码,要 `u"客户"`
 4. **缩进不对齐**——哪怕只差 1 空格也错
 
-**修复**:改代码 → `kingdee_delete_extension` 重建,或直接覆盖式再调 `kingdee_register_python_plugins`(本工具 read-merge,会保留其他插件)→ §6 刷缓存 → 重测。
+**修复**:改代码 → `k3cloud_delete_extension` 重建,或直接覆盖式再调 `k3cloud_register_python_plugins`(本工具 read-merge,会保留其他插件)→ §6 刷缓存 → 重测。
 
 ---
 
@@ -80,7 +80,7 @@ def AfterBindData(self, e):
 
 `GetValue` 返回 None 但你确定字段有值 = Key 错了。
 
-**查 Key**:调 `kingdee_search_metadata(database='<db>', keyword='<你想的字段中文名>')`,返回里找 `FKEY`。
+**查 Key**:调 `k3cloud_search_metadata(database='<db>', keyword='<你想的字段中文名>')`,返回里找 `FKEY`。
 
 - 头字段 vs 明细字段:明细字段要 `GetValue("FQty", row_index)` 不是 `GetValue("FQty")`
 - 子单据体字段:要三参数 `GetValue("FTaxRate", row, "FTaxDetailSubEntity")`

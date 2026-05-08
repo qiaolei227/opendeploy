@@ -31,7 +31,7 @@ Q4: 是否只需要"XX 条件的单据要多一级审批"?
 
 Q5: 需要事件驱动的业务逻辑?(BeforeSave 校验 / 字段联动 / 按钮行为)
 ├─ 是 → 【Python 表单插件】
-│       OpenDeploy v0.1 ✅ kingdee_create_extension_with_python_plugin
+│       OpenDeploy v0.1 ✅ k3cloud_create_extension + k3cloud_register_python_plugins
 │       详见 k3cloud/python-plugin-index
 └─ 否 → 回 solution-decision-framework 的第 4 优先级(DLL / 告诉用户超出范围)
 ```

@@ -266,7 +266,7 @@ public override void BeforeExecuteOperationTransaction(
 </OperationServicePlugins>
 ```
 
-**OpenDeploy v0.1 不自动化此步骤**——开发者必须自己通过 BOS Designer 或 `kingdee_write_plugin_*`(扩展对象机制)注入。
+**OpenDeploy v0.1 不自动化此步骤**——开发者必须自己通过 BOS Designer 或 `k3cloud_register_python_plugins`(扩展对象机制)注入。
 
 ---
 

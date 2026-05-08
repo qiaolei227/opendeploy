@@ -48,11 +48,11 @@
 
 - **Owner**: 我
 - **动作**:
-  1. `kingdee_list_extensions('SAL_SaleOrder')` 看现有扩展
+  1. `k3cloud_list_extensions('SAL_SaleOrder')` 看现有扩展
   2. 生成 pyBody,挂 `BeforeSave` 拦截,读 `F_IsBlacklisted` 决定 hard block / soft warn
-  3. 调 `kingdee_register_python_plugins`(plugins 数组,一次保存)
+  3. 调 `k3cloud_register_python_plugins`(plugins 数组,一次保存)
 - **验证**:
-  - `kingdee_list_form_plugins` 反查插件落库
+  - `k3cloud_list_form_plugins` 反查插件落库
   - 建一个测试黑名单客户,手工试保存一单,应阻断
   - 建一个普通客户超额,应只提示可继续
 
@@ -73,7 +73,7 @@
 
 ## 回滚路径
 
-1. 步骤 3 的 backup:`<backup 路径>`,用 `kingdee_restore_from_backup` 还原
+1. 步骤 3 的回滚:用 `k3cloud_delete_extension` 整删扩展(BOS RPC 路径无独立 backup 文件)
 2. 步骤 2 的字段:BOS Designer 手工移除(OpenDeploy 不自动化)
 3. 步骤 1 的信用管理:系统参数关闭即可
 ```

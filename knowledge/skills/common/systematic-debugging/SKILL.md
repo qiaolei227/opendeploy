@@ -13,7 +13,7 @@ category: workflow
 下列任一情况出现,**立刻**切换到排错模式(不要继续按原计划动工具):
 
 - 工具返回 error
-- 查询返回的结果和你预期的**完全不一致**(例如你用 `kingdee_get_fields` 查销售订单,返回空)
+- 查询返回的结果和你预期的**完全不一致**(例如你用 `k3cloud_get_fields` 查销售订单,返回空)
 - 写入工具成功但**反查不到**(扩展 FID 在 `list_extensions` 里找不到、插件名在 `list_form_plugins` 里缺失)
 - 用户反馈"按你说的做了,但没生效 / 报错了"
 - 同一个操作**连续两次**表现出矛盾行为
@@ -40,9 +40,9 @@ category: workflow
 
 | ❌ 模糊 | ✅ 具体可核查 |
 |---|---|
-| "插件不工作" | "`kingdee_register_python_plugins` 返回 success + backupFile,但 `kingdee_list_form_plugins('<extId>')` 返回空数组" |
-| "查不到字段" | "对 `SAL_SaleOrder` 调 `kingdee_get_fields`,返回 0 条;但 BOS Designer 里能看到大量字段" |
-| "报错了" | "`kingdee_create_extension_with_python_plugin` 返回 error: `not_initialized: FSUPPLIERNAME 未绑定`" |
+| "插件不工作" | "`k3cloud_register_python_plugins` 返回 success + backupFile,但 `k3cloud_list_form_plugins('<extId>')` 返回空数组" |
+| "查不到字段" | "对 `SAL_SaleOrder` 调 `k3cloud_get_fields`,返回 0 条;但 BOS Designer 里能看到大量字段" |
+| "报错了" | "`k3cloud_create_extension` 返回 error: `not_initialized: FSUPPLIERNAME 未绑定`" |
 
 **不要从症状直接跳到推测原因**。先把症状钉死。
 
@@ -61,9 +61,9 @@ category: workflow
 
 **一次只验一个假设**,按你认为**最有可能的那个**先查。每个假设对应一个或几个只读工具调用。
 
-- 假设 A → `kingdee_list_extensions('<parentFormId>')` 看返回里有没有我传给 `list_form_plugins` 的那个 extId
+- 假设 A → `k3cloud_list_extensions('<parentFormId>')` 看返回里有没有我传给 `list_form_plugins` 的那个 extId
 - 假设 B → 直接看 `list_form_plugins` 返回的对象结构,某字段是不是 null
-- 假设 C → 用 `kingdee_get_object(<extId>)` 看记录是否存在
+- 假设 C → 用 `k3cloud_get_object(<extId>)` 看记录是否存在
 
 每查完一条,**明确声明**"这个假设被证实 / 被排除 / 还不确定",不要默默往下一个走。
 
@@ -86,7 +86,7 @@ category: workflow
 
 ## 简短示例(精简到 4 行,完整走例见 `python-plugin-index/prompts/debugging`)
 
-- **症状**:`kingdee_register_python_plugins` 返回 success,客户端无反应
+- **症状**:`k3cloud_register_python_plugins` 返回 success,客户端无反应
 - **假设 A/B/C**:挂错父扩展 / 事件签名错 / 客户端缓存
 - **证据**:先查 A/B(只读工具能查),再问用户测 C
 - **锁定**:B 命中(签名 `BeforeSave_1` 错别字)→ 改 + 重注册 + 反查 + 让用户复测

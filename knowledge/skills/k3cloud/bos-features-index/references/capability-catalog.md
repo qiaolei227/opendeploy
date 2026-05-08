@@ -71,11 +71,11 @@ public class BasePropertyField : TextField    // ElementType = 14
 
 **语义**：这不是用户自由输入的文本字段——值是当 SourceField（一个已存在的 BaseDataField）变化时**自动从源基础资料带出来**的。例：销售订单上 F客户简称 = SourceField=F客户 + SrcDisplayFieldName=Name。
 
-**Agent 接口含义**：`kingdee_add_base_property_field` 必须先验证 SourceField 真的是单据上的 BaseDataField，再校验 SrcDisplayFieldName 在 SourceField 指向的基础资料的 schema 里存在——否则插完用户保存表单会报错。**反查需要新工具**：`kingdee_describe_basedata(refBaseDataObjectKey)` 列出某基础资料有哪些可带的属性。
+**Agent 接口含义**：`k3cloud_add_base_property_field` 必须先验证 SourceField 真的是单据上的 BaseDataField，再校验 SrcDisplayFieldName 在 SourceField 指向的基础资料的 schema 里存在——否则插完用户保存表单会报错。**反查需要新工具**：`k3cloud_describe_basedata(refBaseDataObjectKey)` 列出某基础资料有哪些可带的属性。
 
 **XML 形态**：`<TextField key="..." ...>` / `<IntegerField .../>` 等，**类名 = XML 标签名**。
 
-**OpenDeploy 当前覆盖**：`kingdee_add_fields`（仅 type=text）→ Plan 5.12 P0：扩到 8 主流类型 + BaseDataField 子类。
+**OpenDeploy 当前覆盖**：`k3cloud_add_fields`（仅 type=text）→ Plan 5.12 P0：扩到 8 主流类型 + BaseDataField 子类。
 
 **反编译位置**：line 11974（基类）+ 上述子类各自的 line 号。
 
@@ -108,11 +108,11 @@ Entity（line 54067, 含常量 HEAD_TYPE=0 / ENTRY_TYPE=1 / LINK_TYPE=2）
 
 **XML 形态**：`<Entity>` / `<EntryEntity>` / `<SubEntryEntity>`，每个含自己的 `<Fields>` 集合。
 
-**OpenDeploy 当前覆盖**：❌ 当前 `kingdee_add_fields` 默认加到 head，没法指定 entity；`kingdee_get_extension_fields` 也按 head 维度返回。
+**OpenDeploy 当前覆盖**：❌ 当前 `k3cloud_add_fields` 默认加到 head，没法指定 entity；`k3cloud_get_extension_fields` 也按 head 维度返回。
 
 **Plan 5.12 必做**：
-- `kingdee_list_entities` + `kingdee_add_fields` 加 `entityKey` 参数
-- `kingdee_add_entry_entity`（创建新 1:N 子表，含 SQL CREATE TABLE + XML 节点 + tracker 行）
+- `k3cloud_get_form_layout` + `k3cloud_add_fields` 加 `entityKey` 参数
+- `k3cloud_create_entry`（创建新 1:N 子表，含 SQL CREATE TABLE + XML 节点 + tracker 行）
 
 ---
 
@@ -149,7 +149,7 @@ AbstractValidation（line 21704）
 
 **OpenDeploy 当前覆盖**：❌
 
-**Plan 5.12 P0**：`kingdee_add_field_validation(field, ruleType, params)` — 至少覆盖 `MustInputValidation` / `TextLegalityValidation` / `StringFormatValidation` 三类。
+**v0.2+ 路线图**：`k3cloud_add_field_validation(field, ruleType, params)` — 至少覆盖 `MustInputValidation` / `TextLegalityValidation` / `StringFormatValidation` 三类。**v0.1 现状**:`MustInput` 已通过 `k3cloud_add_fields` 的字段 schema 暴露(Plan 5.12.7,加字段时直接在 `fields[i].mustInput=true`);其他 validation 类型仍走 BOS Designer 手工配置或 Python 表单插件 `BeforeSave`。
 
 ---
 
@@ -195,7 +195,7 @@ AbstractExpression（line 135794）
 
 **OpenDeploy 当前覆盖**：❌
 
-**Plan 5.12 P0**：`kingdee_add_business_rule(target, when, action, expression)` — agent 接口设计是难点（让 LLM 稳定生成可执行 IronPython 子集）。
+**Plan 5.12 P0**：`k3cloud_add_calculate_rule(target, when, action, expression)` — agent 接口设计是难点（让 LLM 稳定生成可执行 IronPython 子集）。
 
 **子文件待建**：`references/business-rules-corrected.md`（替换原 `business-rules.md`）。
 
@@ -424,7 +424,7 @@ BillTrackerElement（line 267029, 单据跟踪表元数据）
 - `ConcurrentStringDictionaryPermission<TValue>` / `StringDictionaryPermission<TValue>`（运行时权限缓存, line 34855+）
 - 敏感字段：`BaseDataSensitiveField` / `CommonSensitiveField` / `DefaultSensitiveField`（line 157192+）
 
-**OpenDeploy 当前覆盖**：❌（v0.2+，但 `kingdee_query_business_data` 受控读的"对话同意"机制部分对齐，见 Plan 6 #3）
+**OpenDeploy 当前覆盖**：❌（v0.2+，但 `k3cloud_query_business_data` 受控读的"对话同意"机制部分对齐，见 Plan 6 #3）
 
 ---
 
@@ -499,11 +499,11 @@ BillTrackerElement（line 267029, 单据跟踪表元数据）
 
 | 能力 | 反编译位置 | OpenDeploy 工具 |
 |---|---|---|
-| 字段类型（仅 text）| #1 | `kingdee_add_fields` ⚠️ 部分 |
-| 字段反查 | #1 | `kingdee_get_extension_fields` / `_get_fields` ✅ |
+| 字段类型（仅 text）| #1 | `k3cloud_add_fields` ⚠️ 部分 |
+| 字段反查 | #1 | `k3cloud_get_extension_fields` / `_get_fields` ✅ |
 | 实体查询 / 操作 | #2 | ❌ Plan 5.12 必做 |
-| 表单插件注册 | (Python plugin, FKERNELXML `<FormPlugins>`) | `kingdee_register_plugin` ✅ |
-| 扩展生命周期 | (T_META_OBJECTTYPE 全套) | `kingdee_create_extension` / `_delete_extension` / `_list_extensions` / `_restore_from_backup` ✅ |
+| 表单插件注册 | (Python plugin, FKERNELXML `<FormPlugins>`) | `k3cloud_register_python_plugins` ✅ |
+| 扩展生命周期 | (T_META_OBJECTTYPE 全套) | `k3cloud_create_extension` / `_delete_extension` / `_list_extensions` / `_restore_from_backup` ✅ |
 | 字段验证 | #3 | ❌ Plan 5.12 P0 |
 | 业务规则 / 公式 | #4 | ❌ Plan 5.12 P0 |
 | 单据转换 | #5 | ❌ v0.2+ |

@@ -109,7 +109,7 @@
 
 > 你这个需求是**字段联动**(客户字段变 → 收货地址跟着变),用 Python 表单插件就够了——挂 `DataChanged` 事件,判断 `e.Field.Key == "FCustomer"` 时去查客户的默认地址,塞到 `FAddress` 字段。
 >
-> 我可以直接帮你写 Python 插件代码,通过 `kingdee_write_form_python_plugin` 工具一键安装到扩展对象上。
+> 我可以直接帮你写 Python 插件代码,通过 `k3cloud_register_python_plugins` 工具一键安装到扩展对象上。
 
 ### 场景 C:用户描述"销售订单下推到出库单时,把客户简称拼到出库单备注里"
 
@@ -173,6 +173,6 @@
 > 1. ......
 > 2. ......
 >
-> 走 Python 的话我可以**直接帮你做**(`kingdee_write_form_python_plugin` 工具一键写到扩展对象);走 DLL 的话**需要你用 Visual Studio 写代码**,我可以给开发方向、工程命名、样例骨架——但写代码、编译、部署 DLL 不在 v0.1 自动化范围。
+> 走 Python 的话我可以**直接帮你做**(`k3cloud_register_python_plugins` 工具一键写到扩展对象);走 DLL 的话**需要你用 Visual Studio 写代码**,我可以给开发方向、工程命名、样例骨架——但写代码、编译、部署 DLL 不在 v0.1 自动化范围。
 >
 > 你倾向哪种?

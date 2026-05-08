@@ -1,7 +1,7 @@
 ---
 name: python-plugin-index
 title: K/3 Cloud Python 插件开发索引
-description: 写 K/3 Cloud IronPython 2.7 表单插件(BeforeSave 拦截 / 字段联动 / 按钮点击 / DataChanged)时加载。本 skill 本身是索引,告诉你有哪些子文件可拉,遇到具体问题按需用 load_skill_file 拉详细的事件签名 / API 表 / 模板 / 异常处理姿势。Agent 准备生成 pyBody 传给 kingdee_* 工具前先加载它。
+description: 写 K/3 Cloud IronPython 2.7 表单插件(BeforeSave 拦截 / 字段联动 / 按钮点击 / DataChanged)时加载。本 skill 本身是索引,告诉你有哪些子文件可拉,遇到具体问题按需用 load_skill_file 拉详细的事件签名 / API 表 / 模板 / 异常处理姿势。Agent 准备生成 pyBody 传给 k3cloud_* 工具前先加载它。
 version: 1.0.0
 category: plugin-dev
 ---
@@ -66,9 +66,9 @@ class MyPlugIn(AbstractBillPlugIn):
 写完 `pyBody` 后的调用链:
 
 ```
-kingdee_list_extensions         # 查父单据有无现成扩展可复用
-  ├─ 有 → kingdee_register_python_plugins(挂到已有扩展)
-  └─ 无 → kingdee_create_extension_with_python_plugin(建新扩展 + 挂插件)
+k3cloud_list_extensions         # 查父单据有无现成扩展可复用
+  ├─ 有 → k3cloud_register_python_plugins(挂到已有扩展)
+  └─ 无 → k3cloud_create_extension(建新扩展) → k3cloud_register_python_plugins(挂插件)
 ```
 
 两条路之后都要**提醒用户**:BOS Designer F5 刷新 / 客户端重登测试。OpenDeploy 不自动刷缓存。

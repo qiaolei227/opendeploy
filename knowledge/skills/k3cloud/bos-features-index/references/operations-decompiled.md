@@ -1,7 +1,7 @@
 ---
 name: operations-decompiled
 title: BOS 操作/按钮 — 反编译 + DB 实证
-description: FormOperation 完整属性模型、内置 OperationId 目录、Plugin 绑定形态、BarButtonItem 与 FormOperation 的关联关系、FKERNELXML 节点形态实证。为 kingdee_add_operation / _list_operations / _delete_operation 工具提供工程蓝图。
+description: FormOperation 完整属性模型、内置 OperationId 目录、Plugin 绑定形态、BarButtonItem 与 FormOperation 的关联关系、FKERNELXML 节点形态实证。为 k3cloud_add_custom_operation / _list_operations / _delete_operation 工具提供工程蓝图。
 ---
 
 <!-- fetched: 2026-04-25, source: Kingdee.BOS.Core.decompiled.cs line 52189 + DB AIS20260302144343 SAL_SaleOrder / extension a4ad49d2 -->
@@ -84,7 +84,7 @@ public class FormOperation : IInheritProperty, IKingdeeProperty
 
 **AbstractDynamicFormOperation**（line 196048）：`AbstractFormOperation` + `IInteractiveOperation`，增加了 `DoInteraction` / `DoSimpleInteraction` / `DoComplextInteraction` 等交互方法，适合需要弹确认框 / 二次交互的操作。
 
-**结论**（对 `kingdee_add_operation` 工具的影响）：自定义操作元数据不需要选服务类；Python 插件通过 `AfterDoOperation(e)` 中判断 `e.Operation.Operation == "MyKey"` 响应操作，无需给 `<ServiceClass>` 赋值。
+**结论**（对 `k3cloud_add_custom_operation` 工具的影响）：自定义操作元数据不需要选服务类；Python 插件通过 `AfterDoOperation(e)` 中判断 `e.Operation.Operation == "MyKey"` 响应操作，无需给 `<ServiceClass>` 赋值。
 
 ---
 
@@ -205,7 +205,7 @@ def AfterDoOperation(e):
 </FormOperation>
 ```
 
-**结论**：v0.1 只需处理 `<FormPlugins>` 中的 Python 插件（已有工具支持）。`<ServicePlugins>` 是 DLL 插件的领域，`kingdee_add_operation` 不需要写入 `<ServicePlugins>`。
+**结论**：v0.1 只需处理 `<FormPlugins>` 中的 Python 插件（已有工具支持）。`<ServicePlugins>` 是 DLL 插件的领域，`k3cloud_add_custom_operation` 不需要写入 `<ServicePlugins>`。
 
 ---
 
@@ -290,7 +290,7 @@ public class BarItem : Appearance {
 </BarItemLinks>
 ```
 
-**结论**：`kingdee_add_operation` v0.1 写顶层按钮，不需要写 BarItemLinks。
+**结论**：`k3cloud_add_custom_operation` v0.1 写顶层按钮，不需要写 BarItemLinks。
 
 ---
 
@@ -404,9 +404,9 @@ public class BarItem : Appearance {
 
 ---
 
-## 7. kingdee_add_operation / _list / _delete 工具实现路径
+## 7. k3cloud_add_custom_operation / _list / _delete 工具实现路径
 
-### 7.1 `kingdee_list_operations`
+### 7.1 `k3cloud_list_operations`
 
 **SQL**：
 ```sql
@@ -419,7 +419,7 @@ SELECT @xml = CONVERT(NVARCHAR(MAX), FKERNELXML) FROM T_META_OBJECTTYPE WHERE FI
 
 **parallelSafe**: `true`（只读）
 
-### 7.2 `kingdee_add_operation`
+### 7.2 `k3cloud_add_custom_operation`
 
 **步骤**：
 
@@ -439,7 +439,7 @@ SELECT @xml = CONVERT(NVARCHAR(MAX), FKERNELXML) FROM T_META_OBJECTTYPE WHERE FI
 
 **parallelSafe**: `false`（写操作）
 
-### 7.3 `kingdee_delete_operation`
+### 7.3 `k3cloud_delete_operation`
 
 **步骤**：
 
@@ -457,13 +457,13 @@ SELECT @xml = CONVERT(NVARCHAR(MAX), FKERNELXML) FROM T_META_OBJECTTYPE WHERE FI
 用户: "给销售订单扩展加一个'检查信用额度'按钮，点击时执行信用检查逻辑"
 
 Agent:
-  1. kingdee_add_operation(extFid, "CheckCredit", "检查信用额度")
+  1. k3cloud_add_custom_operation(extFid, "CheckCredit", "检查信用额度")
      → 写 <FormOperation> + <BarButtonItem> 到 FKERNELXML
-  2. kingdee_write_plugin("credit_check.py", python_code)
+  2. k3cloud_register_python_plugins("credit_check.py", python_code)
      → 写 Python 源文件到 ~/.opendeploy/projects/<pid>/plugins/
-  3. kingdee_add_form_plugin(extFid, "credit_check", python_code)
+  3. k3cloud_register_python_plugins(extFid, "credit_check", python_code)
      → 在 <FormPlugins> 追加 <PlugIn PlugInType=1> 节点
-     （已有工具：bos-write-tools.ts 的 kingdee_add_python_plugin）
+     （已有工具：bos-write-tools.ts 的 k3cloud_register_python_plugins）
   4. 提示用户：在 BOS Designer 刷新查看新按钮
 ```
 
@@ -479,11 +479,11 @@ def AfterDoOperation(e):
 ### 7.5 已有工具集成点
 
 当前 `bos-write-tools.ts`（Plan 5.5）已有 7 个工具：
-- `kingdee_create_extension` — 创建扩展对象（写 8 张表）
-- `kingdee_add_form_plugin` / `kingdee_update_python_plugin` — 写/更新 Python 表单插件
-- `kingdee_add_fields` — 添加扩展字段
-- `kingdee_list_extensions` / `kingdee_get_extension_fields` — 只读工具
-- `kingdee_restore_from_backup` — 回滚
+- `k3cloud_create_extension` — 创建扩展对象（写 8 张表）
+- `k3cloud_register_python_plugins` / `k3cloud_register_python_plugins` — 写/更新 Python 表单插件
+- `k3cloud_add_fields` — 添加扩展字段
+- `k3cloud_list_extensions` / `k3cloud_get_extension_fields` — 只读工具
+- `k3cloud_delete_extension` — 整删扩展回滚(RPC 路径无独立 backup 文件)
 
 新的 3 个工具 (`_add_operation` / `_list_operations` / `_delete_operation`) 接入同一个 `bos-xml.ts` + `bos-backup.ts` 基础设施即可。
 
@@ -503,7 +503,7 @@ def AfterDoOperation(e):
 | ActionId=23 = 执行操作 | 🟢 | DB 实证多条 BarButtonItem.ClickActions |
 | Python 插件通过 AfterDoOperation 响应按钮 | 🟢 | DB 实证 SAL_SaleOrder FormPlugins PyScript |
 | BarItemLinks 菜单层级结构 | 🟢 | DB 实证 SAL_SaleOrder BarItemLinks 节点 |
-| kingdee_add_operation 工具实现路径 | 🟡 | 基于以上实证推导，未实际运行 |
+| k3cloud_add_custom_operation 工具实现路径 | 🟡 | 基于以上实证推导，未实际运行 |
 
 ### 未知/待验证
 

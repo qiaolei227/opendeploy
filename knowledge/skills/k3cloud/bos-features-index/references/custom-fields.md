@@ -81,7 +81,7 @@ WHERE m.FDATE > '2026-01-01'
 
 ## OpenDeploy v0.1 当前不工具化
 
-**❌ OpenDeploy v0.1 不提供 `kingdee_add_extension_field` 工具**。
+**❌ OpenDeploy v0.1 不提供 `k3cloud_add_fields` 工具**。
 
 原因:加字段要操作的表不只是 `T_META_OBJECTTYPE.FKERNELXML`,还要动态 ALTER TABLE 扩展表,涉及:
 - 检查扩展表是否存在,不存在则 CREATE
@@ -126,4 +126,4 @@ Agent 回答:
 SELECT FKERNELXML FROM T_META_OBJECTTYPE WHERE FID = '<扩展 FID>'
 ```
 
-或查 `T_META_TABLE` 映射表(具体列待确认)。OpenDeploy 的 `kingdee_list_extension_tables` 工具**v0.1 未实现**。
+或查 `T_META_TABLE` 映射表(具体列待确认)。OpenDeploy 的 `k3cloud_list_extension_tables` 工具**v0.1 未实现**。

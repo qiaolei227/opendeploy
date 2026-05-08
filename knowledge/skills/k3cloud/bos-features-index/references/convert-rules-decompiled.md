@@ -67,7 +67,7 @@ FISDEFAULT   char(1)      '1' = 默认（97/114 为默认，17 为非默认）
 ```
 
 **CONVERTLOOKUP 的用途**：转换流程设计器的"画布"索引，只记录在流程图里**显式建图**的转换路径。`SAL_SaleOrder` 有 35 条规则但 CONVERTLOOKUP 只有 6 条，其余规则（如财务联动的隐式规则）不在流程图里。  
-**对 agent 意义**：`kingdee_list_convert_rules` 应查 `T_META_CONVERTRULE`，而不是 `T_META_CONVERTLOOKUP`。
+**对 agent 意义**：`k3cloud_list_convert_rules` 应查 `T_META_CONVERTRULE`，而不是 `T_META_CONVERTLOOKUP`。
 
 ### 关键计数（本库实证）
 
@@ -251,9 +251,9 @@ TargetBillTypeId - 同上逻辑，用于目标单据类型映射
 
 ---
 
-## 5. kingdee_list_convert_rules / kingdee_describe_convert_rule 实现路径（RPC）
+## 5. k3cloud_list_convert_rules / k3cloud_describe_convert_rule 实现路径（RPC）
 
-> 🟢 **Plan 5.12.4 实证完成**（2026-04-29）：走 `Metadata.ConvertService` 的两个 JSON-emitting 方法，**无需 SQL 直连**。代码：`src/main/erp/k3cloud/rpc/convert-rules.ts` + `convert-rule-summarizer.ts` + 工具 `kingdee_list_convert_rules` / `kingdee_describe_convert_rule`。
+> 🟢 **Plan 5.12.4 实证完成**（2026-04-29）：走 `Metadata.ConvertService` 的两个 JSON-emitting 方法，**无需 SQL 直连**。代码：`src/main/erp/k3cloud/rpc/convert-rules.ts` + `convert-rule-summarizer.ts` + 工具 `k3cloud_list_convert_rules` / `k3cloud_describe_convert_rule`。
 
 ### 5.0 为什么走这两个端点（其他端点为什么不行）
 
@@ -273,7 +273,7 @@ TargetBillTypeId - 同上逻辑，用于目标单据类型映射
 
 **关键洞察**：同名类（`ConvertRuleMetaData`）在不同方法下走不同序列化器。判断"能不能用"必须按方法名实测，不能按类名一刀切。
 
-### 5.1 kingdee_list_convert_rules(sourceFormId?)
+### 5.1 k3cloud_list_convert_rules(sourceFormId?)
 
 **RPC**：`POST /k3cloud/Kingdee.BOS.ServiceFacade.ServicesStub.Metadata.ConvertService.GetAllPaths.common.kdsvc`
 - 入参：无（`apFields: {}`）
@@ -295,7 +295,7 @@ TargetBillTypeId - 同上逻辑，用于目标单据类型映射
 
 **parallelSafe**：`true`
 
-### 5.2 kingdee_describe_convert_rule(ruleId)
+### 5.2 k3cloud_describe_convert_rule(ruleId)
 
 **RPC**：`POST /k3cloud/Kingdee.BOS.ServiceFacade.ServicesStub.Metadata.ConvertService.GetConvertRule.common.kdsvc`
 - 入参：`ap0 = ruleId`（raw app-layer string，如 `"SaleOrder-OutStock"`）

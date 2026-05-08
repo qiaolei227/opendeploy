@@ -38,7 +38,7 @@ category: plugin-dev
 | 调试 | BOS Designer 脚本编辑器 | Visual Studio + 金蝶 DLL 引用 |
 | 部署 | **改元数据**(扩展的 FKERNELXML) | **改元数据 + 发布 DLL 到 WebSite\Bin** |
 | 上线审批 | 无 | 公有云必须走协同开发平台审批;私有云可直接放 |
-| **OpenDeploy v0.1 支持?** | ✅ 通过 `kingdee_write_plugin_*` 工具 | ❌ **完全不支持** |
+| **OpenDeploy v0.1 支持?** | ✅ 通过 `k3cloud_register_python_plugins` 工具 | ❌ **完全不支持** |
 
 ## OpenDeploy v0.1 工具覆盖现状
 

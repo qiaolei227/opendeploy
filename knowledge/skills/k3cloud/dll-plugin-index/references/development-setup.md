@@ -218,7 +218,7 @@ BOS Designer 的"同步"按钮做的事:把内存里改的元数据导出到 `Me
 | 编译 DLL | **开发者** + VS / MSBuild |
 | 拷贝 DLL 到 `WebSite\Bin` | **运维** / 部署包 |
 | 重启 IIS | **运维** |
-| 写元数据(`<OperationServicePlugins>` 节点) | **OpenDeploy** ✅(扩展对象,通过 `kingdee_*` 工具),**v0.1 限于 Python 插件节点**(DLL 节点未实现) |
+| 写元数据(`<OperationServicePlugins>` 节点) | **OpenDeploy** ✅(扩展对象,通过 `k3cloud_*` 工具),**v0.1 限于 Python 插件节点**(DLL 节点未实现) |
 | 刷新客户端缓存 | **用户**(F5 或重登) |
 | 上 CDP 流程(公有云) | **开发者** + CDP UI |
 

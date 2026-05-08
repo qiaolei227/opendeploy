@@ -17,7 +17,7 @@
 - **标准功能**:**BOM 版本** 是物料清单的核心唯一键,同一物料可维护多版本 BOM,生产订单按 `BOM 版本` 字段挑选
 - **启用路径**:生产制造 → 工程数据 → 物料清单 → 物料清单
 - **典型误判**:顾问看到客户"两套配方" 想用扩展字段区分 — **直接建第二个 BOM 版本就行**
-- **OpenDeploy 工具覆盖**:✅ 元数据可读(`kingdee_list_objects` / `kingdee_describe_object`),BOM 主对象 `ENG_BOM`
+- **OpenDeploy 工具覆盖**:✅ 元数据可读(`k3cloud_list_objects` / `k3cloud_get_object`),BOM 主对象 `ENG_BOM`
 - **来源**:[help.open.kingdee.com/物料清单](https://help.open.kingdee.com/dokuwiki/doku.php?id=%E7%89%A9%E6%96%99%E6%B8%85%E5%8D%95) · fetched 2026-04-23
 
 ### 替代料(替代件)

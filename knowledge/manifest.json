@@ -10,42 +10,42 @@
     {
       "id": "common/systematic-debugging",
       "version": "1.0.0",
-      "sha256": "634a622ed1e632a0827cf11e961bc0cd396c4f2336a08e5bef10ad2abe5bcbcc"
+      "sha256": "47f29ec281d1d720f5591b727fcd523c64a7f793d66034e60fba1ac0dc74bbaf"
     },
     {
       "id": "k3cloud/bos-features-index",
       "version": "1.0.0",
-      "sha256": "df66f4e2cb285b037289f4d795f629782c9cf0c1f0f95dc8ff96ff182ee5e984"
+      "sha256": "586824518e8c55e919d7176690e532d78ccd749bbd4088dd699a56968cc41ae7"
     },
     {
       "id": "k3cloud/dll-plugin-index",
       "version": "1.0.0",
-      "sha256": "209e4bef373d4c684f2a916a431ba7a1b9b4acc5fa9c30c2b7761c500fcc3b8d"
+      "sha256": "5b98be5d8970898e0b835438e1dda00412197cb9654d21293732066a121b3dcc"
     },
     {
       "id": "k3cloud/product-features-index",
       "version": "1.0.0",
-      "sha256": "9232ab28fd7c2f2986755f44bcfc8fb02ce1e34c29b77439ab94ba17d654f244"
+      "sha256": "ed2e2325918fc23692ce9616795f709645836c206894a7b7f7560133e78241ae"
     },
     {
       "id": "k3cloud/python-plugin-index",
       "version": "1.0.0",
-      "sha256": "3d68443c42e4105556157b2c3a4c7c1aa1a2095df329cbb9b19be510851df647"
+      "sha256": "d54c53be231f5e1fb2fc27a1c367dfc58f64f0afef7bbda297de0b74fe8aeed6"
     },
     {
       "id": "k3cloud/solution-decision-framework",
       "version": "2.0.0",
-      "sha256": "89f004fd1997c0e19afafbf743abec431143307f79823067ef48c0267b8d363a"
+      "sha256": "c8fdc780501bf19a7201a849d61c8e2fcb1b48edbdc7490a686195ee9a7669d8"
     },
     {
       "id": "k3cloud/troubleshooting-index",
       "version": "1.0.0",
-      "sha256": "73af6f022475c0206f78e5a0b0d4d1a9cc4e950aaf22eb27999a3a2e83894461"
+      "sha256": "65f9d031ebe0cc0ad72c8adf422beaa52a8cbf2dba1169c7ddb6ffedb2f4d8ca"
     },
     {
       "id": "k3cloud/webapi-index",
       "version": "1.0.0",
-      "sha256": "5d8347b0b1ea28c0b2f2164fc31fba9132ce13bcd5904ec9df7e1cca9c17880a"
+      "sha256": "e52205be9a7562d499c06d98ff821671d806776935af1f063b9e61e6fbaf67cd"
     },
     {
       "id": "system/skill-diagnostic",

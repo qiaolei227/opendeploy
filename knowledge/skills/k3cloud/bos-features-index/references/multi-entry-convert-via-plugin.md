@@ -24,7 +24,7 @@
 
 | 维度 | Python(`PythonConvertPlugIn`)| DLL(`AbstractConvertPlugIn`) |
 |---|---|---|
-| OpenDeploy v0.1 一键写入 | ✅ `kingdee_add_convert_plugin(pyScript=...)` | ❌(代码生成 + 编译 + 部署都要客户做) |
+| OpenDeploy v0.1 一键写入 | ✅ `k3cloud_add_convert_plugin(pyScript=...)` | ❌(代码生成 + 编译 + 部署都要客户做) |
 | 能挂的事件 | 22 个虚方法全部(实证) | 22 个虚方法全部 |
 | 能调的 ServiceHelper | 全部(`clr.AddReference("Kingdee.BOS")` + `from ... import ...`) | 全部 |
 | 性能 | IronPython 解释执行,慢 5-20 倍 | 原生 .NET |

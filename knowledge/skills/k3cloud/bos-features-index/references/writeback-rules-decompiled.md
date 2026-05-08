@@ -1,7 +1,7 @@
 ---
 name: writeback-rules-decompiled
 title: BOS 反写规则 — 反编译 + DB 实证
-description: WriteBackRuleElement 完整属性树、WriteBackType 枚举、触发模型、源-目标字段映射、DB 存储格式，以及 kingdee_add_write_back_rule / _list / _delete 的实现路径。
+description: WriteBackRuleElement 完整属性树、WriteBackType 枚举、触发模型、源-目标字段映射、DB 存储格式，以及 k3cloud_add_write_back_rule / _list / _delete 的实现路径。
 fetched: 2026-04-25
 sources:
   - /tmp/bos-decompile/out-core/Kingdee.BOS.Core.decompiled.cs (line 137959+, 134998+, 211980+)
@@ -346,7 +346,7 @@ sources:
 
 ---
 
-## 6. 实现路径：kingdee_add_write_back_rule / _list / _delete
+## 6. 实现路径：k3cloud_add_write_back_rule / _list / _delete
 
 ### 6.1 总体评估
 
@@ -356,7 +356,7 @@ sources:
 
 关键差异：反写规则属于 **`T_BF_*` 命名空间**，而非 `T_META_*`。这意味着需要扩展**写白名单**才能允许写入。
 
-### 6.2 kingdee_list_write_back_rules
+### 6.2 k3cloud_list_write_back_rules
 
 ```sql
 -- 列出某源单据的所有反写规则
@@ -379,7 +379,7 @@ ORDER BY l.FNAME
 - 参数：`sourceFormId`（必填，如 `"SAL_SaleOrder"`），可选 `targetFormId` 进一步过滤
 - 返回字段建议：`id`, `name`, `sourceFormId`, `targetFormId`, `operationNumber`, `writeBackType`, `sourceCommitFieldKey`, `formula`, `supplierName`, `sysStatus`
 
-### 6.3 kingdee_add_write_back_rule — 写入流程
+### 6.3 k3cloud_add_write_back_rule — 写入流程
 
 🔴 以下为基于 decompile + DB 逆向的推断实现路径，**未经写入验证**。
 
@@ -439,7 +439,7 @@ VALUES (@id, 2052, @name, @description)
 
 与 BOS 扩展对象一样，写入 DB 后需要用户在 BOS Designer 中刷新（F5 或重开页面）才能看到新规则生效。
 
-### 6.4 kingdee_delete_write_back_rule
+### 6.4 k3cloud_delete_write_back_rule
 
 ```sql
 -- Backup 先行（保存待删除行）
@@ -471,13 +471,13 @@ T_BF_WRITEBACKRULE_L      — 写入本地化名称
 ### 6.6 工具设计建议
 
 ```typescript
-// kingdee_list_write_back_rules
+// k3cloud_list_write_back_rules
 {
   parallelSafe: true,
   params: { sourceFormId: string, targetFormId?: string }
 }
 
-// kingdee_add_write_back_rule  
+// k3cloud_add_write_back_rule  
 {
   parallelSafe: false,  // 写 DB
   params: {
@@ -496,7 +496,7 @@ T_BF_WRITEBACKRULE_L      — 写入本地化名称
   }
 }
 
-// kingdee_delete_write_back_rule
+// k3cloud_delete_write_back_rule
 {
   parallelSafe: false,
   params: { ruleId: string }

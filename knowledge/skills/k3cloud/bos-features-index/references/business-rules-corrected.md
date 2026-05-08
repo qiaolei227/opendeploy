@@ -341,7 +341,7 @@ Parameters JSON: ["F金额 = F数量 * F单价", "F税额 = F金额 * 0.13"]
 
 ## 5. 给 agent 写规则的实践纪律
 
-以下规则是 `kingdee_add_business_rule` (Plan 5.12.3) 工具的生成和验证基础:
+以下规则是 `k3cloud_add_calculate_rule` (Plan 5.12.3) 工具的生成和验证基础:
 
 1. **字段引用直接用 Key**: `FQty * FPrice` 而不是 `GetFieldValue("FQty") * GetFieldValue("FPrice")`；前者是 BOS Designer 的标准写法，后者也可用但冗长。
 
@@ -363,7 +363,7 @@ Parameters JSON: ["F金额 = F数量 * F单价", "F税额 = F金额 * 0.13"]
 
 ## 6. validator (Plan 5.12.3) 输入
 
-`kingdee_add_business_rule` 工具的 validate-and-retry loop 验证依据:
+`k3cloud_add_calculate_rule` 工具的 validate-and-retry loop 验证依据:
 
 ### 函数白名单 (可在 PreCondition 和 action 赋值表达式中调用)
 
@@ -376,7 +376,7 @@ GetCurrOrg  GetUser  GetFieldValue  GetDate  GetTime
 
 ### LLM 输出约定（基于实证 XML 形态）
 
-LLM 在 `kingdee_add_business_rule` 工具的 input 里给两个东西:
+LLM 在 `k3cloud_add_calculate_rule` 工具的 input 里给两个东西:
 
 **实体级规则**:
 ```typescript
