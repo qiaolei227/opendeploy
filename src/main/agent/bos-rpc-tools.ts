@@ -1042,7 +1042,117 @@ function buildAppearance(args: AddFieldArgs, elementType: BosFieldElement['type'
   };
 }
 
-function coerceFieldArgs(raw: Record<string, unknown>, idx: number): AddFieldArgs {
+// Recognized keys per `add_fields` field schema (definition.parameters
+// .properties.fields.items.properties). Used to detect unknown keys the
+// LLM passed and surface them via the warnings channel.
+const FIELD_SCHEMA_KEYS = new Set([
+  'type',
+  'key',
+  'caption',
+  'fieldScale',
+  'fieldPrecision',
+  'controlFieldKey',
+  'refBaseDataObjectKey',
+  'srcFindFieldName',
+  'srcDisplayFieldName',
+  'sourceField',
+  'unitTypeKey',
+  'enumTypeName',
+  'defaultCondition',
+  'container',
+  'top',
+  'left',
+  'width',
+  'labelWidth',
+  'zOrderIndex',
+  'tabindex',
+  'listTabIndex',
+  'mustInput',
+  'defaultValue',
+  'orgFieldKey',
+]);
+
+const NUMERIC_FIELD_KEYS = [
+  'fieldScale',
+  'fieldPrecision',
+  'defaultCondition',
+  'top',
+  'left',
+  'width',
+  'labelWidth',
+  'zOrderIndex',
+  'tabindex',
+  'listTabIndex',
+] as const;
+
+const STRING_FIELD_KEYS = [
+  'controlFieldKey',
+  'refBaseDataObjectKey',
+  'srcFindFieldName',
+  'srcDisplayFieldName',
+  'sourceField',
+  'unitTypeKey',
+  'enumTypeName',
+  'container',
+  'orgFieldKey',
+] as const;
+
+function coerceNumericProp(
+  raw: Record<string, unknown>,
+  prop: string,
+  idx: number,
+  warnings: string[],
+): number | undefined {
+  const v = raw[prop];
+  if (v == null) return undefined;
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  const coerced = Number(v);
+  if (!Number.isFinite(coerced)) {
+    warnings.push(
+      `fields[${idx}].${prop}: 期望 number,收到 ${typeof v} (${JSON.stringify(v)}),已忽略`,
+    );
+    return undefined;
+  }
+  warnings.push(
+    `fields[${idx}].${prop}: 期望 number 但收到 ${typeof v}, 已强转为 ${coerced} (建议直接传 number 字面值)`,
+  );
+  return coerced;
+}
+
+function coerceStringProp(
+  raw: Record<string, unknown>,
+  prop: string,
+  idx: number,
+  warnings: string[],
+): string | undefined {
+  const v = raw[prop];
+  if (v == null) return undefined;
+  if (typeof v === 'string') return v;
+  warnings.push(
+    `fields[${idx}].${prop}: 期望 string,收到 ${typeof v} (${JSON.stringify(v)}),已强转为 "${String(v)}"`,
+  );
+  return String(v);
+}
+
+function coerceMustInput(
+  raw: Record<string, unknown>,
+  idx: number,
+  warnings: string[],
+): true | undefined {
+  const v = raw.mustInput;
+  if (v == null || v === false) return undefined;
+  if (v === true) return true;
+  warnings.push(
+    `fields[${idx}].mustInput: 期望 boolean,收到 ${typeof v} (${JSON.stringify(v)}),已忽略 — 传 true/false 字面值,不要字符串 "true"/"1"`,
+  );
+  return undefined;
+}
+
+function coerceFieldArgs(
+  raw: Record<string, unknown>,
+  idx: number,
+  warnings: string[],
+): AddFieldArgs {
   const type = String(raw.type ?? '') as FriendlyFieldType;
   const key = String(raw.key ?? '').trim();
   const caption = String(raw.caption ?? '').trim();
@@ -1060,34 +1170,42 @@ function coerceFieldArgs(raw: Record<string, unknown>, idx: number): AddFieldArg
       `fields[${idx}] (key=${key}): orgFieldKey 只对 base_data 字段有效(${type} 字段不接受 orgFieldKey)。`,
     );
   }
+  // Surface unknown keys (LLM passed something the schema doesn't accept).
+  for (const k of Object.keys(raw)) {
+    if (FIELD_SCHEMA_KEYS.has(k)) continue;
+    warnings.push(
+      `fields[${idx}].${k}: 不是 add_fields field schema 中的 key,已忽略 — 看 k3cloud_add_fields 工具描述里 fields.items 接受的属性列表`,
+    );
+  }
+  const numericProps: Partial<Record<(typeof NUMERIC_FIELD_KEYS)[number], number | undefined>> = {};
+  for (const p of NUMERIC_FIELD_KEYS) numericProps[p] = coerceNumericProp(raw, p, idx, warnings);
+  const stringProps: Partial<Record<(typeof STRING_FIELD_KEYS)[number], string | undefined>> = {};
+  for (const p of STRING_FIELD_KEYS) stringProps[p] = coerceStringProp(raw, p, idx, warnings);
   return {
     extId: '', // not used by buildFieldElement / buildAppearance
     type,
     key,
     caption,
-    fieldScale: raw.fieldScale != null ? Number(raw.fieldScale) : undefined,
-    fieldPrecision: raw.fieldPrecision != null ? Number(raw.fieldPrecision) : undefined,
-    controlFieldKey: raw.controlFieldKey != null ? String(raw.controlFieldKey) : undefined,
-    refBaseDataObjectKey:
-      raw.refBaseDataObjectKey != null ? String(raw.refBaseDataObjectKey) : undefined,
-    srcFindFieldName:
-      raw.srcFindFieldName != null ? String(raw.srcFindFieldName) : undefined,
-    srcDisplayFieldName:
-      raw.srcDisplayFieldName != null ? String(raw.srcDisplayFieldName) : undefined,
-    orgFieldKey: raw.orgFieldKey != null ? String(raw.orgFieldKey) : undefined,
-    sourceField: raw.sourceField != null ? String(raw.sourceField) : undefined,
-    unitTypeKey: raw.unitTypeKey != null ? String(raw.unitTypeKey) : undefined,
-    enumTypeName: raw.enumTypeName != null ? String(raw.enumTypeName) : undefined,
-    defaultCondition: raw.defaultCondition != null ? Number(raw.defaultCondition) : undefined,
-    container: raw.container != null ? String(raw.container) : undefined,
-    top: raw.top != null ? Number(raw.top) : undefined,
-    left: raw.left != null ? Number(raw.left) : undefined,
-    width: raw.width != null ? Number(raw.width) : undefined,
-    labelWidth: raw.labelWidth != null ? Number(raw.labelWidth) : undefined,
-    zOrderIndex: raw.zOrderIndex != null ? Number(raw.zOrderIndex) : undefined,
-    tabindex: raw.tabindex != null ? Number(raw.tabindex) : undefined,
-    listTabIndex: raw.listTabIndex != null ? Number(raw.listTabIndex) : undefined,
-    mustInput: raw.mustInput === true ? true : undefined,
+    fieldScale: numericProps.fieldScale,
+    fieldPrecision: numericProps.fieldPrecision,
+    controlFieldKey: stringProps.controlFieldKey,
+    refBaseDataObjectKey: stringProps.refBaseDataObjectKey,
+    srcFindFieldName: stringProps.srcFindFieldName,
+    srcDisplayFieldName: stringProps.srcDisplayFieldName,
+    orgFieldKey: stringProps.orgFieldKey,
+    sourceField: stringProps.sourceField,
+    unitTypeKey: stringProps.unitTypeKey,
+    enumTypeName: stringProps.enumTypeName,
+    defaultCondition: numericProps.defaultCondition,
+    container: stringProps.container,
+    top: numericProps.top,
+    left: numericProps.left,
+    width: numericProps.width,
+    labelWidth: numericProps.labelWidth,
+    zOrderIndex: numericProps.zOrderIndex,
+    tabindex: numericProps.tabindex,
+    listTabIndex: numericProps.listTabIndex,
+    mustInput: coerceMustInput(raw, idx, warnings),
     defaultValueRaw: raw.defaultValue,
   };
 }
@@ -1238,9 +1356,19 @@ function addFieldsTool(
       if (!Array.isArray(rawFields) || rawFields.length === 0) {
         throw new Error('k3cloud_add_fields 需要 fields 参数(至少一个字段的数组)。');
       }
+      // Surface dropped inputs so the LLM gets feedback. Memory
+      // followup_tool_feedback_warnings_on_dropped_inputs.
+      const warnings: string[] = [];
+      const TOP_KEYS = new Set(['extId', 'fields', 'layoutInfoOid']);
+      for (const k of Object.keys(args)) {
+        if (TOP_KEYS.has(k)) continue;
+        warnings.push(
+          `未知顶层参数 ${k}: 不在 k3cloud_add_fields schema 中,已忽略 — 仅接受 extId / fields / layoutInfoOid`,
+        );
+      }
       // Validate each field upfront so a partial save never happens.
       const fieldArgsList: AddFieldArgs[] = rawFields.map((raw, i) =>
-        coerceFieldArgs((raw ?? {}) as Record<string, unknown>, i),
+        coerceFieldArgs((raw ?? {}) as Record<string, unknown>, i, warnings),
       );
       rejectDuplicates(fieldArgsList, (fa) => fa.key, 'fields 的 key');
 
@@ -1389,6 +1517,7 @@ function addFieldsTool(
             '所有字段已一次性写入。BOS Designer 工具栏点刷新按钮即可看到。' +
             '**字段已自动排版**:贴在原厂字段最右边界右侧一列,纵向顺排;之后再加字段会接着排到下方,无需拖动。如视觉位置不理想用户可在 BOS Designer 中手动微调。' +
             '验证全部字段已落库:调 k3cloud_get_extension_fields(不是 k3cloud_get_fields)。',
+          ...(warnings.length > 0 && { warnings }),
         },
         null,
         2,

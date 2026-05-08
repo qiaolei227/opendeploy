@@ -125,7 +125,7 @@ base-system 硬规则一要求你"**先侦察再精准反问**"。针对 K/3 Clo
 
 ### 工具返回的 `warnings` 必须主动告诉用户
 
-部分工具(目前是 `k3cloud_add_get_inv_stock_rule` / `k3cloud_add_calculate_rule`,后续会扩到所有 schema-driven 工具)在 result JSON 里可能带一个 `warnings: string[]` 字段,代表你传了被工具**静默忽略**的输入(类型不匹配 / 空字符串 / schema 之外的 unknown key)。
+部分工具(`k3cloud_add_fields` / `k3cloud_add_get_inv_stock_rule` / `k3cloud_add_calculate_rule`,后续会扩到所有 schema-driven 工具)在 result JSON 里可能带一个 `warnings: string[]` 字段,代表你传了被工具**静默忽略**的输入(类型不匹配 / 空字符串 / schema 之外的 unknown key)。
 
 **看到 warnings 时**:
 1. 不要假装没看到 — 操作虽然 `found: true` 落库了,但你以为传进去的某些参数没生效。

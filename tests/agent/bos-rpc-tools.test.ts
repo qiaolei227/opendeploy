@@ -1373,6 +1373,118 @@ describe('k3cloud_add_fields', () => {
       }),
     ).rejects.toThrow(/defaultValue/);
   });
+
+  // ── warnings[] channel — surface dropped inputs ────────────────────
+  // Memory followup_tool_feedback_warnings_on_dropped_inputs.
+
+  it('happy path emits NO warnings field when input is clean', async () => {
+    const { tool } = await findAddFields();
+    const out = JSON.parse(
+      await tool.execute({
+        extId: EXT_ID,
+        fields: [{ type: 'text', key: 'F_PAIJ_Note', caption: '备注' }],
+      }),
+    );
+    expect(out.ok).toBe(true);
+    expect(out.warnings).toBeUndefined();
+  });
+
+  it('warnings: surfaces unknown top-level key + unknown field key', async () => {
+    const { tool } = await findAddFields();
+    const out = JSON.parse(
+      await tool.execute({
+        extId: EXT_ID,
+        fields: [
+          {
+            type: 'text',
+            key: 'F_PAIJ_Note',
+            caption: '备注',
+            // Unknown — not in field schema. LLM hallucinated.
+            mystery: 'value',
+          },
+        ],
+        // Unknown top-level — not extId / fields / layoutInfoOid.
+        bogusTop: 1,
+      }),
+    );
+    expect(out.ok).toBe(true);
+    expect(out.warnings).toBeDefined();
+    expect(out.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/未知顶层参数 bogusTop/),
+        expect.stringMatching(/fields\[0\]\.mystery/),
+      ]),
+    );
+  });
+
+  it('warnings: surfaces type mismatch on numeric prop (string passed)', async () => {
+    const { tool } = await findAddFields();
+    const out = JSON.parse(
+      await tool.execute({
+        extId: EXT_ID,
+        fields: [
+          {
+            type: 'decimal',
+            key: 'F_PAIJ_X',
+            caption: 'X',
+            // schema says number; LLM passed a numeric string — coerced
+            // (since Number("4") === 4) but warns about the mismatch.
+            fieldScale: '4' as unknown as number,
+          },
+        ],
+      }),
+    );
+    expect(out.ok).toBe(true);
+    expect(out.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/fields\[0\]\.fieldScale.*强转为 4/),
+      ]),
+    );
+  });
+
+  it('warnings: numeric prop with non-numeric string is dropped (NaN)', async () => {
+    const { tool } = await findAddFields();
+    const out = JSON.parse(
+      await tool.execute({
+        extId: EXT_ID,
+        fields: [
+          {
+            type: 'text',
+            key: 'F_PAIJ_Note',
+            caption: '备注',
+            top: 'left-side' as unknown as number,
+          },
+        ],
+      }),
+    );
+    expect(out.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/fields\[0\]\.top.*期望 number.*"left-side"/),
+      ]),
+    );
+  });
+
+  it('warnings: mustInput non-boolean dropped', async () => {
+    const { tool } = await findAddFields();
+    const out = JSON.parse(
+      await tool.execute({
+        extId: EXT_ID,
+        fields: [
+          {
+            type: 'text',
+            key: 'F_PAIJ_Note',
+            caption: '备注',
+            mustInput: 'true' as unknown as boolean,
+          },
+        ],
+      }),
+    );
+    expect(out.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/fields\[0\]\.mustInput.*期望 boolean.*"true"/),
+      ]),
+    );
+  });
 });
 
 describe('k3cloud_register_python_plugins', () => {
