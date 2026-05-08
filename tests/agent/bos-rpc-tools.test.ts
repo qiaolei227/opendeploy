@@ -32,7 +32,7 @@ import { deleteExtension } from '../../src/main/erp/k3cloud/rpc/delete-extension
 import { saveExtension } from '../../src/main/erp/k3cloud/rpc/save-for-ide';
 import { saveEnumObject } from '../../src/main/erp/k3cloud/rpc/save-enum-object';
 import { addEnumObjectToRecycle, updateMetaCacheByEnumTypeId } from '../../src/main/erp/k3cloud/rpc/enum-objects';
-import type { ObjectMeta } from '../../src/shared/erp-types';
+import type { ObjectMeta, ExtensionMeta } from '../../src/shared/erp-types';
 import type { SaveExtensionRequest } from '../../src/main/erp/k3cloud/rpc/types';
 
 const mockedGetProject = getProject as unknown as ReturnType<typeof vi.fn>;
@@ -79,6 +79,7 @@ const makeFakeConnector = (
     getKernelXml: (id: string) => Promise<string | null>;
     resolveLookupClassGuid: (formId: string) => Promise<{ id: string; formId: string } | null>;
     resolveEnumTypeGuid: (name: string) => Promise<{ id: string; name: string } | null>;
+    listExtensions: (parentFormId: string) => Promise<ExtensionMeta[]>;
   }> = {},
 ): K3CloudConnector =>
   ({
@@ -104,6 +105,7 @@ const makeFakeConnector = (
         const id = FAKE_ENUM_GUID[name.toLowerCase()];
         return id ? { id, name } : null;
       }),
+    listExtensions: overrides.listExtensions ?? (async () => []),
     invalidateEnumCache: vi.fn(),
   }) as unknown as K3CloudConnector;
 
@@ -391,6 +393,116 @@ describe('k3cloud_create_extension', () => {
     await expect(
       tool.execute({ parentFormId: 'BROKEN_FORM', extName: '测试' }),
     ).rejects.toThrow(/元数据不完整/);
+  });
+
+  // ── Single-layer-tree guard ─────────────────────────────────────────
+  // Each parent (form / basedata / convert rule / ...) gets at most ONE
+  // OpenDeploy-project extension. Creating a sibling is refused.
+
+  it('refuses to create when parent has an existing extension with matching devCode', async () => {
+    const existing: ExtensionMeta = {
+      extId: 'aaaa1111aaaa1111aaaa1111aaaa1111',
+      parentFormId: 'SAL_SaleOrder',
+      name: '已有的销售订单扩展',
+      developerCode: 'PAIJ', // === project devCode → reusable
+      modifyDate: '2026-04-30T10:00:00Z',
+    };
+    const { tool } = await findCreate(
+      makeFakeConnector({ listExtensions: async () => [existing] }),
+    );
+
+    const out = JSON.parse(
+      await tool.execute({ parentFormId: 'SAL_SaleOrder', extName: '新扩展' }),
+    );
+
+    expect(out.ok).toBe(false);
+    expect(out.reason).toBe('duplicate_extension');
+    expect(out.existingExtId).toBe(existing.extId);
+    expect(out.existingExtName).toBe(existing.name);
+    expect(out.message).toMatch(/单层树/);
+    expect(out.message).toMatch(/k3cloud_add_fields/);
+    // Critical: NO RPC fired — guard short-circuits before saveExtension.
+    expect(mockedSave).not.toHaveBeenCalled();
+  });
+
+  it('refuses to create when parent has an existing extension with developerCode=null (treated as ours)', async () => {
+    // Memory `fuserid_not_required.md`: OpenDeploy-built extensions land
+    // with FSUPPLIERNAME=null. The guard treats null === ours.
+    const existing: ExtensionMeta = {
+      extId: 'bbbb2222bbbb2222bbbb2222bbbb2222',
+      parentFormId: 'SAL_SaleOrder',
+      name: 'OpenDeploy 早期扩展',
+      developerCode: null,
+      modifyDate: '2026-04-25T08:00:00Z',
+    };
+    const { tool } = await findCreate(
+      makeFakeConnector({ listExtensions: async () => [existing] }),
+    );
+
+    const out = JSON.parse(
+      await tool.execute({ parentFormId: 'SAL_SaleOrder', extName: '新扩展' }),
+    );
+
+    expect(out.ok).toBe(false);
+    expect(out.reason).toBe('duplicate_extension');
+    expect(out.existingExtId).toBe(existing.extId);
+    expect(mockedSave).not.toHaveBeenCalled();
+  });
+
+  it('allows creation when parent only has other-ISV extensions (developerCode mismatch)', async () => {
+    mockedSave.mockResolvedValue({
+      isSuccess: true,
+      funcResult: true,
+      messageTitle: null,
+      messageDetail: null,
+    });
+    const otherIsv: ExtensionMeta = {
+      extId: 'cccc3333cccc3333cccc3333cccc3333',
+      parentFormId: 'SAL_SaleOrder',
+      name: '某第三方 ISV 的扩展',
+      developerCode: 'OTHER_VENDOR',
+      modifyDate: '2026-03-15T00:00:00Z',
+    };
+    const { tool } = await findCreate(
+      makeFakeConnector({ listExtensions: async () => [otherIsv] }),
+    );
+
+    const out = JSON.parse(
+      await tool.execute({ parentFormId: 'SAL_SaleOrder', extName: '我们的扩展' }),
+    );
+
+    expect(out.ok).toBe(true);
+    expect(out.extId).toMatch(/^[a-f0-9]{32}$/);
+    expect(mockedSave).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports allReusableExtensions when parent has multiple — historical leftover', async () => {
+    const a: ExtensionMeta = {
+      extId: 'aaaa1111aaaa1111aaaa1111aaaa1111',
+      parentFormId: 'SAL_SaleOrder',
+      name: '扩展 A',
+      developerCode: 'PAIJ',
+      modifyDate: null,
+    };
+    const b: ExtensionMeta = {
+      extId: 'bbbb2222bbbb2222bbbb2222bbbb2222',
+      parentFormId: 'SAL_SaleOrder',
+      name: '扩展 B',
+      developerCode: null,
+      modifyDate: null,
+    };
+    const { tool } = await findCreate(
+      makeFakeConnector({ listExtensions: async () => [a, b] }),
+    );
+
+    const out = JSON.parse(
+      await tool.execute({ parentFormId: 'SAL_SaleOrder', extName: '又一个' }),
+    );
+
+    expect(out.ok).toBe(false);
+    expect(out.allReusableExtensions).toHaveLength(2);
+    expect(out.message).toMatch(/历史遗留|整理合并|2 个扩展/);
+    expect(mockedSave).not.toHaveBeenCalled();
   });
 });
 

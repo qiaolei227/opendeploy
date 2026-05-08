@@ -505,12 +505,13 @@ function createExtensionTool(
       name: 'k3cloud_create_extension',
       description:
         '在 K/3 Cloud 上为指定父单据(原厂表单)新建一个 BOS 扩展。扩展是在父对象上挂字段 / 插件 / 业务规则等定制内容的容器,本身不带任何字段或插件。\n' +
-        '\n创建后调用方拿到的 `extId` 用于后续:\n' +
+        '\n**单层树规则(硬约束)**:每个父对象(业务单据 / 基础资料 / 转换规则 / ...)顶多挂 1 个本项目 devCode 的扩展。所有定制都堆到那一个扩展里,**不允许并列两个扩展**。本工具内部会先调 list_extensions 检查,父对象上已有本项目扩展时**直接拒绝创建**并把 existingExtId 返回 — 你应该用那个 extId 调 `k3cloud_add_fields` / `k3cloud_register_python_plugins` / `k3cloud_add_custom_operation` 等工具继续往里加东西,而不是新建第二个。\n' +
+        '\n创建成功后拿到的 `extId` 用于后续:\n' +
         '- `k3cloud_add_fields` 批量添加扩展字段(数组,一次保存)\n' +
         '- `k3cloud_register_python_plugins` 批量挂 Python 表单插件(数组,一次保存)\n' +
+        '- `k3cloud_add_custom_operation` / `k3cloud_add_toolbar_button` 加操作 + 按钮\n' +
         '- `k3cloud_delete_extension` 不要时整个删掉\n' +
-        '\n创建前**先调 `k3cloud_list_extensions <parentFormId>`** 看是否已有可复用的扩展(同一父单据上多个扩展会变 BOS Designer 的负担)。' +
-        '`layoutInfoOid` 通常会自动从父单据的元数据里查出来,只在自动发现失败时才手动传。',
+        '\n`layoutInfoOid` 通常会自动从父单据的元数据里查出来,只在自动发现失败时才手动传。',
       parameters: {
         type: 'object',
         properties: {
@@ -557,6 +558,48 @@ function createExtensionTool(
       // 服务端 RPC case-insensitive 能查到,但 BOS Designer 列扩展时严格按字符串匹配 FBASEOBJECTID
       // 列。直接用 raw 输入会让混合大小写的 FBASEOBJECTID 落库,Designer 看不到扩展(2026-04-30 实证)。
       const canonicalFormId = parent.id;
+
+      // Single-layer-tree guard — every parent (form / basedata / convert
+      // rule / ...) gets at most ONE OpenDeploy-project extension. Refuse
+      // creating a second sibling — the agent should pile every customization
+      // into the single extension via add_fields / register_python_plugins /
+      // add_custom_operation. We treat both `developerCode === null` (most
+      // OpenDeploy-built rows after FSUPPLIERNAME-not-required experiment,
+      // memory `fuserid_not_required.md`) and `developerCode === devCode`
+      // as "this project's reusable extension"; other-ISV extensions are
+      // ignored (they're not under our control).
+      const allExtensions = await connector.listExtensions(canonicalFormId);
+      const projectDevCode = project.bos.devCode;
+      const reusable = allExtensions.filter(
+        (e) => e.developerCode == null || e.developerCode === projectDevCode,
+      );
+      if (reusable.length > 0) {
+        const target = reusable[0];
+        return JSON.stringify(
+          {
+            ok: false,
+            reason: 'duplicate_extension',
+            parentFormId: canonicalFormId,
+            existingExtId: target.extId,
+            existingExtName: target.name,
+            allReusableExtensions: reusable.map((e) => ({
+              extId: e.extId,
+              name: e.name,
+              developerCode: e.developerCode,
+              modifyDate: e.modifyDate,
+            })),
+            message:
+              `父对象 ${canonicalFormId} 上已经有本项目可复用的扩展 "${target.name}" (extId=${target.extId})。` +
+              `单层树规则:每个父对象只挂 1 个 OpenDeploy 扩展。` +
+              `要继续加东西就用 extId=${target.extId} 调 k3cloud_add_fields / k3cloud_register_python_plugins / k3cloud_add_custom_operation 等工具往里挂,不要新建第二个并列扩展。` +
+              (reusable.length > 1
+                ? `(注:本项目下已有 ${reusable.length} 个扩展,这是历史遗留 — 应整理合并到一个,或用 k3cloud_delete_extension 删掉多余的。)`
+                : ''),
+          },
+          null,
+          2,
+        );
+      }
 
       // Discover layoutInfoOid from parent FKERNELXML unless agent overrode.
       let layoutInfoOid = typeof args.layoutInfoOid === 'string' ? args.layoutInfoOid.trim() : '';
