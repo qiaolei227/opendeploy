@@ -46,8 +46,8 @@ same wire protocol BOS Designer uses to talk to the K/3 Cloud Web Server.
   Builds the URL, form, headers (incl. `kdbiz-info` JSON), POSTs, decodes.
   Cookie state on `KdSession`, updated by `applySetCookieToSession`.
 - **`login.ts`** — `login(creds)`: GetAuthPublicKey → ValidateLoginInfo.
-  **STATUS: skeleton only — RSA password encryption is TODO.** See module
-  docstring for the unresolved CJK-chars-vs-base64 password mystery.
+  RSA password encryption + obfuscation handled in `password.ts`. Production-
+  exercised via Plan 5.12.x agent e2e + smoke scripts.
 - **`save-for-ide.ts`** — `saveExtension(session, req)`: composes above to
   invoke `MetadataService.SaveForIDEV9`. Returns typed `SaveExtensionResult`.
 - **`index.ts`** — public API barrel.
@@ -60,10 +60,10 @@ same wire protocol BOS Designer uses to talk to the K/3 Cloud Web Server.
 | `codec.ts` | ✅ working + tested (round-trips real captures) |
 | `clientinfo.ts` | ✅ working + tested |
 | `dcxml.ts` | ✅ all 12 field types + 12 appearance types + remove + Form root |
-| `http-client.ts` | 🟡 working but cookie persistence not exercised in real call |
-| `login.ts` | 🟢 frmLogin (local-account) path implemented; needs end-to-end smoke against real server |
+| `http-client.ts` | ✅ production-exercised (cookie state survives full save/list cycles) |
+| `login.ts` | ✅ frmLogin (local-account) path production-exercised by Plan 5.12.x e2e |
 | `password.ts` | ✅ obfuscate / deobfuscate / RSA-PKCS#1-v1.5; round-trip + capture-match tested |
-| `save-for-ide.ts` | 🟡 composed shell, depends on Login + first integration test |
+| `save-for-ide.ts` | ✅ production path for register_python_plugins / create_extension / add_fields / operation + button writers |
 
 ## Adding a new field type
 
@@ -91,22 +91,18 @@ same wire protocol BOS Designer uses to talk to the K/3 Cloud Web Server.
 - `bos_save_for_ide_v9_wire_format.md` — full wire protocol detail
 - `bos_dcxml_element_schema.md` — element schema reference table
 
-## Known TODOs (in priority order)
+## Known TODOs (deferred to v0.2+)
 
-1. **End-to-end Login smoke** — drive `login()` against the real local server
-   to confirm `AuthenticateType=0` is accepted (frmLogin path). If rejected,
-   capture an actual frmLogin-mode session (toggle LoginSetting.xml
-   `<CloudEntry>False</CloudEntry>` + restart BOS Designer + log in with
-   local account `demo`) and diff the captured wire format against what
-   `login()` produces.
-2. **`__paras__.FuncInterfaces`** (`save-for-ide.ts`) — currently null;
-   may need population to inherit parent's function interfaces (e.g.
-   `UpdateCreditAmount` for SAL_SaleOrder). Test on first integration
-   call; populate from a parent-load query if rejected.
-3. **Cookie jar lifetime** (`http-client.ts`) — currently single-pair
-   tracked on KdSession. Validate against a multi-call session including
-   inactivity / re-auth; expand if necessary.
-4. **clientinfo cache** (`clientinfo.ts`) — currently re-computed every
+1. **`__paras__.FuncInterfaces`** (`save-for-ide.ts`) — currently null;
+   production path doesn't need it for the supported scenarios (verified
+   across SAL_SaleOrder, BD_Customer, multiple convert-rule flows). May
+   need population if a future scenario inherits parent function interfaces
+   (e.g. `UpdateCreditAmount`); populate from a parent-load query then.
+2. **Cookie jar lifetime** (`http-client.ts`) — currently single-pair
+   tracked on KdSession. Production sessions stay alive for hours of agent
+   work without issue, but a true multi-day session with re-auth hasn't
+   been validated.
+3. **clientinfo cache** (`clientinfo.ts`) — currently re-computed every
    call. Cheap, but could be cached on KdSession.
-5. **More field types** — current 12 cover common needs but `LongText` /
+4. **More field types** — current 12 cover common needs but `LongText` /
    `RichText` / `MulCombo` / `Assistant` / `Link` haven't been captured.
