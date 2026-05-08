@@ -111,6 +111,15 @@ const FORM_BUSINESS_SERVICE_RE =
   /<FormBusinessService\b[^>]*>([\s\S]*?)<\/FormBusinessService>/;
 const PARAMETERS_RE = /<Parameters>(\[[^<]*\])<\/Parameters>/;
 
+// FormAppearance carries TWO sibling BarDataManager wrappers:
+//   <Menu> ... </Menu>          ← 顶层菜单集合 (toolbar)
+//   <ListMenu> ... </ListMenu>  ← 列表菜单 (list-view toolbar)
+// Only Menu exists on EntryEntityAppearance. We split the appearance body
+// into per-wrapper segments so we can label each parsed button with its
+// menuLocation, and so BarItemLink lookups inside one wrapper don't bleed
+// into the other (rare but possible if buttonKey collides).
+const MENU_WRAPPER_RE = /<(Menu|ListMenu)\b[^>]*>([\s\S]*?)<\/\1>/g;
+
 function parseToolbarButtons(xml: string): ParsedToolbarButton[] {
   const out: ParsedToolbarButton[] = [];
   for (const apM of xml.matchAll(APPEARANCE_RE)) {
@@ -122,49 +131,63 @@ function parseToolbarButtons(xml: string): ParsedToolbarButton[] {
     const parentEntityKey =
       apKind === 'EntryEntityAppearance' ? matchTextChild(apBody, 'Key') ?? null : null;
 
-    // Index BarItemLinks by BarItemKey for binding lookup.
-    const linkByButtonKey = new Map<string, { id?: string; parentKey?: string }>();
-    for (const linkM of apBody.matchAll(BAR_ITEM_LINK_RE)) {
-      const lb = linkM[1];
-      const k = matchTextChild(lb, 'BarItemKey');
-      if (!k) continue;
-      linkByButtonKey.set(k, {
-        id: matchTextChild(lb, 'Id') ?? undefined,
-        parentKey: matchTextChild(lb, 'ParentKey') ?? undefined,
-      });
-    }
+    for (const wM of apBody.matchAll(MENU_WRAPPER_RE)) {
+      const wrapperTag = wM[1] as 'Menu' | 'ListMenu';
+      const wBody = wM[2];
+      const menuLocation: 'menu' | 'listMenu' | 'entry' =
+        apKind === 'EntryEntityAppearance'
+          ? 'entry'
+          : wrapperTag === 'ListMenu'
+          ? 'listMenu'
+          : 'menu';
 
-    for (const btnM of apBody.matchAll(BAR_BUTTON_RE)) {
-      const body = btnM[1];
-      const buttonKey = matchTextChild(body, 'Key');
-      if (!buttonKey) continue;
-
-      const link = linkByButtonKey.get(buttonKey);
-      const fbs = body.match(FORM_BUSINESS_SERVICE_RE);
-      let boundOperationKey: string | null = null;
-      if (fbs) {
-        const params = fbs[1].match(PARAMETERS_RE)?.[1];
-        if (params) {
-          try {
-            const arr = JSON.parse(params);
-            if (Array.isArray(arr) && typeof arr[0] === 'string') boundOperationKey = arr[0];
-          } catch {
-            // Parameters didn't parse as JSON array — treat as orphan shell.
-          }
-        }
+      // Index BarItemLinks by BarItemKey for binding lookup, scoped to
+      // the wrapper so a Menu-side link never resolves a ListMenu-side
+      // button (or vice versa) when they happen to share buttonKey.
+      const linkByButtonKey = new Map<string, { id?: string; parentKey?: string }>();
+      for (const linkM of wBody.matchAll(BAR_ITEM_LINK_RE)) {
+        const lb = linkM[1];
+        const k = matchTextChild(lb, 'BarItemKey');
+        if (!k) continue;
+        linkByButtonKey.set(k, {
+          id: matchTextChild(lb, 'Id') ?? undefined,
+          parentKey: matchTextChild(lb, 'ParentKey') ?? undefined,
+        });
       }
 
-      out.push({
-        buttonKey,
-        buttonId: matchTextChild(body, 'Id') ?? undefined,
-        caption: matchTextChild(body, 'Caption') ?? undefined,
-        description: matchTextChild(body, 'Description') ?? undefined,
-        seq: Number(matchTextChild(body, 'Seq') ?? '0'),
-        parentEntityKey,
-        boundOperationKey,
-        barItemLinkId: link?.id ?? null,
-        toolbarKey: link?.parentKey ?? null,
-      });
+      for (const btnM of wBody.matchAll(BAR_BUTTON_RE)) {
+        const body = btnM[1];
+        const buttonKey = matchTextChild(body, 'Key');
+        if (!buttonKey) continue;
+
+        const link = linkByButtonKey.get(buttonKey);
+        const fbs = body.match(FORM_BUSINESS_SERVICE_RE);
+        let boundOperationKey: string | null = null;
+        if (fbs) {
+          const params = fbs[1].match(PARAMETERS_RE)?.[1];
+          if (params) {
+            try {
+              const arr = JSON.parse(params);
+              if (Array.isArray(arr) && typeof arr[0] === 'string') boundOperationKey = arr[0];
+            } catch {
+              // Parameters didn't parse as JSON array — treat as orphan shell.
+            }
+          }
+        }
+
+        out.push({
+          buttonKey,
+          buttonId: matchTextChild(body, 'Id') ?? undefined,
+          caption: matchTextChild(body, 'Caption') ?? undefined,
+          description: matchTextChild(body, 'Description') ?? undefined,
+          seq: Number(matchTextChild(body, 'Seq') ?? '0'),
+          parentEntityKey,
+          boundOperationKey,
+          barItemLinkId: link?.id ?? null,
+          toolbarKey: link?.parentKey ?? null,
+          menuLocation,
+        });
+      }
     }
   }
   return out;

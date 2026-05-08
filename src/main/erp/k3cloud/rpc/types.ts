@@ -406,6 +406,14 @@ export interface BosBarButtonElement {
    *  / `extractEntryEntityAppearanceLocation` from parent FKERNELXML. */
   appearanceOid: string;
   appearanceKind: 'FormAppearance' | 'EntryEntityAppearance';
+  /** Wrapper element name inside the appearance. `Menu` (default) writes to
+   *  `FormAppearance.Menu` / `EntryEntityAppearance.Menu` — the standard form
+   *  toolbar / entry toolbar. `ListMenu` writes to `FormAppearance.ListMenu`
+   *  — the bill's list-view toolbar (only valid with appearanceKind=
+   *  'FormAppearance'). Verified via Kingdee.BOS.Core.Metadata.FormElement
+   *  .FormAppearance — both `Menu` and `ListMenu` are `BarDataManager`
+   *  ComplexProperty with identical schema. */
+  menuWrapper?: 'Menu' | 'ListMenu';
   /** ElementType: 100 for FormAppearance, 35 for EntryEntityAppearance. */
   appearanceElementType: number;
   /** Stable per-appearance BarDataManager id (dashed UUID). Caller manages. */
@@ -436,6 +444,10 @@ export interface BosBarButtonElement {
 export interface BosRemoveBarButton {
   appearanceOid: string;
   appearanceKind: 'FormAppearance' | 'EntryEntityAppearance';
+  /** Wrapper element name (must match the wrapper that holds the button:
+   *  `Menu` for standard / entry toolbar, `ListMenu` for the list-view
+   *  toolbar). See BosBarButtonElement.menuWrapper. */
+  menuWrapper?: 'Menu' | 'ListMenu';
   appearanceElementType: number;
   buttonId: string;
   barItemLinkId: string;

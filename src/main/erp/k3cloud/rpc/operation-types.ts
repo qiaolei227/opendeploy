@@ -62,6 +62,11 @@ export interface ParsedToolbarButton {
   boundOperationKey?: string | null;
   barItemLinkId?: string | null;
   toolbarKey?: string | null;
+  /** Where the button lives:
+   *  - 'menu': FormAppearance.Menu (form 顶层菜单集合)
+   *  - 'listMenu': FormAppearance.ListMenu (列表菜单)
+   *  - 'entry': EntryEntityAppearance.Menu (单据体工具栏) */
+  menuLocation?: 'menu' | 'listMenu' | 'entry';
 }
 
 export interface ListOperationsResult {

@@ -604,11 +604,12 @@ function renderEntryEntityAppearance(out: XmlWriter, a: BosEntryAppearance): voi
  */
 function renderAddBarButton(out: XmlWriter, b: BosBarButtonElement): void {
   const seq = b.seq ?? 1;
+  const wrapper = b.menuWrapper ?? 'Menu';
   // Parameters is a JSON-array literal — emit raw so the inner double quotes
   // survive (same trick as renderDefaultEntryMenu).
   const paramsJson = `["${xmlEscape(b.boundOperationKey)}"]`;
   out.push(`<${b.appearanceKind} action="edit" oid="${xmlEscape(b.appearanceOid)}" ElementType="${b.appearanceElementType}" ElementStyle="1">`);
-  out.push('<Menu>');
+  out.push(`<${wrapper}>`);
   out.push('<BarDataManager>');
   child(out, 'Id', b.barDataManagerId);
   out.push('<BarItems>');
@@ -649,7 +650,7 @@ function renderAddBarButton(out: XmlWriter, b: BosBarButtonElement): void {
   out.push('</BarItemLink>');
   out.push('</BarItemLinks>');
   out.push('</BarDataManager>');
-  out.push('</Menu>');
+  out.push(`</${wrapper}>`);
   out.push(`</${b.appearanceKind}>`);
 }
 
@@ -659,8 +660,9 @@ function renderAddBarButton(out: XmlWriter, b: BosBarButtonElement): void {
  * from Route C `buildRemoveToolbarButtonOverlay` 2026-05-07.
  */
 function renderRemoveBarButton(out: XmlWriter, b: BosRemoveBarButton): void {
+  const wrapper = b.menuWrapper ?? 'Menu';
   out.push(`<${b.appearanceKind} action="edit" oid="${xmlEscape(b.appearanceOid)}" ElementType="${b.appearanceElementType}" ElementStyle="1">`);
-  out.push('<Menu>');
+  out.push(`<${wrapper}>`);
   out.push('<BarDataManager>');
   out.push('<BarItems>');
   out.push(`<BarButtonItem action="remove" oid="${xmlEscape(b.buttonId)}"/>`);
@@ -669,7 +671,7 @@ function renderRemoveBarButton(out: XmlWriter, b: BosRemoveBarButton): void {
   out.push(`<BarItemLink action="remove" oid="${xmlEscape(b.barItemLinkId)}"/>`);
   out.push('</BarItemLinks>');
   out.push('</BarDataManager>');
-  out.push('</Menu>');
+  out.push(`</${wrapper}>`);
   out.push(`</${b.appearanceKind}>`);
 }
 

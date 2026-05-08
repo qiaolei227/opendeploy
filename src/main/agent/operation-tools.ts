@@ -288,7 +288,8 @@ export function addToolbarButtonTool(c: K3CloudConnector): ToolHandler {
       description:
         '在 BOS 扩展某个位置的工具栏加一个按钮（BarButtonItem），绑已存在的 FormOperation。' +
         '\n\n**位置选择 `target`**：' +
-        '\n- `target.kind="form"` → 加到 form 顶层主工具栏。' +
+        '\n- `target.kind="form"` → 加到 form **顶层主工具栏**（FormAppearance.Menu，BOS Designer 属性面板"菜单集合"）。' +
+        '\n- `target.kind="list"` → 加到单据的 **列表菜单**（FormAppearance.ListMenu，BOS Designer 属性面板"列表菜单"）。客户在销售订单查询列表上看到的工具栏按钮就在这里。' +
         '\n- `target.kind="entry"` → 加到指定 entry 的工具栏，必须传 `target.entityKey`（如 "FSaleOrderEntry"）。' +
         '\n\n**`toolbarKey`**：父级 ToolBar 的 Key。先调 `k3cloud_list_operations` 看现有 toolbar 借用即可；如果该 entry 还没初始化工具栏，list 拿不到 — 提示用户在 BOS Designer 手工加临时按钮初始化后再删（或当 v0.1 限制说明）。' +
         '\n\n**`boundOperationKey`**：必须先用 `k3cloud_add_custom_operation` 创建对应操作。本工具会内部 list 验证 — 不存在直接报错，不发送写请求。' +
@@ -304,11 +305,11 @@ export function addToolbarButtonTool(c: K3CloudConnector): ToolHandler {
           target: {
             type: 'object',
             description:
-              "按钮要挂的位置。kind='form' → form 顶层工具栏；kind='entry' → 指定 entry 的工具栏（必传 entityKey）。",
+              "按钮挂哪。kind='form' → form 顶层工具栏(菜单集合);kind='list' → 列表菜单;kind='entry' → 指定 entry 的工具栏(必传 entityKey)。",
             properties: {
               kind: {
                 type: 'string',
-                description: "'form' 或 'entry'"
+                description: "'form' / 'list' / 'entry'"
               },
               entityKey: {
                 type: 'string',
@@ -370,12 +371,14 @@ export function addToolbarButtonTool(c: K3CloudConnector): ToolHandler {
       }
       const t = targetRaw as Record<string, unknown>;
       const kind = t.kind;
-      if (kind !== 'form' && kind !== 'entry') {
-        throw new Error("target.kind 必填，且必须是 'form' 或 'entry'");
+      if (kind !== 'form' && kind !== 'list' && kind !== 'entry') {
+        throw new Error("target.kind 必填，且必须是 'form' / 'list' / 'entry'");
       }
-      let target: { kind: 'form' } | { kind: 'entry'; entityKey: string };
+      let target: { kind: 'form' } | { kind: 'list' } | { kind: 'entry'; entityKey: string };
       if (kind === 'form') {
         target = { kind: 'form' };
+      } else if (kind === 'list') {
+        target = { kind: 'list' };
       } else {
         const entityKey = t.entityKey;
         if (typeof entityKey !== 'string' || entityKey.trim() === '') {

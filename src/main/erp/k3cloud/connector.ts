@@ -789,6 +789,36 @@ export class K3CloudConnector implements ErpConnector {
    * because the FKERNELXML the server returns to us already contains the
    * HeadEntity collection.
    */
+  /**
+   * Walk the BaseObjectId chain (extension → parent extension → ... → root form)
+   * looking for the FKERNELXML carrying `<HeadEntity oid="...">`. Multi-layer
+   * extensions need this because each extension's FKERNELXML is a delta — only
+   * the root form declares the HeadEntity element. The depth at which we
+   * find the oid does not affect the wire (overlays target HeadEntity by
+   * globally-unique oid).
+   *
+   * Returns the oid string, or null if the entire chain has no HeadEntity (which
+   * happens for non-bill extensions like base data — they have no HeadEntity
+   * concept; entity-level service rules are bill-only).
+   *
+   * The depth limit (5) is a paranoia guard against pathological cycles —
+   * real extension chains rarely exceed 2-3 levels.
+   */
+  private async resolveHeadEntityOidViaChain(startId: string): Promise<string | null> {
+    let currentId = startId;
+    for (let depth = 0; depth < 5; depth++) {
+      const xml = await this.getKernelXml(currentId);
+      if (xml) {
+        const oid = extractHeadEntityOid(xml);
+        if (oid) return oid;
+      }
+      const obj = await this.getObject(currentId);
+      if (!obj?.baseObjectId || obj.baseObjectId === currentId) return null;
+      currentId = obj.baseObjectId;
+    }
+    return null;
+  }
+
   async listBusinessRules(extensionFid: string): Promise<ListBusinessRulesResult> {
     const xml = await this.getKernelXml(extensionFid);
     if (!xml) throw new Error(`扩展 ${extensionFid} 无 FKERNELXML — 不存在或未持久化`);
@@ -829,19 +859,20 @@ export class K3CloudConnector implements ErpConnector {
       throw new Error(`扩展 ${args.extensionFid} 缺少 BaseObjectId — 不是有效扩展`);
     }
 
-    const [extXml, parentXml] = await Promise.all([
-      this.getKernelXml(args.extensionFid),
-      this.getKernelXml(ext.baseObjectId),
-    ]);
+    const extXml = await this.getKernelXml(args.extensionFid);
     if (!extXml) throw new Error(`扩展 ${args.extensionFid} 无 FKERNELXML`);
-    if (!parentXml) {
-      throw new Error(`父对象 ${ext.baseObjectId} 无 FKERNELXML — 无法定位 HeadEntity oid`);
-    }
 
-    const parentHeadOid = extractHeadEntityOid(parentXml);
+    // Walk baseObjectId chain to find HeadEntity oid. Multi-layer extensions
+    // (二层扩展) have a parent that is itself an extension delta XML with no
+    // `<HeadEntity>` node — only the root form (e.g. SAL_SaleOrder) carries
+    // the HeadEntity declaration. Server-side `<HeadEntity action="edit" oid="...">`
+    // overlays target by oid (globally unique), so the depth from which we
+    // pulled the oid does not affect the wire — pull from whichever ancestor
+    // has it.
+    const parentHeadOid = await this.resolveHeadEntityOidViaChain(ext.baseObjectId);
     if (!parentHeadOid) {
       throw new Error(
-        `父对象 ${ext.baseObjectId} 没有 HeadEntity 节点 — 实体业务规则无法挂载`,
+        `从 ${ext.baseObjectId} 起 BaseObjectId 链上找不到 HeadEntity 节点 — 实体业务规则无法挂载`,
       );
     }
 
@@ -896,15 +927,10 @@ export class K3CloudConnector implements ErpConnector {
       );
     }
 
-    const [extXml, parentXml] = await Promise.all([
-      this.getKernelXml(extensionFid),
-      this.getKernelXml(ext.baseObjectId),
-    ]);
+    const extXml = await this.getKernelXml(extensionFid);
     if (!extXml) throw new Error(`扩展 ${extensionFid} 无 FKERNELXML`);
-    if (!parentXml) {
-      throw new Error(`父对象 ${ext.baseObjectId} 无 FKERNELXML — 无法定位 HeadEntity oid`);
-    }
-    const parentHeadOid = extractHeadEntityOid(parentXml);
+
+    const parentHeadOid = await this.resolveHeadEntityOidViaChain(ext.baseObjectId);
     if (!parentHeadOid) {
       throw new Error(
         `父对象 ${ext.baseObjectId} 没有 HeadEntity 节点 — 实体业务规则无法定位`,
@@ -1261,7 +1287,10 @@ export class K3CloudConnector implements ErpConnector {
    */
   async addToolbarButton(args: {
     extensionFid: string;
-    target: { kind: 'form' } | { kind: 'entry'; entityKey: string };
+    /** `form` = FormAppearance.Menu (顶部工具栏);
+     *  `list` = FormAppearance.ListMenu (列表菜单);
+     *  `entry` = EntryEntityAppearance.Menu (单据体工具栏)。 */
+    target: { kind: 'form' } | { kind: 'list' } | { kind: 'entry'; entityKey: string };
     buttonKey: string;
     buttonId: string;
     caption: string;
@@ -1297,13 +1326,15 @@ export class K3CloudConnector implements ErpConnector {
       throw new Error(`父对象 ${ext.baseObjectId} FKERNELXML 中未找到 layoutInfoOid`);
     }
     const loc =
-      args.target.kind === 'form'
+      args.target.kind === 'form' || args.target.kind === 'list'
         ? extractFormAppearanceLocation(parentXml)
         : extractEntryEntityAppearanceLocation(parentXml, args.target.entityKey);
     if (!loc) {
       throw new Error(
         args.target.kind === 'form'
           ? `父对象 ${ext.baseObjectId} 没有 FormAppearance — form 顶层工具栏不存在`
+          : args.target.kind === 'list'
+          ? `父对象 ${ext.baseObjectId} 没有 FormAppearance — 列表菜单挂不上`
           : `父对象 ${ext.baseObjectId} 没有 entityKey "${args.target.entityKey}" 的 EntryEntityAppearance`,
       );
     }
@@ -1311,7 +1342,9 @@ export class K3CloudConnector implements ErpConnector {
     const existing = extractExistingExtensionElements(extXml);
     const newButton: BosBarButtonElement = {
       appearanceOid: loc.oid,
-      appearanceKind: args.target.kind === 'form' ? 'FormAppearance' : 'EntryEntityAppearance',
+      appearanceKind:
+        args.target.kind === 'entry' ? 'EntryEntityAppearance' : 'FormAppearance',
+      menuWrapper: args.target.kind === 'list' ? 'ListMenu' : 'Menu',
       appearanceElementType: loc.elementType,
       buttonKey: args.buttonKey,
       buttonId: args.buttonId,
