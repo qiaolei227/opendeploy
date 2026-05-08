@@ -445,6 +445,54 @@ describe('addGetInvStockRuleTool', () => {
     expect(parsed.found).toBe(true);
     expect(addEntityServiceRule).toHaveBeenCalled();
   });
+
+  it('happy path emits NO warnings field when input is clean', async () => {
+    const addEntityServiceRule = vi.fn(async () => ({ ruleId: 'rule-guid' }));
+    const tool = addGetInvStockRuleTool(happyConnector(addEntityServiceRule));
+
+    const raw = await tool.execute({
+      extensionFid: EXT_ID,
+      description: '清白输入',
+      preCondition: 'True',
+      stockQtyField: 'F_TestQty'
+    });
+    const parsed = JSON.parse(raw);
+
+    expect(parsed.found).toBe(true);
+    expect(parsed.warnings).toBeUndefined();
+  });
+
+  it('warnings: surfaces type mismatch + empty string + unknown key', async () => {
+    const addEntityServiceRule = vi.fn(async () => ({ ruleId: 'rule-guid' }));
+    const tool = addGetInvStockRuleTool(happyConnector(addEntityServiceRule));
+
+    const raw = await tool.execute({
+      extensionFid: EXT_ID,
+      description: '混合错误输入',
+      preCondition: 'True',
+      // Type mismatch: stockQtyField schema is 'string', LLM passed number.
+      stockQtyField: 42 as unknown as string,
+      // Empty string: schema 'string' but 0-length after trim.
+      awaitQtyField: '   ',
+      // Unknown key not in ActionId 67 schema (and not in fixed framework keys).
+      bogusProperty: 'nope'
+    });
+    const parsed = JSON.parse(raw);
+
+    expect(parsed.found).toBe(true); // rule still goes through
+    expect(parsed.warnings).toBeDefined();
+    expect(parsed.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/属性 stockQtyField.*期望 string.*number/),
+        expect.stringMatching(/属性 awaitQtyField.*空字符串/),
+        expect.stringMatching(/未知参数 bogusProperty/)
+      ])
+    );
+    // Sanity: dropped properties did NOT reach the wire payload.
+    const props = addEntityServiceRule.mock.calls[0][0].services[0].properties;
+    expect(props).not.toHaveProperty('stockQtyField');
+    expect(props).not.toHaveProperty('awaitQtyField');
+  });
 });
 
 describe('addCalculateRuleTool', () => {
@@ -723,5 +771,76 @@ describe('addCalculateRuleTool', () => {
     });
     expect(JSON.parse(raw).found).toBe(true);
     expect(addFieldUpdateAction).toHaveBeenCalled();
+  });
+
+  it('happy path (field) emits NO warnings field when input is clean', async () => {
+    const addFieldUpdateAction = vi.fn(async () => ({ serviceId: 'svc1' }));
+    const tool = addCalculateRuleTool(happyConnector({ addFieldUpdateAction }));
+
+    const raw = await tool.execute({
+      extensionFid: EXT_ID,
+      mountPoint: { kind: 'field', fieldKey: 'F单价' },
+      actions: ['F金额 = F数量 * F单价']
+    });
+    expect(JSON.parse(raw).warnings).toBeUndefined();
+  });
+
+  it('warnings (field): unknown top-level + unknown mountPoint key + non-array disabledEvents', async () => {
+    const addFieldUpdateAction = vi.fn(async () => ({ serviceId: 'svc1' }));
+    const tool = addCalculateRuleTool(happyConnector({ addFieldUpdateAction }));
+
+    const raw = await tool.execute({
+      extensionFid: EXT_ID,
+      mountPoint: {
+        kind: 'field',
+        fieldKey: 'F单价',
+        // Wrong shape — disabledEvents must be array.
+        disabledEvents: 'ValueChanged' as unknown as string[],
+        // Unknown for kind=field (it's an entity-only key).
+        preCondition: 'True'
+      },
+      actions: ['F金额 = F数量 * F单价'],
+      // Unknown top-level key.
+      bogusTop: 'nope'
+    });
+    const parsed = JSON.parse(raw);
+
+    expect(parsed.found).toBe(true);
+    expect(parsed.warnings).toBeDefined();
+    expect(parsed.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/未知顶层参数 bogusTop/),
+        expect.stringMatching(/未知 mountPoint\.preCondition.*kind="field"/),
+        expect.stringMatching(/disabledEvents.*期望 string\[\].*string/)
+      ])
+    );
+  });
+
+  it('warnings (entity): preConditionDesc empty string surfaces as warning', async () => {
+    const addEntityServiceRule = vi.fn(async () => ({ ruleId: 'rule-guid' }));
+    const tool = addCalculateRuleTool(happyConnector({ addEntityServiceRule }));
+
+    const raw = await tool.execute({
+      extensionFid: EXT_ID,
+      mountPoint: {
+        kind: 'entity',
+        description: '实体级 demo',
+        preCondition: 'True',
+        preConditionDesc: '   '
+      },
+      actions: ['F金额 = F数量 * F单价']
+    });
+    const parsed = JSON.parse(raw);
+
+    expect(parsed.found).toBe(true);
+    expect(parsed.warnings).toBeDefined();
+    expect(parsed.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/preConditionDesc.*空字符串/)
+      ])
+    );
+    // preConditionDesc didn't reach the connector call.
+    const call = addEntityServiceRule.mock.calls[0][0];
+    expect(call.preConditionDesc).toBeUndefined();
   });
 });

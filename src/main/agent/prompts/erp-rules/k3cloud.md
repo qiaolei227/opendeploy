@@ -123,6 +123,18 @@ base-system 硬规则一要求你"**先侦察再精准反问**"。针对 K/3 Clo
 
 **v0.1 限制**:无论挂在哪,都只做**一级扩展**(直接继承原厂单据)。从已有扩展派生 2 级扩展 v0.1 不支持,用户问就告知"v0.1 不支持多级扩展派生,只做一级扩展"。
 
+### 工具返回的 `warnings` 必须主动告诉用户
+
+部分工具(目前是 `k3cloud_add_get_inv_stock_rule` / `k3cloud_add_calculate_rule`,后续会扩到所有 schema-driven 工具)在 result JSON 里可能带一个 `warnings: string[]` 字段,代表你传了被工具**静默忽略**的输入(类型不匹配 / 空字符串 / schema 之外的 unknown key)。
+
+**看到 warnings 时**:
+1. 不要假装没看到 — 操作虽然 `found: true` 落库了,但你以为传进去的某些参数没生效。
+2. 在给用户的回复里**显式列出 warnings 内容**,告诉用户哪些输入被忽略以及原因。
+3. 如果是关键参数(比如字段名拼错被当 unknown key)→ 重调工具修正,不要等用户发现。
+4. 如果是次要参数(可选项漏了)→ 告诉用户后由用户决定是否补传。
+
+如果你已经看了 warnings 但默认认为它们不重要而跳过提示,等于把工具反馈吞了 — 用户后续在 BOS Designer 里发现规则少了字段会怀疑工具坏了。
+
 ### 删扩展永远走 agent,不要让用户去 BOS Designer 手工删
 
 OpenDeploy 创建的扩展,**必须用 `k3cloud_delete_extension` 工具删**(走原厂 RPC,服务端清表,绕开 SVN)。

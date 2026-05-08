@@ -238,27 +238,59 @@ export function addGetInvStockRuleTool(c: K3CloudConnector): ToolHandler {
 
       // Collect string-typed property values the agent supplied that exist
       // in the schema. Skip non-string values (number / undefined) — only
-      // string properties carry field references. Properties NOT in the
-      // schema are silently dropped (typo-tolerant); fields the LLM might
-      // mis-type are caught one layer up by the existence check.
+      // string properties carry field references. Type mismatches, empty
+      // strings, and unknown keys surface as `warnings` in the result so the
+      // LLM gets feedback when its input was partially ignored (rather than
+      // silently dropped — fields the LLM might mis-type are caught one
+      // layer up by the existence check).
+      const warnings: string[] = [];
       const referenced: string[] = [];
       const userProperties: Record<string, unknown> = {};
       for (const [k, def] of Object.entries(propsSchema)) {
         const v = (args as Record<string, unknown>)[k];
         if (v === undefined || v === null) continue;
         if (def.type === 'string') {
-          if (typeof v !== 'string') continue;
+          if (typeof v !== 'string') {
+            warnings.push(
+              `属性 ${k}: schema 期望 string,收到 ${typeof v} (${JSON.stringify(v)}),已忽略`
+            );
+            continue;
+          }
           const trimmed = v.trim();
-          if (trimmed === '') continue;
+          if (trimmed === '') {
+            warnings.push(`属性 ${k}: 收到空字符串,已忽略 (传值时去掉该属性,或传非空字段名)`);
+            continue;
+          }
           referenced.push(trimmed);
           userProperties[k] = trimmed;
         } else if (def.type === 'number') {
-          if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+          if (typeof v !== 'number' || !Number.isFinite(v)) {
+            warnings.push(
+              `属性 ${k}: schema 期望 number,收到 ${typeof v} (${JSON.stringify(v)}),已忽略`
+            );
+            continue;
+          }
           userProperties[k] = v;
         } else {
           // Unknown schema type (shouldn't happen for ActionId 67) — pass through.
           userProperties[k] = v;
         }
+      }
+
+      // Surface unknown top-level keys (LLM passed a property name not in
+      // ActionId 67 schema). Fixed framework keys are excluded.
+      const FIXED_KEYS = new Set([
+        'extensionFid',
+        'description',
+        'preCondition',
+        'preConditionDesc'
+      ]);
+      for (const k of Object.keys(args)) {
+        if (FIXED_KEYS.has(k)) continue;
+        if (k in propsSchema) continue;
+        warnings.push(
+          `未知参数 ${k}: 不在 ActionId 67 (GetInvStock) schema 中,已忽略 — 用 k3cloud_describe_service_meta(actionId=67) 查可用属性`
+        );
       }
 
       // Field existence check.
@@ -314,7 +346,8 @@ export function addGetInvStockRuleTool(c: K3CloudConnector): ToolHandler {
           ruleId: result.ruleId,
           serviceId,
           message:
-            `GetInvStock 规则已添加（ruleId=${result.ruleId}）。BOS Designer 工具栏点刷新即可看到。`
+            `GetInvStock 规则已添加（ruleId=${result.ruleId}）。BOS Designer 工具栏点刷新即可看到。`,
+          ...(warnings.length > 0 && { warnings })
         },
         null,
         2
@@ -411,7 +444,21 @@ export function addCalculateRuleTool(c: K3CloudConnector): ToolHandler {
       }
     },
     async execute(args) {
+      // Warnings track silently-dropped inputs so the LLM gets feedback when
+      // it passed something the tool ignored (type mismatches, unknown keys,
+      // empty strings) — see memory followup_tool_feedback_warnings_on_dropped_inputs.
+      const warnings: string[] = [];
+
       const extensionFid = requireString(args, 'extensionFid');
+
+      // Surface unknown top-level keys.
+      const FIXED_TOP_KEYS = new Set(['extensionFid', 'mountPoint', 'actions']);
+      for (const k of Object.keys(args)) {
+        if (FIXED_TOP_KEYS.has(k)) continue;
+        warnings.push(
+          `未知顶层参数 ${k}: 不在 k3cloud_add_calculate_rule schema 中,已忽略 — 仅接受 extensionFid / mountPoint / actions`
+        );
+      }
 
       // mountPoint shape validation — we do this manually instead of via
       // JSON Schema oneOf since LLMs handle oneOf poorly across providers.
@@ -423,6 +470,23 @@ export function addCalculateRuleTool(c: K3CloudConnector): ToolHandler {
       const kind = mp.kind;
       if (kind !== 'field' && kind !== 'entity') {
         throw new Error("mountPoint.kind 必填，且必须是 'field' 或 'entity'");
+      }
+
+      // Surface unknown mountPoint keys (vary by kind).
+      const FIELD_MOUNT_KEYS = new Set(['kind', 'fieldKey', 'disabledEvents']);
+      const ENTITY_MOUNT_KEYS = new Set([
+        'kind',
+        'preCondition',
+        'preConditionDesc',
+        'description'
+      ]);
+      const validMountKeys = kind === 'field' ? FIELD_MOUNT_KEYS : ENTITY_MOUNT_KEYS;
+      for (const k of Object.keys(mp)) {
+        if (validMountKeys.has(k)) continue;
+        warnings.push(
+          `未知 mountPoint.${k}: kind="${kind}" 时不接受此 key,已忽略 — ` +
+            `kind="${kind}" 仅接受 ${Array.from(validMountKeys).join(' / ')}`
+        );
       }
 
       // actions validation
@@ -500,12 +564,26 @@ export function addCalculateRuleTool(c: K3CloudConnector): ToolHandler {
         if (!fieldKey) {
           throw new Error("mountPoint.kind='field' 时 mountPoint.fieldKey 必填非空");
         }
-        const disabledEvents =
-          Array.isArray(mp.disabledEvents) && mp.disabledEvents.length > 0
-            ? (mp.disabledEvents as unknown[]).filter(
-                (v): v is string => typeof v === 'string' && v.trim() !== ''
-              )
-            : undefined;
+        let disabledEvents: string[] | undefined;
+        if (mp.disabledEvents !== undefined && mp.disabledEvents !== null) {
+          if (!Array.isArray(mp.disabledEvents)) {
+            warnings.push(
+              `mountPoint.disabledEvents: 期望 string[],收到 ${typeof mp.disabledEvents},已忽略`
+            );
+          } else if (mp.disabledEvents.length > 0) {
+            const filtered: string[] = [];
+            for (const [i, v] of (mp.disabledEvents as unknown[]).entries()) {
+              if (typeof v !== 'string' || v.trim() === '') {
+                warnings.push(
+                  `mountPoint.disabledEvents[${i}]: 期望非空 string,收到 ${typeof v} (${JSON.stringify(v)}),已跳过`
+                );
+                continue;
+              }
+              filtered.push(v.trim());
+            }
+            disabledEvents = filtered.length > 0 ? filtered : undefined;
+          }
+        }
 
         const serviceId = randomUUID(); // dashed form (matches recon req-120)
         const result = await c.addFieldUpdateAction({
@@ -528,7 +606,8 @@ export function addCalculateRuleTool(c: K3CloudConnector): ToolHandler {
             serviceId: result.serviceId,
             message:
               `字段级 Calculate 规则已添加到字段 ${fieldKey}（serviceId=${result.serviceId}）。` +
-              'BOS Designer 工具栏点刷新即可看到。'
+              'BOS Designer 工具栏点刷新即可看到。',
+            ...(warnings.length > 0 && { warnings })
           },
           null,
           2
@@ -548,10 +627,18 @@ export function addCalculateRuleTool(c: K3CloudConnector): ToolHandler {
         throw new Error("mountPoint.kind='entity' 时 description 必填非空");
       }
       const description = descriptionRaw.trim();
-      const preConditionDesc =
-        typeof mp.preConditionDesc === 'string' && mp.preConditionDesc.trim() !== ''
-          ? mp.preConditionDesc.trim()
-          : undefined;
+      let preConditionDesc: string | undefined;
+      if (mp.preConditionDesc !== undefined && mp.preConditionDesc !== null) {
+        if (typeof mp.preConditionDesc !== 'string') {
+          warnings.push(
+            `mountPoint.preConditionDesc: 期望 string,收到 ${typeof mp.preConditionDesc},已忽略`
+          );
+        } else if (mp.preConditionDesc.trim() === '') {
+          warnings.push(`mountPoint.preConditionDesc: 收到空字符串,已忽略`);
+        } else {
+          preConditionDesc = mp.preConditionDesc.trim();
+        }
+      }
 
       const ruleId = randomUUID(); // dashed form
       const serviceId = randomUUID().replace(/-/g, ''); // 32-hex no dashes
@@ -577,7 +664,8 @@ export function addCalculateRuleTool(c: K3CloudConnector): ToolHandler {
           ruleId: result.ruleId,
           serviceId,
           message:
-            `实体级 Calculate 规则已添加（ruleId=${result.ruleId}）。BOS Designer 工具栏点刷新即可看到。`
+            `实体级 Calculate 规则已添加（ruleId=${result.ruleId}）。BOS Designer 工具栏点刷新即可看到。`,
+          ...(warnings.length > 0 && { warnings })
         },
         null,
         2
