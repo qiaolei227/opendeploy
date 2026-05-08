@@ -176,40 +176,26 @@ namespace OpenDeploy.BosBridge
                     var ruleId = RequireString(req, "ruleId");
                     return ctx.RemoveBusinessRule(xml, ruleId);
                 }
-                case "list_operations":
-                    return ctx.ListOperations(RequireString(req, "xml"));
-                case "add_custom_operation":
-                {
-                    // Newtonsoft binds the [JsonProperty] camelCase keys on
-                    // AddCustomOperationArgs (operationKey, pluginClassName,
-                    // pyBody, …) — same pattern 5.12.3b's add_entity_service_rule
-                    // / add_field_update_action use, so the wire shape stays
-                    // consistent across ops in this dispatch table.
-                    var args = req.ToObject<BosContext.AddCustomOperationArgs>()
-                        ?? throw new InvalidOperationException("failed to deserialize add_custom_operation args");
-                    return new { xml = ctx.AddCustomOperation(args) };
-                }
-                case "remove_operation":
-                {
-                    var xml = RequireString(req, "xml");
-                    var operationKey = RequireString(req, "operationKey");
-                    return new { xml = ctx.RemoveOperation(xml, operationKey) };
-                }
-                case "add_toolbar_button":
-                {
-                    // Newtonsoft binds the [JsonProperty] camelCase keys
-                    // (target, buttonKey, boundOperationKey, …) — same
-                    // pattern as add_custom_operation / add_entity_service_rule.
-                    var args = req.ToObject<BosContext.AddToolbarButtonArgs>()
-                        ?? throw new InvalidOperationException("failed to deserialize add_toolbar_button args");
-                    return new { xml = ctx.AddToolbarButton(args) };
-                }
-                case "remove_toolbar_button":
-                {
-                    var xml = RequireString(req, "xml");
-                    var buttonKey = RequireString(req, "buttonKey");
-                    return new { xml = ctx.RemoveToolbarButton(xml, buttonKey) };
-                }
+                // ── Operations + Toolbar Buttons (Plan 5.12.6) — REMOVED ──
+                //
+                // The 5 ops `list_operations` / `add_custom_operation` /
+                // `remove_operation` / `add_toolbar_button` /
+                // `remove_toolbar_button` were originally Plan 5.12.6 Phase 2.
+                // Lever 3 (commit 8ca1661) and its followup (commit b832d83)
+                // migrated all 5 connector wrappers off the bridge:
+                //   - listOperations now goes through `rpc/operation-parser.ts`
+                //     (TS-side regex walk) — bridge's DcxmlSerializer dropped
+                //     <Form action="edit"> content silently, see memory
+                //     `bos_bridge_list_operations_silent_drop`.
+                //   - The 4 write ops (add/remove operation, add/remove button)
+                //     all rebuild a typed SaveExtensionRequest and ship via
+                //     `rpc/save-for-ide.ts` (Route B envelope rebuild) — the
+                //     same path register_python_plugins / add_fields use.
+                //
+                // BosContext.Operations.cs (1289 lines) was deleted alongside
+                // these dispatch cases. Anything that needs operation/button
+                // metadata reflection in the future should pick Route A
+                // (full bridge baseline-diff) or Route B (typed dcxml emitter).
                 default:
                     throw new InvalidOperationException($"unknown op: {op}");
             }

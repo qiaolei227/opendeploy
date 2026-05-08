@@ -1048,26 +1048,19 @@ export class K3CloudConnector implements ErpConnector {
   /**
    * Enumerate FormOperations + toolbar BarButtonItems on an extension.
    *
-   * Read path: bridge `list_operations` deserializes the FKERNELXML using
-   * BOS's DcxmlSerializer + LayoutInfo walker, the same pipeline BOS Designer
-   * uses to render the operations panel + toolbar tree. Pure-TS parsing
-   * (like business-rule-parser.ts) isn't viable here because BarItemLink ↔
-   * BarButtonItem cross-collection wiring lives in BOS's strongly-typed
-   * model — the XML alone doesn't tell you which appearance owns which
-   * button after EndInit() rewires.
+   * Pure TS-side regex walk over the extension's FKERNELXML — see
+   * `rpc/operation-parser.ts`. BOS's DcxmlSerializer drops `<Form action="edit">`
+   * content without a parent baseline (memory `bos_bridge_list_operations_silent_drop`
+   * — was the 5.12.6 "silent drop" scapegoat; real-server smoke 2026-05-07
+   * proved DB persisted operations correctly, bridge reads couldn't see them),
+   * so the bridge's `list_operations` op was deleted alongside its 4 sibling
+   * write ops in the Plan 6 followup (2026-05-08).
    */
   async listOperations(extensionFid: string): Promise<ListOperationsResult> {
     const xml = await this.getKernelXml(extensionFid);
     if (!xml) {
       throw new Error(`扩展 ${extensionFid} 无 FKERNELXML — 不存在或未持久化`);
     }
-    // Routes through the TS-side parser instead of bridge.list_operations.
-    // Bridge's `DcxmlSerializer.DeserializeFromString(xml)` silently drops
-    // `<Form action="edit">` content without a parent baseline — that bug
-    // was the 5.12.6 "silent drop" scapegoat (real-server smoke 2026-05-07
-    // proved DB persisted the operations correctly; bridge reads couldn't
-    // see them). See `rpc/operation-parser.ts` docstring + memory
-    // `bos_bridge_list_operations_silent_drop`.
     return parseOperationsFromKernelXml(xml);
   }
 

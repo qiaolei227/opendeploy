@@ -1,11 +1,12 @@
 /**
- * TypeScript mirrors of the bridge's `list_operations` JSON DTOs (see
- * `bos-bridge/BosContext.Operations.cs` — `ListOperationsResult`,
- * `OperationSummary`, `ServicePluginSummary`, `ToolbarButtonSummary`).
- *
- * The bridge serializes responses with `JsonProperty` camelCase annotations
- * so these field names line up directly with what the BridgeClient.send
- * delivers — no camelCase/PascalCase translation needed on the TS side.
+ * TypeScript DTOs for the FormOperations + toolbar button summary that
+ * `connector.listOperations` returns. The shape mirrored the bridge's old
+ * `list_operations` JSON response (originally in
+ * `bos-bridge/BosContext.Operations.cs`) — that file was deleted in the
+ * Plan 6 followup (2026-05-08) once `connector.listOperations` was switched
+ * to the TS-side `operation-parser.ts`. Field names stayed in camelCase to
+ * match what the bridge would have delivered, so existing tests + agent
+ * tools didn't have to change.
  *
  * Keep this file purely declarative (no runtime). Connector wrappers and the
  * Phase 4 agent tools both consume these shapes; centralizing the typedefs

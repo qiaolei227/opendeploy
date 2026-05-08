@@ -18,9 +18,10 @@
  * baseline-drop pitfall does not apply.
  *
  * **Coverage**: matches what the bridge would have returned but DOES return —
- * same DTO shape (`ListOperationsResult` from `operation-types.ts`). Bridge's
- * `list_operations` op kept for back-compat but `connector.listOperations`
- * now routes through this parser. Bridge fix is tracked separately.
+ * same DTO shape (`ListOperationsResult` from `operation-types.ts`). The
+ * bridge's `list_operations` op (and 4 sibling write ops in
+ * BosContext.Operations.cs) was deleted in the Plan 6 followup (2026-05-08)
+ * — connector.listOperations is the only read path now.
  */
 
 import type {

@@ -13,7 +13,7 @@
 |---|---|---|---|
 | **核心位置** | `bos-bridge/` (.NET 4.8 sidecar) + `src/main/erp/k3cloud/bridge/{client,index}.ts` | `src/main/erp/k3cloud/rpc/{save-for-ide,dcxml,types,codec}.ts` | ~~已废止~~ |
 | **形态** | DCXML deserialize → 强类型对象 mutate → DCXML serialize | 强类型 AST → 直接组 DCXML 字符串 → 全 envelope POST | — |
-| **代码量** | ~3000 行 C#(2982) + ~300 行 TS | ~1500 行 TS(save-for-ide+dcxml+types,L3 followup 后扩了 BarButton 类型) | — |
+| **代码量** | ~1700 行 C# (Plan 6 followup 删 Operations.cs 1289 行 dead code 后) + ~300 行 TS | ~1500 行 TS(save-for-ide+dcxml+types,L3 followup 后扩了 BarButton 类型) | — |
 | **当前生产用** | 转换规则(Plan 5.12.4 v2)、业务规则(Plan 5.12.3b) | `register_python_plugins` / `create_extension` / `add_custom_operation` / `removeOperation` / **`addToolbarButton` / `removeToolbarButton`**(L3 followup 完成 2026-05-07) | — |
 | **可信度** | 🟢 已生产 | 🟢 已生产 | — |
 
