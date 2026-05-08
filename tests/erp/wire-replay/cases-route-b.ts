@@ -154,6 +154,63 @@ export const ROUTE_B_CASES: RouteBCase[] = [
   },
 
   {
+    name: 'add-toolbar-button-list-menu',
+    whyMatters:
+      '2026-05-08 follow-up — list-menu support added (FormAppearance.ListMenu). ' +
+      'Reflection of Kingdee.BOS.Core.Metadata.FormElement.FormAppearance shows ' +
+      '`Menu` and `ListMenu` are sibling [ComplexProperty] BarDataManager fields ' +
+      'with identical schema; only wrapper tag differs. This case locks that the ' +
+      'wire ships `<FormAppearance ...><ListMenu><BarDataManager>...</BarDataManager></ListMenu></FormAppearance>` ' +
+      'when menuWrapper="ListMenu" — diverging from the default `<Menu>` shape.',
+    input: {
+      extension: BASELINE_EXT,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      addBarButtons: [
+        {
+          appearanceOid: '22222222-3333-4444-5555-666666666666',
+          appearanceKind: 'FormAppearance',
+          menuWrapper: 'ListMenu',
+          appearanceElementType: 100,
+          buttonKey: 'OpdpListBtn',
+          buttonId: '77777777777777777777777777777777',
+          caption: '列表菜单按钮',
+          seq: 1,
+          boundOperationKey: 'OpdpTest',
+          boundOperationName: '测试操作',
+          toolbarKey: 'FToolBar',
+          barDataManagerId: '88888888-9999-aaaa-bbbb-cccccccccccc',
+          formBusinessServiceId: '99999999-aaaa-bbbb-cccc-dddddddddddd',
+          barItemLinkId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        },
+      ],
+    },
+  },
+
+  {
+    name: 'remove-toolbar-button-list-menu',
+    whyMatters:
+      '2026-05-08 — remove path companion. Locks `<FormAppearance ...><ListMenu>` ' +
+      'wrapper for declarative remove markers (BarButtonItem action="remove" + ' +
+      'matching BarItemLink). Same wrapper logic as add — driven by menuWrapper.',
+    input: {
+      extension: BASELINE_EXT,
+      isNew: false,
+      layoutInfoOid: 'L1',
+      removeBarButtons: [
+        {
+          appearanceOid: '22222222-3333-4444-5555-666666666666',
+          appearanceKind: 'FormAppearance',
+          menuWrapper: 'ListMenu',
+          appearanceElementType: 100,
+          buttonId: '77777777777777777777777777777777',
+          barItemLinkId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        },
+      ],
+    },
+  },
+
+  {
     name: 'remove-toolbar-button-form-level',
     whyMatters:
       'Lever 3 followup (2026-05-07) — removeToolbarButton migrated from Route C ' +
