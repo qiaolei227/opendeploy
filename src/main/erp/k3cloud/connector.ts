@@ -112,7 +112,7 @@ import {
   // extractors remain — they're parsers (read-only, no XML construction).
   extractFormAppearanceLocation,
   extractEntryEntityAppearanceLocation,
-} from './rpc/operation-overlay';
+} from './rpc/appearance-locator';
 import { getBridge } from './bridge';
 import type { KdSession } from './rpc/http-client';
 import type {

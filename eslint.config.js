@@ -57,9 +57,10 @@ export default [
       // ── Route B typed AST → DCXML emitter (canonical XML emission point) ──
       'src/main/erp/k3cloud/rpc/dcxml.ts',
 
-      // ── Route C overlays — operation-overlay.ts 已清空成纯解析器(L3
-      //    followup 2026-05-07),不再需要白名单;business-rule-overlay.ts
-      //    仍含 5.12.3b 业务规则 overlay 字符串构造。 ──
+      // ── Route C overlays — appearance-locator.ts(formerly operation-overlay.ts)
+      //    已清空成纯 regex 解析器(L3 followup 2026-05-07,renamed 2026-05-08),
+      //    不需要白名单;business-rule-overlay.ts 仍含 5.12.3b 业务规则 overlay
+      //    字符串构造。 ──
       'src/main/erp/k3cloud/rpc/business-rule-overlay.ts',
 
       // ── Route B envelope wrapper + ap0 JSON construction ──

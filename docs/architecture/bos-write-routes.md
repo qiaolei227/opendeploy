@@ -17,7 +17,7 @@
 | **当前生产用** | 转换规则(Plan 5.12.4 v2)、业务规则(Plan 5.12.3b) | `register_python_plugins` / `create_extension` / `add_custom_operation` / `removeOperation` / **`addToolbarButton` / `removeToolbarButton`**(L3 followup 完成 2026-05-07) | — |
 | **可信度** | 🟢 已生产 | 🟢 已生产 | — |
 
-**Route C 历史**:Plan 5.12.6 期间用过(`operation-overlay.ts` 字符串模板 splice 到既有 FKERNELXML),5.12.6 hotfix #4 把 addCustomOperation 切到 Route B,L3(2026-05-07)把 removeOperation 切到 Route B,L3 followup 同日把 addToolbarButton + removeToolbarButton 切到 Route B,Route C 至此完全死透。`operation-overlay.ts` 文件保留(改名待办),只剩 2 个 appearance-locator 解析器(read-only,不构造 XML)。
+**Route C 历史**:Plan 5.12.6 期间用过(`operation-overlay.ts` 字符串模板 splice 到既有 FKERNELXML),5.12.6 hotfix #4 把 addCustomOperation 切到 Route B,L3(2026-05-07)把 removeOperation 切到 Route B,L3 followup 同日把 addToolbarButton + removeToolbarButton 切到 Route B,Route C 至此完全死透。原 `operation-overlay.ts` 已重命名为 `appearance-locator.ts`(2026-05-08),只剩 2 个 appearance-locator 解析器(read-only,不构造 XML)。
 
 ---
 
@@ -121,7 +121,7 @@ const result = await saveExtension(session, req);              // 7. POST
 - C-FAIL-4 手动 XML 转义易漏
 - C-FAIL-5 0 类型保护
 
-`src/main/erp/k3cloud/rpc/operation-overlay.ts` 文件还在(待改名 `appearance-locator.ts`),但只剩 `extractFormAppearanceLocation` / `extractEntryEntityAppearanceLocation` 两个**只读**解析器,不构造任何 XML。L4 ESLint guard 该文件已从白名单去掉。
+`src/main/erp/k3cloud/rpc/appearance-locator.ts`(原 `operation-overlay.ts`,2026-05-08 改名)只剩 `extractFormAppearanceLocation` / `extractEntryEntityAppearanceLocation` 两个**只读**解析器,不构造任何 XML;用 regex literal 匹配元素名,不触发 L4 ESLint guard,因此**不在白名单**。
 
 ---
 
@@ -158,7 +158,7 @@ const result = await saveExtension(session, req);              // 7. POST
 
 ## §6 反模式
 
-❌ **不要在 TS 里手写 BOS XML 字符串拼接**(L4 ESLint 规则会禁)。例外:`bos-bridge/`(它就是干这个的)、`rpc/dcxml.ts`(类型驱动的 emitter,不是手写)、`rpc/operation-overlay.ts`(冻结在残留状态,不再改)、`rpc/business-rule-overlay.ts`(L3 一并清)
+❌ **不要在 TS 里手写 BOS XML 字符串拼接**(L4 ESLint 规则会禁)。例外:`bos-bridge/`(它就是干这个的)、`rpc/dcxml.ts`(类型驱动的 emitter,不是手写)、`rpc/business-rule-overlay.ts`(5.12.3b 业务规则 overlay 字符串构造,L3 跟进时一并清)。`rpc/appearance-locator.ts`(原 operation-overlay.ts)只用 regex literal 不触发 guard,不在白名单。
 
 ❌ **不要为了"省事"在 connector.ts 里再开第 4 条路径**。3 条已经很多。新场景必须落到 A 或 B 的现有 channel。
 
@@ -175,7 +175,7 @@ const result = await saveExtension(session, req);              // 7. POST
 - Route A bridge ops 实现:`bos-bridge/BosContext.{cs,BusinessRules.cs,Operations.cs,Reflection.cs}`
 - Route A TS client:`src/main/erp/k3cloud/bridge/{client,index}.ts`
 - Route B envelope build:`src/main/erp/k3cloud/rpc/{save-for-ide,dcxml,types,codec}.ts` + `rpc/README.md`
-- Route C(冻结):`src/main/erp/k3cloud/rpc/operation-overlay.ts`
+- Route C(已绝迹):原 `src/main/erp/k3cloud/rpc/operation-overlay.ts`,2026-05-08 改名 `appearance-locator.ts` — 只剩 read-only 解析器
 - Connector 三路调用:`src/main/erp/k3cloud/connector.ts:1034-1300`
 
 **Capture 工具**:
@@ -187,7 +187,7 @@ const result = await saveExtension(session, req);              // 7. POST
 - `docs/recon/2026-05-06-operations-spike.md` — 5.12.6 spike,4 份 capture,DCXML stateful baseline diff 模型
 - `docs/recon/2026-05-04-business-rules-tier-b.md` — 5.12.3b 业务规则
 - `connector.ts:1094-1104` — 5.12.6 三路演变注释
-- `operation-overlay.ts:1-16, 23-30` — Route C silent-drop 注释
+- `appearance-locator.ts:1-18`(原 `operation-overlay.ts`)— Route C 历史 + 现职责 file 头注释
 
 **Memory 速查**:
 - `bos_save_path_is_rpc.md` — 总路线(RPC,不是 SQL 直写)

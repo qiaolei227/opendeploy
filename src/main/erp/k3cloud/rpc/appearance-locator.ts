@@ -1,22 +1,20 @@
 /**
  * Parent-FKERNELXML appearance-location extractors.
  *
- * **History**: this file used to host Route C (string-template) overlays for
- * FormOperation + Toolbar Button writes. Lever 3 followup (2026-05-07)
- * migrated all builders to Route B (envelope rebuild) — `connector.addToolbarButton`
- * / `removeToolbarButton` / `addCustomOperation` / `removeOperation` now use
- * `dcxml.ts` typed emitters via `SaveExtensionRequest` instead. The remaining
- * exports below are PARSERS only (read-only walks of parent FKERNELXML);
- * they're keep-alive because `connector.addToolbarButton` /
- * `removeToolbarButton` still need to discover the parent's appearance oid
- * to populate `BosBarButtonElement.appearanceOid` correctly.
+ * Read-only regex walks of parent FKERNELXML to discover appearance oids
+ * (FormAppearance / EntryEntityAppearance). Used by Route B writers
+ * (`connector.addToolbarButton` / `removeToolbarButton`) to populate
+ * `BosBarButtonElement.appearanceOid` — toolbar buttons must anchor to the
+ * parent's existing appearance element, which lives in the parent's wire
+ * envelope, not in our extension's diff.
  *
- * Per docs/architecture/bos-write-routes.md §3 Route C: **Route C is now
- * fully extinct**. New BOS write capabilities go through Route A (bridge) or
- * Route B (envelope rebuild).
+ * **Not an emitter** — does not construct any wire XML. Per
+ * docs/architecture/bos-write-routes.md §3 Route C: **Route C is extinct**;
+ * all BOS writes go through Route A (bridge) or Route B (envelope rebuild).
  *
- * **TODO** (cosmetic): rename this file to `appearance-locator.ts` to match
- * its current purpose. Out of scope for the lever 3 follow-up.
+ * **History**: previously named `operation-overlay.ts` (it hosted Route C
+ * string-template overlays). Lever 3 followup (2026-05-07) migrated all
+ * write paths to Route B; rename followup (2026-05-08) shed the stale name.
  */
 
 /**
