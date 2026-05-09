@@ -19,7 +19,7 @@ const settings = JSON.parse(readFileSync(resolve(homedir(), '.opendeploy/setting
 const project: Project = settings.projects?.[0];
 if (!project?.bos) { console.error('no project'); process.exit(1); }
 
-const LEVEL2_EXT = 'bf6f107f436b420b966462be1580ffd5';
+const LEVEL2_EXT = process.env.EXT_ID ?? '493fb6b7ab32433ba201ea06920522e2';
 
 const connector = new K3CloudConnector(project.bos);
 await connector.connect();
