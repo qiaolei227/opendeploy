@@ -10,7 +10,7 @@
  *   $OPENDEPLOY_HOME/projects/<projectId>/convert-rule-ext/<extId>.json
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { openDeployHome } from '../../../paths';
@@ -51,6 +51,38 @@ export async function saveConvertRuleExtState(
  * when the state file is missing — the extension was either created outside
  * OpenDeploy, on another machine, or the project directory was wiped.
  */
+/**
+ * List all locally-tracked extensions for a given origin rule id. Used by
+ * `extendConvertRule` to refuse creating a second sibling — single-layer-tree
+ * guard for convert rules (mirroring the form-extension guard). Returns an
+ * empty array when the project's ext-state directory is empty / missing.
+ *
+ * Note: this only sees extensions OpenDeploy itself created on this machine.
+ * If the customer has extensions made via BOS Designer or another machine,
+ * they won't show up here — that's an acceptable v0.1 limitation since the
+ * single-layer-tree rule is OpenDeploy's own discipline, not BOS's.
+ */
+export async function listConvertRuleExtsByOrigin(
+  projectId: string,
+  originRuleId: string,
+): Promise<ConvertRuleExtState[]> {
+  const dir = convertRuleExtDir(projectId);
+  if (!existsSync(dir)) return [];
+  const files = await readdir(dir);
+  const out: ConvertRuleExtState[] = [];
+  for (const f of files) {
+    if (!f.endsWith('.json')) continue;
+    try {
+      const raw = await readFile(path.join(dir, f), 'utf-8');
+      const state = JSON.parse(raw) as ConvertRuleExtState;
+      if (state.originRuleId === originRuleId) out.push(state);
+    } catch {
+      // skip corrupt files
+    }
+  }
+  return out;
+}
+
 export async function loadConvertRuleExtState(
   projectId: string,
   extId: string,

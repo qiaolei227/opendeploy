@@ -45,6 +45,7 @@ import {
   indexByEnumName,
   type EnumObjectSummary,
 } from './rpc/enum-objects';
+import { unlink } from 'node:fs/promises';
 import { extractKernelXml, parseMetaDataXml } from './rpc/metadata-xml';
 import { login } from './rpc/login';
 import { getNextSequenceInt32 } from './rpc/sequence';
@@ -76,6 +77,8 @@ import { saveConvertRules } from './rpc/save-convert-rules';
 import {
   saveConvertRuleExtState,
   loadConvertRuleExtState,
+  listConvertRuleExtsByOrigin,
+  convertRuleExtStatePath,
 } from './rpc/convert-rule-state';
 import { buildPatchBaseXml } from './rpc/build-patch-base-xml';
 import { transformPatchedToExtensionWire } from './rpc/transform-extension-wire';
@@ -338,6 +341,24 @@ export class K3CloudConnector implements ErpConnector {
   }
 
   /**
+   * Reverse direction of `resolveLookupClassGuid`: GUID → friendly FormId.
+   * Used when pre-validating BasePropertyField.srcDisplayFieldName — we know
+   * the source BaseDataField's `<LookUpObjectID>` GUID and need to fetch the
+   * referenced base data's field list to verify the display field exists.
+   *
+   * Returns null when the GUID isn't in the lookup-class registry (rare —
+   * exotic ISV-defined classes can fall through; caller should skip
+   * validation rather than block the save).
+   */
+  async resolveLookupClassFormId(guid: string): Promise<string | null> {
+    const map = await this.listLookupObjects();
+    for (const obj of map.values()) {
+      if (obj.id === guid) return obj.formId;
+    }
+    return null;
+  }
+
+  /**
    * Lazy fetch + cache the full enum-type list (~3500 rows). Used for
    * ComboField name → GUID translation and the agent's `k3cloud_list_enum_types`
    * browse tool.
@@ -534,6 +555,29 @@ export class K3CloudConnector implements ErpConnector {
   ): Promise<ExtendConvertRuleResult> {
     const session = this.requireSession();
     const baseline = this.requireBaseline('extendConvertRule', originRuleId);
+
+    // Single-layer-tree guard — mirror the form-extension rule for convert
+    // rules. BOS server happily creates a second sibling extension under
+    // the same origin (no server-side check), but OpenDeploy enforces "1
+    // project ext per origin rule" so all customizations pile into one
+    // place. Without this users end up with duplicate "(启用)信用复核携带"
+    // siblings in BOS Designer (2026-05-09 实证).
+    if (this.projectId) {
+      const existing = await listConvertRuleExtsByOrigin(this.projectId, originRuleId);
+      if (existing.length > 0) {
+        const dup = existing[0];
+        throw new Error(
+          `转换规则 ${originRuleId} 上已有本项目扩展 (extId=${dup.extId})。` +
+            `单层树规则:每个原厂转换规则只挂 1 个 OpenDeploy 扩展。` +
+            `继续加字段映射 / 改策略请用现有 extId 调 add_convert_field_mapping / set_convert_groupby 等;` +
+            `要新建必须先 delete_convert_rule_extension 删旧扩展。` +
+            (existing.length > 1
+              ? `(注:本项目下已有 ${existing.length} 条扩展,这是历史遗留,建议合并或清理多余的。)`
+              : ''),
+        );
+      }
+    }
+
     const isv = await this.getIsv(session);
     const result = await rpcExtendConvertRule(session, { baseline, isv, displayName });
     // Persist state so subsequent patch operations have a base XML to work with.
@@ -755,7 +799,15 @@ export class K3CloudConnector implements ErpConnector {
     const session = this.requireSession();
     const baseline = this.requireBaseline('deleteConvertRuleExtension', originRuleId);
     const isv = await this.getIsv(session);
-    return rpcDeleteConvertRuleExtension(session, { baseline, extId, isv });
+    const result = await rpcDeleteConvertRuleExtension(session, { baseline, extId, isv });
+    // Drop the local state file too — otherwise listConvertRuleExtsByOrigin
+    // keeps reporting the dead extId as if it still exists, and the
+    // single-layer-tree guard refuses to create a fresh extension.
+    if (this.projectId) {
+      const p = convertRuleExtStatePath(this.projectId, extId);
+      try { await unlink(p); } catch { /* file may not exist */ }
+    }
+    return result;
   }
 
   // ─── Business rules (Plan 5.12.3b) ─────────────────────────────────
@@ -1180,6 +1232,7 @@ export class K3CloudConnector implements ErpConnector {
       existingTabPagesRaw: existing.tabPages,
       existingTabControlsRaw: existing.tabControls,
       existingFormOperationsRaw: existing.formOperations,
+      existingHeadEntityRaw: existing.headEntity,
       addFormOperations: [newOp],
     };
 
@@ -1377,6 +1430,7 @@ export class K3CloudConnector implements ErpConnector {
       existingTabPagesRaw: existing.tabPages,
       existingTabControlsRaw: existing.tabControls,
       existingFormOperationsRaw: existing.formOperations,
+      existingHeadEntityRaw: existing.headEntity,
       addBarButtons: [newButton],
     };
 
@@ -1470,6 +1524,7 @@ export class K3CloudConnector implements ErpConnector {
       existingTabPagesRaw: existing.tabPages,
       existingTabControlsRaw: existing.tabControls,
       existingFormOperationsRaw: existing.formOperations,
+      existingHeadEntityRaw: existing.headEntity,
     };
 
     const result = await saveExtension(session, req);

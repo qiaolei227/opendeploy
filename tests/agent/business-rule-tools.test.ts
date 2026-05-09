@@ -839,8 +839,10 @@ describe('addCalculateRuleTool', () => {
         expect.stringMatching(/preConditionDesc.*空字符串/)
       ])
     );
-    // preConditionDesc didn't reach the connector call.
+    // After the warning is surfaced, the tool falls back to using the rule's
+    // description as preConditionDesc so the BOS Designer "规则条件" column
+    // isn't blank. Verify the connector receives the description as fallback.
     const call = addEntityServiceRule.mock.calls[0][0];
-    expect(call.preConditionDesc).toBeUndefined();
+    expect(call.preConditionDesc).toBe('实体级 demo');
   });
 });

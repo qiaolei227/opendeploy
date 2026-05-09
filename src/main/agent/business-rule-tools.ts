@@ -639,6 +639,13 @@ export function addCalculateRuleTool(c: K3CloudConnector): ToolHandler {
           preConditionDesc = mp.preConditionDesc.trim();
         }
       }
+      // Default preConditionDesc to the rule's description when omitted.
+      // BOS Designer's "规则条件" column shows PreConditionDesc to the
+      // customer; an empty cell looks broken / leaves the consultant
+      // without context. The rule's description (which is required and
+      // human-friendly) is a reasonable fallback — better than "" or
+      // showing the raw IronPython preCondition.
+      if (!preConditionDesc) preConditionDesc = description;
 
       const ruleId = randomUUID(); // dashed form
       const serviceId = randomUUID().replace(/-/g, ''); // 32-hex no dashes

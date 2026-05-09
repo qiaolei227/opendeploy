@@ -727,6 +727,10 @@ export function buildDcxmlSource(req: SaveExtensionRequest): string {
   for (const raw of req.existingEntriesRaw ?? []) out.push(raw);
   for (const e of req.addEntries ?? []) renderEntryEntity(out, e);
   for (const r of req.removeFields ?? []) renderRemoveElement(out, r);
+  // Re-emit any prior HeadEntity overlay (extension-side EntityServiceRules)
+  // so envelope-rebuild round-trips don't silently drop them. See
+  // SaveExtensionRequest.existingHeadEntityRaw doc.
+  if (req.existingHeadEntityRaw) out.push(req.existingHeadEntityRaw);
   out.push(`</Elements></BusinessInfo></BusinessInfo>`);
   out.push(`<LayoutInfos><LayoutInfo action="edit" oid="${xmlEscape(req.layoutInfoOid)}">`);
   out.push(`<Appearances>`);

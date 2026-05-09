@@ -54,6 +54,14 @@ export interface ExistingExtensionElements {
    * for entry toolbar buttons (新增行 / 删除行 etc.). Same baseline-diff rule.
    */
   formOperations: string[];
+  /**
+   * Raw `<HeadEntity action="edit" oid=...>...</HeadEntity>` overlay block.
+   * Carries any EntityServiceRule(s) `addEntityServiceRule` injected via
+   * saveExtensionRaw. Must round-trip through every subsequent envelope
+   * rebuild — otherwise entity rules silently drop. Single block (BOS only
+   * allows one HeadEntity per form). Empty string when absent.
+   */
+  headEntity: string;
 }
 
 /**
@@ -148,6 +156,7 @@ export function extractExistingExtensionElements(
     tabPages: [],
     tabControls: [],
     formOperations: [],
+    headEntity: '',
   };
   if (!kernelXml) return empty;
 
@@ -161,6 +170,7 @@ export function extractExistingExtensionElements(
   const tabPages: string[] = [];
   const tabControls: string[] = [];
   const formOperations: string[] = [];
+  let headEntity = '';
 
   // Fields + plugins + entries live under <Elements>.
   const elementsBody = findFirstBlockBody(stripped, 'Elements', 'Elements');
@@ -189,6 +199,15 @@ export function extractExistingExtensionElements(
       if (child.tag === 'EntryEntity') {
         if (child.raw.endsWith('/>')) continue;
         entries.push(child.raw);
+        continue;
+      }
+      // HeadEntity overlay — raw `<HeadEntity action="edit" oid=...>` block
+      // carrying EntityServiceRule(s). BOS only allows one HeadEntity per
+      // form, so we capture as a single string (last one wins on the rare
+      // chance of multiple). Self-closing markers are commands, skip.
+      if (child.tag === 'HeadEntity') {
+        if (child.raw.endsWith('/>')) continue;
+        headEntity = child.raw;
         continue;
       }
       // Anything else ending in "Field" is a field element.
@@ -239,5 +258,6 @@ export function extractExistingExtensionElements(
     tabPages,
     tabControls,
     formOperations,
+    headEntity,
   };
 }

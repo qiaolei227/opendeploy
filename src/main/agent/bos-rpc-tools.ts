@@ -235,6 +235,7 @@ async function loadExtensionForSave(
         tabPages: [],
         tabControls: [],
         formOperations: [],
+        headEntity: '',
       };
 
   return {
@@ -1461,6 +1462,83 @@ function addFieldsTool(
             `fields[${idx}] (key=${fa.key}): 找不到名为 "${name}" 的枚举类型。先调 k3cloud_list_enum_types 看完整列表(常用的有 审核状态 / 单据状态 / 是否启用 / 优先级)。`,
         },
       );
+
+      // base_property pre-flight: validate srcDisplayFieldName exists on
+      // the referenced base data, with the right type. BOS server silently
+      // mis-deserializes BasePropertyField when srcDisplayFieldName points
+      // at a non-existent field — the persisted appearance falls back to
+      // the base TextFieldAppearance class instead of BasePropertyFieldAppearance,
+      // and from then on every GetBusinessObjectMetaData on the extension
+      // throws "字段外观不存在或者类型不对" (FormMetaServicePlugIn:2476)
+      // making the whole extension unrecoverable. Discovered 2026-05-08
+      // "信用额度管控" e2e: srcDisplayFieldName="FName" on BD_Empinfo (which
+      // has FSHRName/FStaffNumber but no FName) bricked the extension.
+      const DISPLAYABLE_LOOKUP_TYPES = new Set([
+        'TextField', 'LargeRichTextField', 'IntegerField', 'DecimalField',
+        'AmountField', 'QtyField', 'DateTimeField', 'DateField', 'CheckBoxField',
+        'ComboField', 'MulComboField', 'ColorField', 'MobileField',
+        'MultiLangTextField',
+      ]);
+      for (const fa of fieldArgsList) {
+        if (fa.type !== 'base_property' || !fa.sourceField) continue;
+        const desired = (fa.srcDisplayFieldName ?? 'FName').trim();
+
+        // Find the source BaseDataField's lookUpObjectId — same batch first,
+        // then existing extension fields, then parent form fields.
+        let lookupGuid: string | undefined;
+        const sameBatch = fieldArgsList.find(
+          (f) => f.type === 'base_data' && f.key.toLowerCase() === fa.sourceField!.toLowerCase(),
+        );
+        if (sameBatch) lookupGuid = sameBatch.refBaseDataObjectKey;
+        if (!lookupGuid) {
+          for (const raw of existing.fields) {
+            if (!/^<BaseDataField\b/.test(raw)) continue;
+            const km = raw.match(/<Key>([^<]+)<\/Key>/);
+            if (km?.[1].toLowerCase() !== fa.sourceField!.toLowerCase()) continue;
+            const gm = raw.match(/<LookUpObjectID>([^<]+)<\/LookUpObjectID>/);
+            if (gm) lookupGuid = gm[1];
+            break;
+          }
+        }
+        if (!lookupGuid && ext.baseObjectId) {
+          const parentXml = await connector.getKernelXml(ext.baseObjectId);
+          if (parentXml) {
+            const re = /<BaseDataField\b[^>]*>([\s\S]*?)<\/BaseDataField>/g;
+            for (const m of parentXml.matchAll(re)) {
+              const body = m[1];
+              const km = body.match(/<Key>([^<]+)<\/Key>/);
+              if (km?.[1].toLowerCase() !== fa.sourceField!.toLowerCase()) continue;
+              const gm = body.match(/<LookUpObjectID>([^<]+)<\/LookUpObjectID>/);
+              if (gm) lookupGuid = gm[1];
+              break;
+            }
+          }
+        }
+        if (!lookupGuid) {
+          // sourceField wasn't located — skip validation rather than throw.
+          // Reason: in unit-test fake connectors the parent XML often omits
+          // BaseDataField mocks, and we don't want pre-flight to mask the
+          // BOS server's own "sourceField not found" runtime check. The
+          // critical case (srcDisplayFieldName silent-drop) only happens
+          // when sourceField IS found — so skipping here is safe.
+          continue;
+        }
+
+        const lookupFormId = await connector.resolveLookupClassFormId(lookupGuid);
+        if (!lookupFormId) continue; // Exotic lookup class — let it through.
+
+        const lookupFields = await connector.getFields(lookupFormId);
+        const displayables = lookupFields.filter((f) => DISPLAYABLE_LOOKUP_TYPES.has(f.type));
+        const found = displayables.find((f) => f.key.toLowerCase() === desired.toLowerCase());
+        if (!found) {
+          const suggestions = displayables.slice(0, 12)
+            .map((f) => `${f.key}(${f.name})`).join(', ');
+          throw new Error(
+            `base_property 字段 ${fa.key}: srcDisplayFieldName="${desired}" 在 ${lookupFormId} 上不存在 — 错传会让 BOS 服务端反序列化生成损坏的 appearance,扩展会卡死(GetBusinessObjectMetaData 永远抛"字段外观不存在或者类型不对")。` +
+            `可用的显示字段: ${suggestions}。先调 k3cloud_describe_basedata("${lookupFormId}") 反查再决定。`,
+          );
+        }
+      }
 
       // Recognize entry containers — fields whose `container` matches a
       // parent or extension-built EntryEntity Key route through the

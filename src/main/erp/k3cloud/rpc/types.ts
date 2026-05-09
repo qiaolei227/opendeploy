@@ -584,6 +584,19 @@ export interface SaveExtensionRequest {
   existingPluginsRaw?: string[];
   /** Same baseline-diff requirement, for EntryEntity elements. */
   existingEntriesRaw?: string[];
+  /**
+   * Existing `<HeadEntity action="edit" oid=...>...</HeadEntity>` overlay
+   * carrying any extension-side EntityServiceRule additions. **Critical** —
+   * `addEntityServiceRule` writes via saveExtensionRaw (overlay injection)
+   * which deposits this block under `<Elements>`. Subsequent saves that go
+   * through saveExtension(req) envelope rebuild MUST re-emit this raw block
+   * or the entire HeadEntity overlay disappears (server treats omission as
+   * "remove the overlay" → entityRules silently drop). Discovered 2026-05-08
+   * via "信用额度管控" e2e: agent added entity Calculate at turn-021 (raw
+   * save succeeded) but later turn-022 register_python_plugins envelope-
+   * rebuild dropped it (post-flow listBusinessRules returned 0 entityRules).
+   */
+  existingHeadEntityRaw?: string;
   /** Same baseline-diff requirement, for EntryEntityAppearance entries. */
   existingEntryAppearancesRaw?: string[];
   /** Same baseline-diff requirement, for TabPageAppearance entries. */
