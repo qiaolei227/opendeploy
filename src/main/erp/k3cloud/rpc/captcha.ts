@@ -1,92 +1,88 @@
 /**
  * CAPTCHA image fetcher for the K/3 Cloud login flow.
  *
- * The image is served by `{baseUrl}/mobile/ValidateCode.ashx` — a regular
- * ASP.NET `IHttpHandler` (`Kingdee.BOS.Web.HTML.ValidateCode`), NOT a
- * `*.common.kdsvc` RPC. The handler:
- *   1. Generates a 4-character validation code + JPEG image
- *      (`ImageUtil.CreateValidateCodeImage(4, out code)`)
- *   2. Writes the code into `Session["VerificationCode"]`
- *   3. Returns the image bytes with `Cache-Control: no-store`
+ * IMPORTANT (issue #7, decompiled 2026-06-05): we do NOT use
+ * `{baseUrl}/mobile/ValidateCode.ashx`. That handler writes the code into
+ * **ASP.NET `HttpContext.Session["VerificationCode"]`** (ASP.NET_SessionId
+ * cookie), but the login RPC `UserService.CheckVaicationCode` reads it from
+ * the **`KDServiceSession`** (kdservice-sessionid cookie, in-memory
+ * `GlobalCacheManager`). Those are two independent stores with no bridge, so
+ * a code fetched via the .ashx can never match at login — the server always
+ * returns "系统验证码不存在/过期".
  *
- * Because the code is bound to ASP.NET Session (the `ASP.NET_SessionId`
- * cookie), this fetcher MUST reuse a `KdSession` that already has a cookie
- * established by an earlier RPC (e.g. `fetchPublicKeyInfo`). Calling this
- * with a fresh session creates a new server session whose code our later
- * `ValidateLoginInfo` call will never match.
+ * Instead we call the kdsvc RPC
+ * `AccountService.GetValidationCodeImageByte` — it generates the image AND
+ * writes the code to `KDServiceSession["VerificationCode"]`, the same store
+ * the login reads. Because the call shares the session's kdservice-sessionid,
+ * the subsequent `ValidateLoginInfo` (same session) sees the code and matches.
+ *
+ * Decompile: `AccountService.GetVCodeImageByte()` in
+ * `Kingdee.BOS.ServiceFacade.ServicesStub.dll`. The companion
+ * `GetVImageInfo4CookieOnly()` returns `{ASPNETSID, KDSID, imageData}` JSON;
+ * we use the byte variant since the image is all we need.
  *
  * Implementation notes captured in `.scratch/recon/captcha-login.md`.
  */
 
 import { Buffer } from 'node:buffer';
-import { applySetCookieToSession, type KdSession } from './http-client';
+import { callKdsvc, applySetCookieToSession, parseJsonResponse, type KdSession } from './http-client';
 import { createLogger } from '../../../logger';
 
 const logger = createLogger('erp/k3cloud/captcha');
 
+/** kdsvc service that owns the validation-code image generator. */
+const ACCOUNT_SERVICE = 'Kingdee.BOS.ServiceFacade.ServicesStub.Account.AccountService';
+
 export interface CaptchaImage {
-  /** Raw image bytes. Empirically image/jpeg from the K/3 server. */
+  /** Raw image bytes. Empirically image/png from the K/3 server. */
   bytes: Buffer;
-  /** Content-Type header from the server (usually 'image/jpeg'). */
+  /** Content-Type derived from the image magic bytes (png / jpeg). */
   contentType: string;
 }
 
 /**
- * Fetch the next CAPTCHA image. Each call rotates the server-side code,
- * so call this once per attempt (refresh-on-wrong-input rebinds a fresh
- * code to the same ASP.NET session).
+ * Fetch the next CAPTCHA image via the kdsvc endpoint. Each call rotates the
+ * server-side code (bound to this session's kdservice-sessionid), so call
+ * once per attempt — refresh-on-wrong-input rebinds a fresh code to the same
+ * KDServiceSession.
+ *
+ * The `session` MUST already carry a kdservice-sessionid (established by an
+ * earlier RPC such as `GetPublicKeyInfo`); `callKdsvc` sends it so the code
+ * lands in the session the login will read.
  */
 export async function fetchCaptchaImage(session: KdSession): Promise<CaptchaImage> {
-  const url = `${session.baseUrl}/mobile/ValidateCode.ashx`;
-
-  const cookies: string[] = [];
-  if (session.kdServiceSessionId)
-    cookies.push(`kdservice-sessionid=${session.kdServiceSessionId}`);
-  if (session.aspNetSessionId) cookies.push(`ASP.NET_SessionId=${session.aspNetSessionId}`);
-
-  const headers: Record<string, string> = {
-    'accept': 'image/jpeg,image/png,image/*',
-    'user-agent':
-      'Mozilla/5.0 (compatible; OpenDeploy; Kingdee/Kingdee.BOS, Version=9.0.553.12, Culture=neutral, PublicKeyToken=null MANM)',
-  };
-  if (cookies.length) headers['cookie'] = cookies.join('; ');
-
   void logger.info(
-    `ValidateCode.ashx request | aspSess=${session.aspNetSessionId ? session.aspNetSessionId.slice(0, 8) + '…' : '(none)'} ` +
+    `GetValidationCodeImageByte request | aspSess=${session.aspNetSessionId ? session.aspNetSessionId.slice(0, 8) + '…' : '(none)'} ` +
       `kdSess=${session.kdServiceSessionId ? session.kdServiceSessionId.slice(0, 8) + '…' : '(none)'}`,
   );
 
-  let res: Response;
-  try {
-    res = await fetch(url, { method: 'GET', headers });
-  } catch (err) {
-    void logger.error(
-      `ValidateCode.ashx transport failed | url=${url}`,
-      err instanceof Error ? err : undefined,
-    );
-    throw err instanceof Error ? err : new Error(String(err));
-  }
+  const res = await callKdsvc(session, ACCOUNT_SERVICE, 'GetValidationCodeImageByte', {
+    apFields: {},
+  });
+  applySetCookieToSession(session, res.setCookieHeaders);
 
-  if (!res.ok) {
-    const snippet = await res.text().catch(() => '');
-    void logger.warn(
-      `ValidateCode.ashx http ${res.status} | url=${url} | body=${snippet.slice(0, 200)}`,
-    );
-    throw new Error(`fetch CAPTCHA failed: HTTP ${res.status}`);
-  }
-
-  const sc = (res.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie?.();
-  if (sc) applySetCookieToSession(session, sc);
-
-  const buf = Buffer.from(await res.arrayBuffer());
-  const contentType = res.headers.get('content-type') ?? 'image/jpeg';
+  // Server serializes byte[] as a JSON-quoted base64 string.
+  const base64 = parseJsonResponse<string>(res.bodyText);
+  const bytes = Buffer.from(base64, 'base64');
+  const contentType = sniffImageContentType(bytes);
 
   void logger.info(
-    `ValidateCode.ashx response | status=${res.status} contentType=${contentType} bytes=${buf.length} ` +
-      `aspSess=${session.aspNetSessionId ? session.aspNetSessionId.slice(0, 8) + '…' : '(none)'}`,
+    `GetValidationCodeImageByte response | status=${res.status} contentType=${contentType} bytes=${bytes.length} ` +
+      `kdSess=${session.kdServiceSessionId ? session.kdServiceSessionId.slice(0, 8) + '…' : '(none)'}`,
   );
 
-  return { bytes: buf, contentType };
+  return { bytes, contentType };
+}
+
+/** Detect png vs jpeg from the leading magic bytes; default to jpeg. */
+function sniffImageContentType(bytes: Buffer): string {
+  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return 'image/png';
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  return 'image/jpeg';
 }
 
 /** Convenience: encode CAPTCHA image as a data URL for renderer `<img src>`. */
