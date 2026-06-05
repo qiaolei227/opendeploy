@@ -87,6 +87,44 @@ export class BosResponseError extends Error {
   }
 }
 
+/**
+ * Thrown when a business `*.kdsvc` call is rejected by the server because the
+ * session is not fully authenticated. The wire signature is HTTP **200** with
+ * a bare text body like:
+ *   "401 Forbidden ByRspRetStatusCode -- N001: Unexpectable request."
+ * It is neither a `response_error:` envelope nor a 4xx status, so without this
+ * guard the raw text slips through to `parseJsonResponse` and surfaces as a
+ * misleading "not valid JSON" positional error (GitHub issue #7).
+ *
+ * Root cause (2026-06-05 实证): login "succeeded" enough to hand back cookies
+ * but did NOT fully authenticate — most commonly a HARD-expired password
+ * (`CheckPasswordPolicy`, isSuccess=false) that the connector previously
+ * treated as connected, or an expired/rotated session. The unauthenticated
+ * session then gets every business RPC rejected with this body. We throw a
+ * typed error so callers / the agent get an actionable message and the
+ * verbatim server text. (The `enableFlatShake` handshake header seen on the
+ * login response is unrelated — it was an early red herring.)
+ */
+export class BosRequestRejectedError extends Error {
+  responseBody: string;
+  httpStatus: number;
+  constructor(message: string, responseBody: string, httpStatus: number) {
+    super(message);
+    this.name = 'BosRequestRejectedError';
+    this.responseBody = responseBody;
+    this.httpStatus = httpStatus;
+  }
+}
+
+/**
+ * Signature of the K/3 "request rejected" body. `ByRspRetStatusCode` is the
+ * stable token across HTTP status codes / N-codes / locale-translated messages,
+ * so matching it alone keeps the guard robust without over-fitting one body.
+ */
+function isServerRejectionBody(body: string): boolean {
+  return body.includes('ByRspRetStatusCode');
+}
+
 export interface KdsvcResponse {
   /** Decoded app-layer response (base64+zlib unwrapped). */
   bodyText: string;
@@ -191,6 +229,22 @@ export async function callKdsvc(
     throw new BosResponseError(
       `${serviceName}.${methodName} returned response_error envelope: ${trimmed.slice(0, 1000)}`,
       trimmed,
+    );
+  }
+
+  // Business RPC rejected for an unauthenticated session: HTTP 200 with a bare
+  // text body, NOT a response_error envelope. Catch the signature here so it
+  // doesn't masquerade as a downstream JSON-parse failure.
+  if (isServerRejectionBody(trimmed)) {
+    void logger.warn(
+      `${serviceName}.${methodName} request rejected (session not authenticated?) | url=${url} | status=${res.status} | body=${trimmed.slice(0, 300)}`,
+    );
+    throw new BosRequestRejectedError(
+      `K/3 服务器拒绝了该请求(会话未完成认证 / 登录不完整):${trimmed.slice(0, 200)} — ` +
+        `常见原因:账号密码已过期(登录看似成功实则未认证),或会话已过期。` +
+        `请重置密码 / 重新连接项目后重试。`,
+      trimmed,
+      res.status,
     );
   }
 
