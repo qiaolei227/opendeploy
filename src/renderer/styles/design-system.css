@@ -120,7 +120,11 @@ input, textarea, select { font: inherit; color: inherit; }
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   gap: 12px; user-select: none;
+  /* Frameless window: the whole bar drags the window; controls opt out. */
+  -webkit-app-region: drag;
 }
+.titlebar button,
+.titlebar .wincaps { -webkit-app-region: no-drag; }
 .traffic { display: flex; gap: 7px; }
 .traffic span { width: 12px; height: 12px; border-radius: 50%; background: var(--border-strong); }
 .traffic span:nth-child(1){ background: #ec6a5e; }
@@ -175,6 +179,12 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 
 .tb-spacer { flex: 1; }
+
+/* Floating window captions for chromeless surfaces (first-run wizard). */
+.wincontrols-float {
+  position: fixed; top: 0; right: 0;
+  z-index: 100;
+}
 
 .tb-actions { display: flex; gap: 3px; }
 .tb-btn {

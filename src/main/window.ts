@@ -9,6 +9,9 @@ export function createMainWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
+    // Frameless: the in-app TitleBar is the only chrome, so its colors always
+    // match the active theme (a native Windows bar would stay dark in light mode).
+    frame: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
@@ -18,6 +21,13 @@ export function createMainWindow(): BrowserWindow {
   });
 
   win.setTitle('开达');
+
+  // Mirror maximize state so the in-app caption can swap max/restore glyphs.
+  const pushMaximized = (m: boolean): void => {
+    if (!win.isDestroyed()) win.webContents.send('win:maximized', m);
+  };
+  win.on('maximize', () => pushMaximized(true));
+  win.on('unmaximize', () => pushMaximized(false));
 
   win.on('ready-to-show', () => {
     win.show();

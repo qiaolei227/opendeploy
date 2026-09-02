@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { LogoMark } from '@renderer/components/LogoMark';
+import { WindowControls } from '@renderer/components/WindowControls';
 
 export interface TitleBarProps {
   /** Current project label shown after the brand (e.g., "川沙诚信商贸 · V9.1"). */
@@ -40,6 +41,7 @@ export function TitleBar({
       </div>
 
       <div className="tb-spacer" />
+      <WindowControls />
     </header>
   );
 }

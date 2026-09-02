@@ -8,6 +8,15 @@ const api: IpcApi = {
   saveSettings: (settings: AppSettings) => ipcRenderer.invoke('settings:save', settings),
   getPlatform: () => ipcRenderer.invoke('app:platform'),
   setWindowTitle: (title: string) => ipcRenderer.invoke('app:set-window-title', title),
+  winMinimize: () => ipcRenderer.invoke('win:minimize'),
+  winToggleMaximize: () => ipcRenderer.invoke('win:toggle-maximize'),
+  winClose: () => ipcRenderer.invoke('win:close'),
+  winIsMaximized: () => ipcRenderer.invoke('win:is-maximized'),
+  winOnMaximized: (cb: (maximized: boolean) => void) => {
+    const listener = (_event: unknown, maximized: boolean) => cb(maximized);
+    ipcRenderer.on('win:maximized', listener);
+    return () => ipcRenderer.removeListener('win:maximized', listener);
+  },
   llmSendMessage: (req: LlmChatRequest) => ipcRenderer.invoke('llm:send', req),
   llmAbort: (requestId: string) => ipcRenderer.invoke('llm:abort', requestId),
   llmOnStream: (cb: (ev: LlmStreamEvent) => void) => {

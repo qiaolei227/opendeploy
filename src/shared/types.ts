@@ -111,6 +111,13 @@ export interface IpcApi {
   saveSettings: (settings: AppSettings) => Promise<void>;
   getPlatform: () => Promise<NodeJS.Platform>;
   setWindowTitle: (title: string) => Promise<void>;
+  /** Frameless-window captions (rendered by the in-app TitleBar). */
+  winMinimize: () => Promise<void>;
+  winToggleMaximize: () => Promise<void>;
+  winClose: () => Promise<void>;
+  winIsMaximized: () => Promise<boolean>;
+  /** Subscribe to maximize/unmaximize pushes; returns an unsubscribe fn. */
+  winOnMaximized: (cb: (maximized: boolean) => void) => () => void;
   llmSendMessage: (req: LlmChatRequest) => Promise<{ requestId: string }>;
   llmAbort: (requestId: string) => Promise<void>;
   llmOnStream: (cb: (ev: LlmStreamEvent) => void) => () => void;
